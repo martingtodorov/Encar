@@ -396,7 +396,7 @@ async def meta_taxonomy(
     rows = [
         {"value": d["value"], "count": d["count"]}
         async for d in db.taxonomy.find(q, {"value": 1, "count": 1})
-        .sort([("count", -1)])
+        .sort([("value", 1)])          # alphabetical, not by popularity
         .limit(limit)
     ]
     tmap = await translate_cached_only(db, [r["value"] for r in rows], lang)
@@ -467,7 +467,11 @@ async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
 
     # ── photos: every one, at gallery and thumbnail size ─────────────────────────
     photos = []
-    for p in detail.get("photos") or []:
+    raw_photos = sorted(
+        (detail.get("photos") or []),
+        key=lambda x: int(str(x.get("code") or "999").strip() or 999),
+    )  # Encar returns these shuffled; ascending code matches the real ad order
+    for p in raw_photos:
         path = p.get("path")
         if not path:
             continue
@@ -569,14 +573,27 @@ async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
     diagnosis = None
     if diag and (diag.get("items") or []):
         items = diag["items"]
+        panels = [i for i in items if not str(i.get("name") or "").endswith("_COMMENT")]
+        comments = [i for i in items if str(i.get("name") or "").endswith("_COMMENT")]
+        for c in comments:                      # queue comment text for translation
+            if c.get("result"):
+                ko_names.append(c["result"].strip())
+        if comments:
+            tr.update(await translate_cached_only(
+                db, [c["result"].strip() for c in comments if c.get("result")], lang))
+            miss2 = [c["result"].strip() for c in comments
+                     if c.get("result") and c["result"].strip() not in tr]
+            if miss2:
+                schedule_translation(db, miss2, lang)
         diagnosis = {
             "available": True,
             "date": diag.get("diagnosisDate"),
             "center": diag.get("reservationCenterName"),
-            "total": len(items),
-            "abnormal": len([i for i in items if i.get("resultCode") != "NORMAL"]),
+            "total": len(panels),
+            "abnormal": len([i for i in panels if i.get("resultCode") != "NORMAL"]),
             "items": [{"panel": i.get("name"), "result_code": i.get("resultCode"),
-                       "result": T(i.get("result"))} for i in items],
+                       "result": T(i.get("result"))} for i in panels],
+            "comments": [T(c["result"].strip()) for c in comments if c.get("result")],
         }
 
     # ── dealer description (unique per car -> one LLM call, cached forever) ──────

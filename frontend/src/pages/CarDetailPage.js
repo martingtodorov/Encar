@@ -402,6 +402,15 @@ export default function CarDetailPage() {
                       {formatNumber(car.diagnosis.abnormal, lang)} {t("abnormalPanels")}
                     </Badge>
                   </div>
+                  {(car.diagnosis.comments || []).map((c, i) => (
+                    <p
+                      key={i}
+                      data-testid="diagnosis-comment"
+                      className="mb-2 rounded-[10px] border border-[hsl(var(--success))]/30 bg-[hsl(var(--success-soft))] px-3 py-2 text-[12px] leading-relaxed text-[hsl(var(--success))]"
+                    >
+                      {c}
+                    </p>
+                  ))}
                   <div className="thin-scroll max-h-56 overflow-y-auto">
                     {car.diagnosis.items.map((it, i) => (
                       <div

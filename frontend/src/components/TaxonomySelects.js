@@ -85,7 +85,11 @@ export const TaxonomySelects = ({ value, onChange, layout = "row" }) => {
     setBusy((b) => ({ ...b, [key]: true }));
     try {
       const d = await getTaxonomy({ level, lang, ...params });
-      setter(d.items || []);
+      // alphabetical on the label the user actually sees
+      const sorted = [...(d.items || [])].sort((a, b) =>
+        (a.label || a.value).localeCompare(b.label || b.value, lang, { numeric: true })
+      );
+      setter(sorted);
     } catch (e) {
       setter([]);
     } finally {
@@ -165,6 +169,7 @@ export const TaxonomySelects = ({ value, onChange, layout = "row" }) => {
         placeholder={model ? t("anySubmodel") : t("selectModelFirst")}
         onPick={(v) => onChange({ make, model, badge: v, badgeDetail: "" })}
       />
+      {details.length > 0 ? (
       <Field
         busy={busy}
         lang={lang}
@@ -177,6 +182,7 @@ export const TaxonomySelects = ({ value, onChange, layout = "row" }) => {
         placeholder={badge ? t("anyTrim") : t("selectSubmodelFirst")}
         onPick={(v) => onChange({ make, model, badge, badgeDetail: v })}
       />
+      ) : null}
     </div>
   );
 };
