@@ -1,0 +1,78 @@
+[
+  {
+    "content": "Phase 1: POC — Encar search (limit=500, deep offsets, 217k reachable)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: POC — detail endpoint + Id/vehicleId mismatch handling",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: POC — option dictionaries (recursive subOptions flatten) + per-vehicle choice options",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: POC — insurance history, inspection sheet, diagnosis",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: POC — AI translation KO->EN/BG/RO with permanent Mongo cache (0 LLM calls on 2nd run)",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: POC — pricing engine reproduces spec examples A/B/C/D with charm-UP",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 1: POC — live FX + CDN image hotlinking",
+    "status": "completed"
+  },
+  {
+    "content": "Phase 2: Design guidelines from design_agent",
+    "status": "in_progress"
+  },
+  {
+    "content": "Phase 2: Backend — Encar client, catalogue sync worker, polite queue + backoff",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Backend — pricing service (admin-editable constants) + FX service",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Backend — translation service with batch + permanent cache",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Backend — search API (filters, sort by landed EUR), detail API assembling all documents",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Backend — favourites, enquiries, admin settings endpoints",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Frontend — search page (filter sidebar, grid, pagination, sorting)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Frontend — detail page (gallery, spec, description, options, insurance, inspection, diagnosis, price breakdown)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Frontend — i18n BG/RO/EN + currency switcher EUR/BGN/RON",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: Frontend — favourites, enquiry form, admin settings panel",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: All user stories from plan.md covered",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 2: End to End Testing using testing_agent_v3",
+    "status": "pending"
+  }
+]
