@@ -1,0 +1,173 @@
+import { Heart, Gauge, Calendar, Fuel, MapPin, Camera } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ImageWithFallback } from "@/components/ImageWithFallback";
+import { useApp } from "@/context/AppContext";
+import {
+  carSubtitle,
+  carTitle,
+  formatMileage,
+  formatMoney,
+  formatYearMonth,
+} from "@/lib/format";
+
+export const CarCard = ({ car, onOpen }) => {
+  const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
+  const saved = isFavourite(car.id);
+
+  const badges = [];
+  if (car.diagnosed)
+    badges.push({
+      label: t("diagnosed"),
+      cls: "bg-[hsl(var(--warning-soft))] text-[hsl(var(--warning))]",
+    });
+  if (car.has_inspection)
+    badges.push({
+      label: t("inspected"),
+      cls: "bg-[hsl(var(--info-soft))] text-[hsl(var(--info))]",
+    });
+  if (car.has_record)
+    badges.push({
+      label: t("insured"),
+      cls: "bg-[hsl(var(--success-soft))] text-[hsl(var(--success))]",
+    });
+
+  const subtitle = [carSubtitle(car), car.badge_detail_t || car.badge_detail]
+    .filter(Boolean)
+    .join(" \u00b7 ");
+
+  return (
+    <article
+      data-testid="car-card"
+      data-car-id={car.id}
+      data-under-contract={car.under_contract ? "true" : "false"}
+      className="group relative flex flex-col overflow-hidden rounded-[14px] border border-border bg-card shadow-[var(--shadow-sm)] transition-shadow duration-200 hover:shadow-[var(--shadow-md)]"
+    >
+      {car.under_contract && (
+        <span data-testid="car-card-contract-ribbon" className="ribbon">
+          {t("underContract")}
+        </span>
+      )}
+
+      <div className="relative">
+        <button
+          type="button"
+          data-testid="car-card-open"
+          onClick={() => onOpen?.(car)}
+          aria-label={`${carTitle(car)} \u2014 ${t("viewDetails")}`}
+          className="block w-full cursor-pointer"
+        >
+          <div className="aspect-video w-full">
+            <ImageWithFallback src={car.image} alt={carTitle(car)} testId="car-card-image" />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          data-testid="car-card-save-button"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleFavourite(car.id);
+          }}
+          aria-label={saved ? t("saved") : t("save")}
+          aria-pressed={saved}
+          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card shadow-[var(--shadow-sm)] transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Heart
+            className={`h-4 w-4 ${
+              saved
+                ? "fill-[hsl(var(--primary))] text-[hsl(var(--primary))]"
+                : "text-muted-foreground"
+            }`}
+            aria-hidden="true"
+          />
+        </button>
+
+        {car.photo_count > 1 && (
+          <span className="tnum absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-[var(--shadow-sm)]">
+            <Camera className="h-3 w-3" aria-hidden="true" />
+            {car.photo_count}
+          </span>
+        )}
+      </div>
+
+      {/* compact body: tight spacing, no filler gaps */}
+      <div className="flex flex-col gap-1.5 p-2.5">
+        <button type="button" onClick={() => onOpen?.(car)} className="text-left" tabIndex={-1}>
+          <h3
+            data-testid="car-card-title"
+            className="line-clamp-1 text-[14px] font-semibold leading-tight text-foreground"
+          >
+            {carTitle(car)}
+          </h3>
+        </button>
+
+        {subtitle && (
+          <p
+            className="line-clamp-1 text-[11px] leading-tight text-muted-foreground"
+            title={subtitle}
+          >
+            {subtitle}
+          </p>
+        )}
+
+        <div className="flex flex-wrap gap-x-2.5 gap-y-0.5 text-[11px] leading-tight text-muted-foreground">
+          <span className="tnum inline-flex items-center gap-1">
+            <Calendar className="h-3 w-3" aria-hidden="true" />
+            {formatYearMonth(car.year_month, car.form_year)}
+          </span>
+          <span className="tnum inline-flex items-center gap-1" data-testid="car-card-mileage">
+            <Gauge className="h-3 w-3" aria-hidden="true" />
+            {formatMileage(car.mileage, lang, t("km"))}
+          </span>
+          {(car.fuel_type_t || car.fuel_type) && (
+            <span className="inline-flex items-center gap-1">
+              <Fuel className="h-3 w-3" aria-hidden="true" />
+              {car.fuel_type_t || car.fuel_type}
+            </span>
+          )}
+          {(car.region_t || car.region) && (
+            <span className="inline-flex items-center gap-1">
+              <MapPin className="h-3 w-3" aria-hidden="true" />
+              {car.region_t || car.region}
+            </span>
+          )}
+        </div>
+
+        {badges.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {badges.slice(0, 3).map((b) => (
+              <Badge
+                key={b.label}
+                className={`rounded-full border-0 px-1.5 py-0 text-[10px] font-medium leading-[16px] ${b.cls}`}
+              >
+                {b.label}
+              </Badge>
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-2 pt-0.5">
+          <div className="leading-none">
+            <div
+              data-testid="car-card-price"
+              className="tnum text-[19px] font-semibold tracking-tight text-foreground"
+            >
+              {formatMoney(car.sale_eur, currency, lang, rates)}
+            </div>
+            <div className="mt-0.5 text-[10px] text-muted-foreground">{t("finalPrice")}</div>
+          </div>
+          <Button
+            data-testid="car-card-details-button"
+            onClick={() => onOpen?.(car)}
+            className="h-8 shrink-0 rounded-[8px] bg-[hsl(var(--primary))] px-2.5 text-[12px] font-medium text-primary-foreground transition-all hover:brightness-110"
+          >
+            {t("viewDetails")}
+          </Button>
+        </div>
+      </div>
+    </article>
+  );
+};
+
+export default CarCard;
