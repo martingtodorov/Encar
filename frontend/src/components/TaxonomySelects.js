@@ -1,31 +1,21 @@
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { useApp } from "@/context/AppContext";
 import { getTaxonomy } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 
-const ANY = "__any__";
+const ANY = "";
 
-const Field = ({
-  id,
-  label,
-  items,
-  current,
-  onPick,
-  disabled,
-  busyKey,
-  placeholder,
-  busy,
-  lang,
-}) => (
+/**
+ * Cascading Make -> Model -> Submodel dropdowns.
+ *
+ * Deliberately uses the NATIVE <select> element rather than a custom/Radix listbox,
+ * so mobile Safari renders Apple's own picker wheel (and Android its native
+ * spinner). Native controls also give free keyboard, VoiceOver and type-ahead
+ * behaviour. Only the chrome is styled; the popup itself is the OS's.
+ */
+const Field = ({ id, label, items, current, onPick, disabled, busyKey, placeholder, busy, lang }) => (
   <div className="min-w-0 flex-1">
     <Label
       htmlFor={id}
@@ -34,43 +24,30 @@ const Field = ({
       {label}
       {busy[busyKey] && <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />}
     </Label>
-    <Select
-      value={current || ANY}
-      onValueChange={(v) => onPick(v === ANY ? "" : v)}
-      disabled={disabled}
-    >
-      <SelectTrigger
+    <div className="relative">
+      <select
         id={id}
         data-testid={`taxonomy-${busyKey}-select`}
-        className="h-11 w-full border-input bg-card text-sm disabled:opacity-50"
+        value={current || ANY}
+        disabled={disabled}
+        onChange={(e) => onPick(e.target.value)}
+        className="h-11 w-full appearance-none truncate rounded-[10px] border border-input bg-card pl-3 pr-9 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
       >
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent className="max-h-72 bg-popover">
-        <SelectItem value={ANY} data-testid={`taxonomy-${busyKey}-any`}>
-          {placeholder}
-        </SelectItem>
+        <option value={ANY}>{placeholder}</option>
         {items.map((i) => (
-          <SelectItem key={i.value} value={i.value} data-testid={`taxonomy-${busyKey}-option`}>
-            <span className="flex w-full items-center justify-between gap-3">
-              <span className="truncate">{i.label || i.value}</span>
-              <span className="tnum shrink-0 text-[11px] text-muted-foreground">
-                {formatNumber(i.count, lang)}
-              </span>
-            </span>
-          </SelectItem>
+          <option key={i.value} value={i.value}>
+            {`${i.label || i.value} (${formatNumber(i.count, lang)})`}
+          </option>
         ))}
-      </SelectContent>
-    </Select>
+      </select>
+      <ChevronDown
+        className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+        aria-hidden="true"
+      />
+    </div>
   </div>
 );
 
-
-/**
- * Cascading Make -> Model -> Submodel -> Trim dropdowns, replacing the free-text
- * search box. Data comes from a precomputed taxonomy tree, so each level opens in
- * milliseconds rather than running a live aggregation.
- */
 export const TaxonomySelects = ({ value, onChange, layout = "row" }) => {
   const { t, lang } = useApp();
   const { make = "", model = "", badge = "", badgeDetail = "" } = value || {};
@@ -85,7 +62,6 @@ export const TaxonomySelects = ({ value, onChange, layout = "row" }) => {
     setBusy((b) => ({ ...b, [key]: true }));
     try {
       const d = await getTaxonomy({ level, lang, ...params });
-      // alphabetical on the label the user actually sees
       const sorted = [...(d.items || [])].sort((a, b) =>
         (a.label || a.value).localeCompare(b.label || b.value, lang, { numeric: true })
       );
@@ -128,11 +104,7 @@ export const TaxonomySelects = ({ value, onChange, layout = "row" }) => {
   return (
     <div
       data-testid="taxonomy-selects"
-      className={
-        layout === "row"
-          ? "grid grid-cols-2 gap-3 lg:grid-cols-4"
-          : "grid grid-cols-1 gap-3"
-      }
+      className={layout === "row" ? "grid grid-cols-2 gap-3 lg:grid-cols-4" : "grid grid-cols-1 gap-3"}
     >
       <Field
         busy={busy}
@@ -170,18 +142,18 @@ export const TaxonomySelects = ({ value, onChange, layout = "row" }) => {
         onPick={(v) => onChange({ make, model, badge: v, badgeDetail: "" })}
       />
       {details.length > 0 ? (
-      <Field
-        busy={busy}
-        lang={lang}
-        id="tax-detail"
-        label={t("trimLevel")}
-        items={details}
-        current={badgeDetail}
-        busyKey="badgeDetail"
-        disabled={!badge}
-        placeholder={badge ? t("anyTrim") : t("selectSubmodelFirst")}
-        onPick={(v) => onChange({ make, model, badge, badgeDetail: v })}
-      />
+        <Field
+          busy={busy}
+          lang={lang}
+          id="tax-detail"
+          label={t("trimLevel")}
+          items={details}
+          current={badgeDetail}
+          busyKey="badgeDetail"
+          disabled={!badge}
+          placeholder={t("anyTrim")}
+          onPick={(v) => onChange({ make, model, badge, badgeDetail: v })}
+        />
       ) : null}
     </div>
   );

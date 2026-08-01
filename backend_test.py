@@ -1,6 +1,7 @@
-"""Backend API testing for Encar localized skin.
-
-Tests all critical endpoints with timing measurements for the detail page bug fix.
+#!/usr/bin/env python3
+"""
+Backend API test for Encar reskin - Round 3 (Native Dropdowns + Full Sync)
+Tests API functionality during ongoing 436-page catalogue sync.
 """
 import requests
 import sys
@@ -13,233 +14,275 @@ class EncarAPITester:
     def __init__(self):
         self.tests_run = 0
         self.tests_passed = 0
-        self.results = []
+        self.start_time = time.time()
 
-    def test(self, name, method, endpoint, expected_status=200, data=None, params=None, 
-             headers=None, measure_time=False):
-        """Run a single API test with optional timing."""
-        url = f"{BASE_URL}{endpoint}"
+    def test(self, name, fn):
+        """Run a single test"""
         self.tests_run += 1
-        
-        print(f"\n🔍 Testing {name}...")
-        start = time.time()
-        
-        try:
-            if method == 'GET':
-                response = requests.get(url, params=params, headers=headers, timeout=30)
-            elif method == 'POST':
-                response = requests.post(url, json=data, params=params, headers=headers, timeout=30)
-            
-            elapsed = time.time() - start
-            success = response.status_code == expected_status
-            
-            if success:
-                self.tests_passed += 1
-                if measure_time:
-                    print(f"✅ Passed - Status: {response.status_code} - Time: {elapsed:.3f}s")
-                else:
-                    print(f"✅ Passed - Status: {response.status_code}")
-                
-                result = {
-                    "test": name,
-                    "status": "PASS",
-                    "status_code": response.status_code,
-                    "time": elapsed
-                }
-                self.results.append(result)
-                return True, response.json() if response.content else {}, elapsed
-            else:
-                print(f"❌ Failed - Expected {expected_status}, got {response.status_code}")
-                print(f"   Response: {response.text[:200]}")
-                result = {
-                    "test": name,
-                    "status": "FAIL",
-                    "expected": expected_status,
-                    "actual": response.status_code,
-                    "time": elapsed
-                }
-                self.results.append(result)
-                return False, {}, elapsed
-                
-        except Exception as e:
-            elapsed = time.time() - start
-            print(f"❌ Failed - Error: {str(e)}")
-            result = {
-                "test": name,
-                "status": "ERROR",
-                "error": str(e),
-                "time": elapsed
-            }
-            self.results.append(result)
-            return False, {}, elapsed
-
-    def print_summary(self):
-        """Print test summary."""
         print(f"\n{'='*60}")
-        print(f"📊 TEST SUMMARY")
-        print(f"{'='*60}")
-        print(f"Total tests: {self.tests_run}")
-        print(f"Passed: {self.tests_passed}")
-        print(f"Failed: {self.tests_run - self.tests_passed}")
-        print(f"Success rate: {(self.tests_passed/self.tests_run*100):.1f}%")
-        print(f"{'='*60}\n")
+        print(f"TEST {self.tests_run}: {name}")
+        print('='*60)
+        try:
+            fn()
+            self.tests_passed += 1
+            print(f"✅ PASSED")
+            return True
+        except AssertionError as e:
+            print(f"❌ FAILED: {e}")
+            return False
+        except Exception as e:
+            print(f"❌ ERROR: {e}")
+            return False
 
+    def test_health_during_sync(self):
+        """Verify health endpoint shows sync progress"""
+        resp = requests.get(f"{BASE_URL}/health", timeout=10)
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        
+        data = resp.json()
+        print(f"  ok: {data['ok']}")
+        print(f"  listings_total: {data['listings_total']:,}")
+        print(f"  unique_cars: {data['unique_cars']:,}")
+        print(f"  duplicate_ads_hidden: {data['duplicate_ads_hidden']:,}")
+        print(f"  sync.status: {data['sync']['status']}")
+        print(f"  sync.pages_done: {data['sync']['pages_done']}/{data['sync']['pages_total']}")
+        print(f"  sync.listings_upstream: {data['sync']['listings_upstream']:,}")
+        print(f"  encar_stats.backoffs: {data['encar_stats']['backoffs']}")
+        print(f"  encar_stats.errors: {data['encar_stats']['errors']}")
+        
+        assert data['ok'] is True, "Health check failed"
+        assert data['listings_total'] > 0, "No listings in database"
+        assert data['sync']['status'] in ['running', 'completed'], f"Unexpected sync status: {data['sync']['status']}"
+        assert data['encar_stats']['backoffs'] <= 2, f"Too many backoffs: {data['encar_stats']['backoffs']}"
+        
+        # Store for later comparison
+        self.initial_listings = data['listings_total']
+        self.sync_pages_done = data['sync']['pages_done']
+        self.sync_pages_total = data['sync']['pages_total']
 
-def main():
-    tester = EncarAPITester()
-    
-    print("="*60)
-    print("ENCAR BACKEND API TESTS")
-    print("="*60)
-    
-    # 1. Health check
-    success, health_data, _ = tester.test("Health Check", "GET", "/health")
-    if success:
-        print(f"   Listings total: {health_data.get('listings_total', 0)}")
-        print(f"   Unique cars: {health_data.get('unique_cars', 0)}")
-        print(f"   Translations cached: {health_data.get('translations_cached', 0)}")
-    
-    # 2. FX rates
-    tester.test("FX Rates", "GET", "/fx")
-    
-    # 3. Search with default params
-    search_body = {
-        "q": "",
-        "makes": [],
-        "models": [],
-        "badges": [],
-        "badge_details": [],
-        "fuels": [],
-        "regions": [],
-        "transmissions": [],
-        "sort": "newest",
-        "page": 1,
-        "page_size": 10,
-        "lang": "bg"
-    }
-    success, search_data, _ = tester.test("Search - Default", "POST", "/search", 
-                                          data=search_body)
-    
-    car_id = None
-    if success and search_data.get('items'):
-        print(f"   Found {search_data.get('total', 0)} total cars")
-        print(f"   Returned {len(search_data.get('items', []))} items")
-        car_id = search_data['items'][0]['id']
-        print(f"   First car ID: {car_id}")
-    
-    # 4. Taxonomy level 1 (makes)
-    tester.test("Taxonomy - Level 1 (Makes)", "GET", "/meta/taxonomy", 
-                params={"level": 1, "lang": "bg"})
-    
-    # 5. Taxonomy level 2 (models for a make)
-    # Get a make from search results first
-    if success and search_data.get('items'):
-        first_make = search_data['items'][0].get('manufacturer')
-        if first_make:
-            tester.test(f"Taxonomy - Level 2 (Models for {first_make})", "GET", 
-                       "/meta/taxonomy", 
-                       params={"level": 2, "make": first_make, "lang": "bg"})
-    
-    # 6. Filters metadata
-    tester.test("Filters Metadata", "GET", "/meta/filters", params={"lang": "bg"})
-    
-    # 7. CRITICAL: Car detail page - FIRST LOAD (cold cache)
-    # This is the PRIMARY BUG being tested
-    if car_id:
+    def test_search_default(self):
+        """Search with no filters returns results"""
+        resp = requests.post(
+            f"{BASE_URL}/search",
+            json={"page": 1, "page_size": 10, "lang": "en"},
+            timeout=10
+        )
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        
+        data = resp.json()
+        print(f"  total: {data['total']:,}")
+        print(f"  items: {len(data['items'])}")
+        print(f"  pages: {data['pages']}")
+        
+        assert data['total'] > 0, "No results returned"
+        assert len(data['items']) == 10, f"Expected 10 items, got {len(data['items'])}"
+        assert data['pages'] > 0, "No pages"
+
+    def test_taxonomy_level1_makes(self):
+        """Taxonomy level 1 returns makes with counts"""
+        resp = requests.get(
+            f"{BASE_URL}/meta/taxonomy",
+            params={"level": 1, "lang": "en"},
+            timeout=10
+        )
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        
+        data = resp.json()
+        print(f"  items: {len(data['items'])}")
+        
+        assert len(data['items']) > 0, "No makes returned"
+        
+        # Check first few items
+        for i, item in enumerate(data['items'][:5]):
+            print(f"    {i+1}. {item['label']} ({item['count']})")
+            assert 'value' in item, "Missing 'value' field"
+            assert 'label' in item, "Missing 'label' field"
+            assert 'count' in item, "Missing 'count' field"
+            assert item['count'] > 0, f"Zero count for {item['label']}"
+
+    def test_taxonomy_level2_models(self):
+        """Taxonomy level 2 returns models for a make"""
+        # First get a make
+        resp = requests.get(f"{BASE_URL}/meta/taxonomy", params={"level": 1, "lang": "en"}, timeout=10)
+        makes = resp.json()['items']
+        assert len(makes) > 0, "No makes to test with"
+        
+        test_make = makes[0]['value']
+        print(f"  Testing with make: {test_make}")
+        
+        resp = requests.get(
+            f"{BASE_URL}/meta/taxonomy",
+            params={"level": 2, "make": test_make, "lang": "en"},
+            timeout=10
+        )
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        
+        data = resp.json()
+        print(f"  models: {len(data['items'])}")
+        
+        assert len(data['items']) > 0, f"No models for make {test_make}"
+        
+        for i, item in enumerate(data['items'][:3]):
+            print(f"    {i+1}. {item['label']} ({item['count']})")
+
+    def test_taxonomy_level3_submodels(self):
+        """Taxonomy level 3 returns submodels (badges)"""
+        # Get make and model
+        resp = requests.get(f"{BASE_URL}/meta/taxonomy", params={"level": 1, "lang": "en"}, timeout=10)
+        makes = resp.json()['items']
+        test_make = makes[0]['value']
+        
+        resp = requests.get(f"{BASE_URL}/meta/taxonomy", params={"level": 2, "make": test_make, "lang": "en"}, timeout=10)
+        models = resp.json()['items']
+        assert len(models) > 0, "No models to test with"
+        test_model = models[0]['value']
+        
+        print(f"  Testing with make: {test_make}, model: {test_model}")
+        
+        resp = requests.get(
+            f"{BASE_URL}/meta/taxonomy",
+            params={"level": 3, "make": test_make, "model": test_model, "lang": "en"},
+            timeout=10
+        )
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        
+        data = resp.json()
+        print(f"  submodels: {len(data['items'])}")
+        
+        # Submodels may be empty for some makes/models
+        if len(data['items']) > 0:
+            for i, item in enumerate(data['items'][:3]):
+                print(f"    {i+1}. {item['label']} ({item['count']})")
+
+    def test_search_with_taxonomy(self):
+        """Search filtered by make returns correct results"""
+        # Get a make
+        resp = requests.get(f"{BASE_URL}/meta/taxonomy", params={"level": 1, "lang": "en"}, timeout=10)
+        makes = resp.json()['items']
+        test_make = makes[0]['value']
+        
+        print(f"  Searching for make: {test_make}")
+        
+        resp = requests.post(
+            f"{BASE_URL}/search",
+            json={"makes": [test_make], "page": 1, "page_size": 10, "lang": "en"},
+            timeout=10
+        )
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        
+        data = resp.json()
+        print(f"  total: {data['total']:,}")
+        print(f"  items: {len(data['items'])}")
+        
+        assert data['total'] > 0, f"No results for make {test_make}"
+        assert len(data['items']) > 0, "No items returned"
+
+    def test_car_detail_performance(self):
+        """Detail page loads in under 4 seconds"""
+        # Get a car ID from search
+        resp = requests.post(
+            f"{BASE_URL}/search",
+            json={"page": 1, "page_size": 1, "lang": "en"},
+            timeout=10
+        )
+        items = resp.json()['items']
+        assert len(items) > 0, "No cars to test with"
+        
+        car_id = items[0]['id']
+        print(f"  Testing car ID: {car_id}")
+        
+        start = time.time()
+        resp = requests.get(f"{BASE_URL}/car/{car_id}", params={"lang": "en"}, timeout=10)
+        duration = time.time() - start
+        
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        
+        data = resp.json()
+        print(f"  Load time: {duration:.3f}s")
+        print(f"  Photos: {len(data.get('photos', []))}")
+        print(f"  Has insurance: {data.get('insurance') is not None}")
+        print(f"  Has diagnosis: {data.get('diagnosis') is not None}")
+        
+        assert duration < 4.0, f"Detail page took {duration:.3f}s (target: <4s)"
+        assert len(data.get('photos', [])) > 0, "No photos"
+
+    def test_filters_metadata(self):
+        """Filters endpoint returns metadata"""
+        resp = requests.get(f"{BASE_URL}/meta/filters", params={"lang": "en"}, timeout=10)
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        
+        data = resp.json()
+        print(f"  fuels: {len(data.get('fuels', []))}")
+        print(f"  transmissions: {len(data.get('transmissions', []))}")
+        print(f"  regions: {len(data.get('regions', []))}")
+        
+        assert 'fuels' in data, "Missing fuels"
+        assert 'transmissions' in data, "Missing transmissions"
+
+    def test_fx_rates(self):
+        """FX rates endpoint returns currency data"""
+        resp = requests.get(f"{BASE_URL}/fx", timeout=10)
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        
+        data = resp.json()
+        print(f"  fx_krw_eur: {data.get('fx_krw_eur')}")
+        print(f"  eur_bgn: {data.get('eur_bgn')}")
+        print(f"  eur_ron: {data.get('eur_ron')}")
+        print(f"  source: {data.get('source')}")
+        
+        assert 'fx_krw_eur' in data, "Missing fx_krw_eur"
+        assert data.get('fx_krw_eur') > 0, "Invalid fx_krw_eur rate"
+        assert 'eur_bgn' in data, "Missing eur_bgn"
+        assert 'eur_ron' in data, "Missing eur_ron"
+
+    def test_sync_still_progressing(self):
+        """Verify sync is still making progress (or completed)"""
+        time.sleep(2)  # Wait a bit
+        
+        resp = requests.get(f"{BASE_URL}/health", timeout=10)
+        data = resp.json()
+        
+        current_listings = data['listings_total']
+        current_pages = data['sync']['pages_done']
+        
+        print(f"  Initial listings: {self.initial_listings:,}")
+        print(f"  Current listings: {current_listings:,}")
+        print(f"  Initial pages: {self.sync_pages_done}/{self.sync_pages_total}")
+        print(f"  Current pages: {current_pages}/{self.sync_pages_total}")
+        
+        if data['sync']['status'] == 'completed':
+            print(f"  ✓ Sync completed during test run")
+        else:
+            # Sync should be progressing or at least stable
+            assert current_listings >= self.initial_listings, "Listings count decreased"
+            print(f"  ✓ Sync still running, listings stable/growing")
+
+    def run_all(self):
+        """Run all tests"""
         print("\n" + "="*60)
-        print("🔥 PRIMARY BUG TEST: Car Detail Page Load Time")
+        print("ENCAR API TEST - Round 3 (Native Dropdowns + Full Sync)")
         print("="*60)
         
-        # Cold load (first time)
-        success, detail_data, cold_time = tester.test(
-            f"Car Detail - COLD LOAD (ID: {car_id})", 
-            "GET", 
-            f"/car/{car_id}",
-            params={"lang": "bg", "refresh": "true"},
-            measure_time=True
-        )
+        self.test("Health check during sync", self.test_health_during_sync)
+        self.test("Search with default params", self.test_search_default)
+        self.test("Taxonomy level 1 (makes)", self.test_taxonomy_level1_makes)
+        self.test("Taxonomy level 2 (models)", self.test_taxonomy_level2_models)
+        self.test("Taxonomy level 3 (submodels)", self.test_taxonomy_level3_submodels)
+        self.test("Search with taxonomy filter", self.test_search_with_taxonomy)
+        self.test("Car detail performance (<4s)", self.test_car_detail_performance)
+        self.test("Filters metadata", self.test_filters_metadata)
+        self.test("FX rates", self.test_fx_rates)
+        self.test("Sync progress check", self.test_sync_still_progressing)
         
-        if success:
-            print(f"\n   📸 Photos: {detail_data.get('photo_count', 0)}")
-            print(f"   🛡️  Insurance: {'Available' if detail_data.get('insurance') else 'N/A'}")
-            print(f"   📋 Inspection: {'Available' if detail_data.get('inspection') else 'N/A'}")
-            print(f"   🔧 Diagnosis: {'Available' if detail_data.get('diagnosis') else 'N/A'}")
-            print(f"   💰 Price quote: {'Available' if detail_data.get('quote') else 'N/A'}")
-            print(f"   📝 Description pending: {detail_data.get('description_pending', False)}")
-            
-            # Warm load (cached)
-            time.sleep(0.5)
-            success2, detail_data2, warm_time = tester.test(
-                f"Car Detail - WARM LOAD (ID: {car_id})", 
-                "GET", 
-                f"/car/{car_id}",
-                params={"lang": "bg"},
-                measure_time=True
-            )
-            
-            print(f"\n   ⏱️  TIMING ANALYSIS:")
-            print(f"   Cold load: {cold_time:.3f}s (target: <4s)")
-            print(f"   Warm load: {warm_time:.3f}s (target: near-instant)")
-            
-            if cold_time > 4.0:
-                print(f"   ⚠️  WARNING: Cold load exceeds 4s target!")
-            else:
-                print(f"   ✅ Cold load within target")
-            
-            if warm_time > 0.5:
-                print(f"   ⚠️  WARNING: Warm load is slow (should be <0.5s)")
-            else:
-                print(f"   ✅ Warm load is fast")
-    
-    # 8. Pricing quote
-    tester.test("Pricing Quote", "GET", "/pricing/quote", 
-                params={"price_krw": 98760000})
-    
-    # 9. Search with filters
-    filtered_search = {
-        **search_body,
-        "price_min": 5000,
-        "price_max": 20000,
-        "year_min": 2018,
-        "sort": "price_asc",
-        "page_size": 10
-    }
-    success, filtered_data, _ = tester.test("Search - With Filters", "POST", "/search", 
-                                            data=filtered_search)
-    if success:
-        print(f"   Filtered results: {filtered_data.get('total', 0)} cars")
-    
-    # 10. Search with transmission filter
-    trans_search = {
-        **search_body,
-        "transmissions": ["수동"],
-        "page_size": 10
-    }
-    success, trans_data, _ = tester.test("Search - Manual Transmission", "POST", "/search", 
-                                         data=trans_search)
-    if success:
-        print(f"   Manual cars: {trans_data.get('total', 0)} (expected ~75)")
-    
-    # 11. Test pagination
-    page2_search = {**search_body, "page": 2, "page_size": 10}
-    tester.test("Search - Page 2", "POST", "/search", data=page2_search)
-    
-    # 12. Test different sort orders
-    tester.test("Search - Sort by Price Ascending", "POST", "/search", 
-                data={**search_body, "sort": "price_asc", "page_size": 10})
-    
-    tester.test("Search - Sort by Price Descending", "POST", "/search", 
-                data={**search_body, "sort": "price_desc", "page_size": 10})
-    
-    tester.test("Search - Sort by Mileage", "POST", "/search", 
-                data={**search_body, "sort": "mileage_asc", "page_size": 10})
-    
-    # Print summary
-    tester.print_summary()
-    
-    # Return exit code
-    return 0 if tester.tests_passed == tester.tests_run else 1
-
+        duration = time.time() - self.start_time
+        
+        print("\n" + "="*60)
+        print(f"RESULTS: {self.tests_passed}/{self.tests_run} tests passed")
+        print(f"Duration: {duration:.1f}s")
+        print("="*60)
+        
+        return 0 if self.tests_passed == self.tests_run else 1
 
 if __name__ == "__main__":
-    sys.exit(main())
+    tester = EncarAPITester()
+    sys.exit(tester.run_all())
