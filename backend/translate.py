@@ -170,7 +170,8 @@ def schedule_translation(db, texts, lang):
 
 
 async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "badge",
-                                                     "fuel_type", "region"),
+                                                     "badge_detail", "fuel_type",
+                                                     "region", "sell_type"),
                              background=True):
     """Attach *_t translated variants to listing dicts.
 

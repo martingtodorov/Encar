@@ -13,6 +13,7 @@ Architecture notes:
 import asyncio
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -175,6 +176,38 @@ SORTS = {
 
 
 # ───────────────────────────────── routes ─────────────────────────────────────
+
+
+HANGUL = re.compile(r"[\uac00-\ud7a3]")
+# per user instruction the per-vehicle dealer description stays in the original
+NO_TRANSLATE_KEYS = {"description", "description_original", "vin", "vehicle_no", "id"}
+
+
+def collect_korean(obj, out, skip=NO_TRANSLATE_KEYS):
+    """Gather every Hangul-containing string in a payload, so each can be cached."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k in skip:
+                continue
+            collect_korean(v, out, skip)
+    elif isinstance(obj, list):
+        for v in obj:
+            collect_korean(v, out, skip)
+    elif isinstance(obj, str) and HANGUL.search(obj):
+        out.add(obj.strip())
+
+
+def apply_translations(obj, tmap, skip=NO_TRANSLATE_KEYS):
+    """Replace Hangul strings with cached translations, in place."""
+    if isinstance(obj, dict):
+        return {k: (v if k in skip else apply_translations(v, tmap, skip))
+                for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [apply_translations(v, tmap, skip) for v in obj]
+    if isinstance(obj, str) and HANGUL.search(obj):
+        return tmap.get(obj.strip(), obj)
+    return obj
+
 
 _OPT_MEM = {"at": 0, "data": None}
 
@@ -598,15 +631,8 @@ async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
 
     # ── dealer description (unique per car -> one LLM call, cached forever) ──────
     desc_ko = ((detail.get("contents") or {}).get("text") or "").strip()
-    desc_t, desc_pending = "", False
-    if desc_ko:
-        hit = await translate_cached_only(db, [desc_ko], lang)
-        desc_t = hit.get(desc_ko, "")
-        if not desc_t:
-            # a ~1k-char dealer description is a multi-second LLM call; do it in the
-            # background and let the page render immediately
-            schedule_translation(db, [desc_ko], lang)
-            desc_pending = True
+    # The per-vehicle dealer description is deliberately NOT translated.
+    desc_t, desc_pending = desc_ko, False
 
     # ── pricing ─────────────────────────────────────────────────────────────────
     price_krw = (listing or {}).get("price_krw") or (adv.get("price") or 0) * 10_000
@@ -615,7 +641,7 @@ async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
     quote = pricing.price_car(price_krw, rates["fx_krw_eur"], rates["usd_eur"],
                               sdoc.get("constants")) if price_krw else None
 
-    return jsonable({
+    payload = {
         "id": listing_id,
         "vehicle_id": cached.get("vehicle_id"),
         "under_contract": bool((listing or {}).get("under_contract")),
@@ -658,7 +684,21 @@ async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
         "quote": quote,
         "fetched_at": cached.get("fetched_at"),
         "lang": lang,
-    })
+    }
+
+    # Catch every remaining Korean string anywhere in the payload (insurance,
+    # inspection, diagnosis, options, spec, category ...) and cache each one.
+    leftovers = set()
+    collect_korean(payload, leftovers)
+    if leftovers:
+        extra = await translate_cached_only(db, list(leftovers), lang)
+        tmap = {**tr, **extra}
+        missing = [x for x in leftovers if x not in tmap]
+        if missing:
+            schedule_translation(db, missing, lang)
+        payload = apply_translations(payload, tmap)
+
+    return jsonable(payload)
 
 
 @api.get("/pricing/quote")
