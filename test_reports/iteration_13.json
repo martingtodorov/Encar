@@ -1,0 +1,55 @@
+{
+  "summary": "Verified the streaming description-translation perf fix, streaming correctness, cache behaviour, UI consistency changes and core-flow regressions. The reported 10-20s spinner bug is FIXED: first translated text now arrives in ~0.6-0.9s on the UI (target <3s) and streams progressively via 99+ SSE frames; cached path returns in <0.2s and survives full reload. UI Consistency A passes on mobile (Filters button same row, right of Submodel; hidden on desktop). UI Consistency B PARTIALLY FAILS — border-radius (10px), border-width (1px) and border-color match across all 5 elements, but the required non-none box-shadow is MISSING on all five (make/model/submodel selects, mobile filters button, #sort-control) AND on car-card / car-row, because Tailwind's arbitrary-value class `shadow-[var(--shadow-sm)]` is being emitted with an empty `box-shadow` property (only `--tw-shadow-colored` is set). Core regressions PASS: list/detail prices match on 3 cars (15199, 15799, 20799 EUR), FX haircut pytest 5/5 green, lightbox opens, /saved loads, /admin shows all 3 tabs.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "TaxonomySelects, SortControl, SearchPage Filters button (and by extension car-card/car-row)",
+        "issue": "Tailwind arbitrary class `shadow-[var(--shadow-sm)]` produces a CSS rule with empty `box-shadow` (only sets `--tw-shadow-colored: var(--tw-shadow-colored)`), so the computed `boxShadow` on all five taxonomy/sort/filters controls resolves to `none`. Same for `shadow-[var(--shadow-md)]`. The `--shadow-sm` CSS var IS defined (`0 1px 2px rgba(17,20,26,0.07)`). Fix: replace `shadow-[var(--shadow-sm)]` with either the built-in `shadow-sm` utility or a literal arbitrary value like `shadow-[0_1px_2px_rgba(17,20,26,0.07)]` (the literal form is already known to work in this stylesheet, e.g. `.shadow-\\[0_1px_2px_rgba\\(18\\,20\\,23\\,0\\.06\\)\\]`).",
+        "selector": "[data-testid=taxonomy-make-select], [data-testid=taxonomy-model-select], [data-testid=taxonomy-badge-select], [data-testid=open-filters-button], #sort-control, [data-testid=car-card], [data-testid=car-row]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "measurements": {
+    "streaming_uncached_bg_via_api": {
+      "car_42318384": {"first_chunk_s": 0.75, "complete_s": 22.57, "frames": 104, "text_chars": 3263, "hangul_left": 12, "sse_leak": false},
+      "car_42212840": {"first_chunk_s": 0.88, "complete_s": 21.66, "frames": 99, "text_chars": 3235},
+      "car_42147316": {"first_chunk_s": 0.60, "complete_s": 21.39, "frames": 99, "text_chars": 3266}
+    },
+    "streaming_cached_hit": {"car_42318384_bg": {"first_chunk_s": 0.15, "complete_s": 0.15, "frames": 2, "cached_flag": true}, "car_42465365_en": {"complete_s": 0.14, "cached": true}},
+    "no_description_404": {"car_99999999": 404},
+    "ui_translation_uncached_car_41951422_bg": {"first_change_s": 0.69, "complete_s": 23.08, "input_chars": 1469, "output_chars": 3317, "hangul_left": 12, "sse_leak": false},
+    "ui_cached_reclick_s": 0.06,
+    "ui_post_reload_cached_s": 0.13,
+    "list_vs_detail_price_match_3_cars": true,
+    "fx_haircut_pytest": "5/5 pass"
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fx_haircut.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Replace `shadow-[var(--shadow-sm)]` (and `shadow-[var(--shadow-md)]`) usages with either Tailwind's built-in `shadow-sm`/`shadow-md` or a LITERAL arbitrary value like `shadow-[0_1px_2px_rgba(17,20,26,0.07)]`. Files: /app/frontend/src/components/TaxonomySelects.js, /app/frontend/src/components/SortControl.js, /app/frontend/src/pages/SearchPage.js (open-filters-button), and the CarCard/CarRow components (to make card shadow non-none as required by UI Consistency B).",
+    "Optional: total-completion time for streamed translation is 21-23s on ~3200-char outputs. That's fine progressively (first text at ~0.7s) but if you want the completion number closer to the claimed 4.87s, consider chunk-cap or async prefetch. Not a blocker."
+  ],
+  "critical_code_review_comments": [
+    "SSE endpoint sets `X-Accel-Buffering: no` — good; observed 99+ frames, proving proxy isn't buffering.",
+    "Frontend SSE parser correctly handles chunk boundaries — no duplicated fragments or leaked `data:`/JSON braces in any test.",
+    "The permanent translation cache correctly survives full page reloads (post-reload retranslate = 0.13s).",
+    "Two Radix warnings in console: 'Missing Description or aria-describedby for DialogContent' when opening the filter sheet — accessibility polish only, non-blocking."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "~93% (all functional flows pass; only failing item is the non-none box-shadow assertion in UI Consistency B)"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! (login redirected home, admin page accessible via /admin?tab=overview and shows all 3 tabs)",
+  "seed_data_creation": "none",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Streaming translation and cache paths are solid (backend + UI, both bg and en verified). Only outstanding bug is the Tailwind `shadow-[var(--shadow-sm)]` arbitrary-value issue — after main agent swaps to `shadow-sm` or a literal shadow value, re-verify computed `boxShadow` is non-'none' on: [data-testid=taxonomy-make-select], taxonomy-model-select, taxonomy-badge-select, open-filters-button, #sort-control, car-card and car-row. Cars used and now BG-cached (avoid for uncached path in next run): 42318384, 42212840, 42147316, 41951422. Still uncached BG candidates seen in /api/search: 42398004, 42325605, 42455168, 41095585, 41588122, 41169541, 41625435, 41766410, 42318707, 42453323, 42348042.",
+  "rca of the issue": "Root cause of the missing box-shadow: Tailwind CSS parses `shadow-[<value>]` in two ways. For a raw color-like or full-shadow literal, it emits a proper rule `box-shadow: var(--tw-ring-offset-shadow,...), var(--tw-ring-shadow,...), var(--tw-shadow);` plus `--tw-shadow: <value>`. But when the arbitrary value is `var(--shadow-sm)`, Tailwind's parser treats it as a 'colored shadow' and emits ONLY `--tw-shadow-colored: var(--tw-shadow-colored);` with an EMPTY `box-shadow` declaration — so nothing paints. Confirmed by inspecting `document.styleSheets`: rule `.shadow-\\[var\\(--shadow-sm\\)\\]` has `box: ''` and `--tw-shadow: var(--tw-shadow-colored)`, whereas `.shadow-sm` and the literal `.shadow-\\[0_1px_2px_rgba\\(18\\,20\\,23\\,0\\.06\\)\\]` have `box: 'var(--tw-ring-offset-shadow,...),...,var(--tw-shadow)'`. Mitigation: use `shadow-sm` or a literal `shadow-[0_1px_2px_rgba(17,20,26,0.07)]`."
+}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { SlidersHorizontal, Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { HeaderBar } from "@/components/HeaderBar";
 import { Hero } from "@/components/Hero";
 import { TrustStrip } from "@/components/TrustStrip";
@@ -306,7 +306,25 @@ export default function SearchPage() {
       {/* Cascading Make -> Model -> Submodel -> Trim replaces the old search box */}
       <section className="bg-card">
         <div className="mx-auto max-w-[1280px] px-4 py-5 sm:px-6">
-          <TaxonomySelects value={tax} onChange={changeTax} onLabels={setTaxLabels} />
+          <TaxonomySelects
+            value={tax}
+            onChange={changeTax}
+            onLabels={setTaxLabels}
+            trailing={
+              <Button
+                data-testid="open-filters-button"
+                variant="outline"
+                onClick={() => setSheetOpen(true)}
+                className="h-11 w-full gap-2 rounded-[10px] border border-input bg-card px-4 text-sm shadow-[var(--shadow-sm)]"
+              >
+                <SlidersHorizontal
+                  className="h-4 w-4 text-[hsl(var(--primary))]"
+                  aria-hidden="true"
+                />
+                {t("filters")}
+              </Button>
+            }
+          />
         </div>
       </section>
 
@@ -327,19 +345,6 @@ export default function SearchPage() {
           <section className="min-w-0">
             <div className="mb-4 flex flex-wrap items-center gap-3">
               <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-                <SheetTrigger asChild>
-                  <Button
-                    data-testid="open-filters-button"
-                    variant="outline"
-                    className="h-11 gap-2 border-border bg-card px-4 text-sm lg:hidden"
-                  >
-                    <SlidersHorizontal
-                      className="h-4 w-4 text-[hsl(var(--primary))]"
-                      aria-hidden="true"
-                    />
-                    {t("filters")}
-                  </Button>
-                </SheetTrigger>
                 <SheetContent side="left" className="flex w-[92vw] max-w-sm flex-col gap-0 bg-card p-0">
                   <SheetHeader className="border-b border-border px-4 py-3 text-left">
                     <SheetTitle className="text-[15px] font-semibold">{t("filters")}</SheetTitle>

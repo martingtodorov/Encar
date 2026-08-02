@@ -327,6 +327,48 @@ async def translate_one(db, text, lang):
     return res.get(text.strip(), text)
 
 
+DESC_SYSTEM = (
+    "You are translating a Korean used-car dealer's own description of a vehicle into "
+    "{lang}. Translate the meaning faithfully and naturally, as a dealer would write it "
+    "in {lang}. Keep model names, trim names, option names and numbers exactly as they "
+    "are. Preserve the line breaks of the original. Reply with the translation only - no "
+    "preamble, no notes, no quotation marks around it."
+)
+
+
+async def stream_description(db, text, lang):
+    """Yield a dealer description translation in pieces, then cache the whole thing.
+
+    A description runs to several hundred output tokens, and generation speed is the hard
+    floor: waiting for the complete answer means the visitor watches a spinner for 10-20
+    seconds. Streaming puts the first words on screen in about a second. Total time is
+    unchanged - it just stops being dead time.
+
+    Uses the fast model: this is a sales blurb, not data that other prices depend on.
+    Plain prose rather than the batch JSON envelope, so there is nothing to parse before
+    text can be shown.
+    """
+    model = os.environ.get("ANTHROPIC_FAST_MODEL", "claude-haiku-4-5-20251001")
+    parts = []
+    async with _anthropic_client().messages.stream(
+        model=model,
+        max_tokens=4000,
+        system=DESC_SYSTEM.format(lang=LANGS[lang]),
+        messages=[{"role": "user", "content": text}],
+    ) as stream:
+        async for piece in stream.text_stream:
+            parts.append(piece)
+            yield piece
+
+    full = "".join(parts).strip()
+    if full and full != text:
+        await db.translations.update_one(
+            {"_id": cache_key(text, lang)},
+            {"$set": {"_id": cache_key(text, lang), "source": text,
+                      "lang": lang, "target": full}},
+            upsert=True)
+
+
 async def translate_cached_only(db, texts, lang):
     """Cache-ONLY lookup. Never calls the LLM, so it never blocks a page render."""
     if lang not in LANGS:

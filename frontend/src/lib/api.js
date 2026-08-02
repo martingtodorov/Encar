@@ -41,6 +41,45 @@ export async function translateDescription(id, lang) {
   return data;
 }
 
+/**
+ * Streamed description translation. Generation takes 10-20s because output length is the
+ * bottleneck, so `onChunk` is called as text arrives instead of after it is finished.
+ * Resolves with the full text. Throws so the caller can fall back to the POST route.
+ */
+export async function streamDescription(id, lang, onChunk) {
+  const res = await fetch(
+    `${API}/car/${id}/translate-description/stream?lang=${encodeURIComponent(lang)}`,
+    { credentials: "include" }
+  );
+  if (!res.ok || !res.body) throw new Error(`stream failed: ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let full = "";
+
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE frames are separated by a blank line; keep any partial frame in the buffer.
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() || "";
+    for (const frame of frames) {
+      const line = frame.split("\n").find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      const msg = JSON.parse(line.slice(5).trim());
+      if (msg.error) throw new Error(msg.error);
+      if (msg.chunk) {
+        full += msg.chunk;
+        onChunk?.(full);
+      }
+    }
+  }
+  return full;
+}
+
 export async function getListingsByIds(ids, lang) {
   const { data } = await http.post("/listings/by-ids", { ids }, { params: { lang } });
   return data;

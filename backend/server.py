@@ -11,6 +11,7 @@ Architecture notes:
 """
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -21,6 +22,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
@@ -34,8 +36,8 @@ import pricing               # noqa: E402
 import sync as sync_mod      # noqa: E402
 from encar import encar, image_url  # noqa: E402
 from translate import (LANGS, breaker_status, schedule_translation,  # noqa: E402
-                       translate_cached_only, translate_listings,
-                       translate_many, translate_one)
+                       stream_description, translate_cached_only,
+                       translate_listings, translate_many, translate_one)
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -323,6 +325,46 @@ async def translate_description(listing_id: str, lang: str = "bg"):
     if not translated or translated == text:
         raise HTTPException(503, "translation is unavailable right now, please try again")
     return {"text": translated, "lang": lang}
+
+
+def _sse(payload):
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@api.get("/car/{listing_id}/translate-description/stream")
+async def translate_description_stream(listing_id: str, lang: str = "bg"):
+    """Same translation as the POST route, streamed.
+
+    Descriptions take 10-20s to generate because output length is the bottleneck, so the
+    text is pushed out as it arrives instead of after it is finished. A cached
+    translation is sent as a single event immediately.
+    """
+    lang = norm_lang(lang)
+    cached = await db.car_details.find_one({"_id": listing_id})
+    text = (((cached or {}).get("detail") or {}).get("contents") or {}).get("text") or ""
+    text = text.strip()
+    if not text:
+        raise HTTPException(404, "this car has no dealer description")
+
+    async def events():
+        hit = await translate_cached_only(db, [text], lang)
+        if hit.get(text):
+            yield _sse({"chunk": hit[text]})
+            yield _sse({"done": True, "cached": True})
+            return
+        try:
+            async for piece in stream_description(db, text, lang):
+                yield _sse({"chunk": piece})
+            yield _sse({"done": True, "cached": False})
+        except Exception as e:
+            log.warning("description stream failed for %s: %s", listing_id, str(e)[:200])
+            yield _sse({"error": "translation is unavailable right now"})
+
+    return StreamingResponse(events(), media_type="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",   # stop nginx-style proxies holding the stream back
+    })
 
 
 @api.get("/catalogue/size")

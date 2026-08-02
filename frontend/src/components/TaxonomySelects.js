@@ -36,7 +36,7 @@ const Field = ({ id, label, items, current, onPick, disabled, busyKey, placehold
             items.find((i) => i.value === e.target.value)?.label || ""
           )
         }
-        className="h-11 w-full appearance-none truncate rounded-[10px] border border-input bg-card pl-3 pr-9 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        className="h-11 w-full appearance-none truncate rounded-[10px] border border-input bg-card pl-3 pr-9 text-sm text-foreground shadow-[var(--shadow-sm)] outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
       >
         <option value={ANY}>{placeholder}</option>
         {items.map((i) => (
@@ -53,7 +53,7 @@ const Field = ({ id, label, items, current, onPick, disabled, busyKey, placehold
   </div>
 );
 
-export const TaxonomySelects = ({ value, onChange, onLabels, layout = "row" }) => {
+export const TaxonomySelects = ({ value, onChange, onLabels, layout = "row", trailing }) => {
   const { t, lang } = useApp();
   const { make = "", model = "", badge = "", badgeDetail = "" } = value || {};
 
@@ -173,6 +173,20 @@ export const TaxonomySelects = ({ value, onChange, onLabels, layout = "row" }) =
           placeholder={t("anyTrim")}
           onPick={(v) => onChange({ make, model, badge, badgeDetail: v })}
         />
+      ) : null}
+      {/* Mobile only: sits in the next grid cell after the selects, so Filters reads as
+          part of the same control group instead of drifting down to the results header.
+          The transparent label keeps it baseline-aligned with the dropdowns. */}
+      {trailing ? (
+        <div className="min-w-0 lg:hidden">
+          <span
+            aria-hidden="true"
+            className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-transparent"
+          >
+            &nbsp;
+          </span>
+          {trailing}
+        </div>
       ) : null}
     </div>
   );
