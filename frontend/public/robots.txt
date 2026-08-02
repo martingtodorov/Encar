@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /*/login
+Disallow: /*/account
+Disallow: /*/admin
+Disallow: /*/saved
+Disallow: /*/searches
+
+Sitemap: https://encar-multi-lang.preview.emergentagent.com/sitemap.xml

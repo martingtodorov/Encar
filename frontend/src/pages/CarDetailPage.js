@@ -22,7 +22,9 @@ import { PhotoSwiper } from "@/components/PhotoSwiper";
 import { useApp } from "@/context/AppContext";
 import { EnquiryDialog } from "@/components/EnquiryDialog";
 import { DescriptionPanelBody } from "@/components/DescriptionPanelBody";
+import { useLangNav } from "@/hooks/useLangNav";
 import { getCar } from "@/lib/api";
+import { useSeo } from "@/lib/seo";
 import { formatMileage, formatMoney, formatNumber, formatYearMonth } from "@/lib/format";
 
 const Panel = ({ title, icon: Icon, children, testId, tone = "info" }) => (
@@ -84,6 +86,7 @@ export default function CarDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const { path } = useLangNav();
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
 
   const [car, setCar] = useState(null);
@@ -91,6 +94,12 @@ export default function CarDetailPage() {
   const [error, setError] = useState(null);
   const [active, setActive] = useState(0);
   const [lightbox, setLightbox] = useState(false);
+
+  // Opening a car from halfway down the result list must not keep that scroll offset:
+  // the visitor expects to land at the top of the car they just tapped.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [id]);
 
   useEffect(() => {
     let cancelled = false;
@@ -124,14 +133,20 @@ export default function CarDetailPage() {
   const photos = car?.photos || [];
   const q = car?.quote;
 
+  useSeo({
+    lang,
+    title: car?.title ? `${car.title} \u00b7 Encar` : "Encar",
+    description: car?.title ? `${car.title} \u2014 ${t("seoCarDesc")}` : t("seoHomeDesc"),
+  });
+
   // "Back to results" must land on the SAME result set the visitor came from. The
   // search page hands us its query string; otherwise step back through history, and
   // only fall back to a bare "/" when this page was opened cold (shared link).
   const goBack = () => {
     const from = location.state?.from;
-    if (typeof from === "string") navigate({ pathname: "/", search: from });
+    if (typeof from === "string") navigate({ pathname: path("/"), search: from });
     else if (location.key !== "default") navigate(-1);
-    else navigate("/");
+    else navigate(path("/"));
   };
 
   return (

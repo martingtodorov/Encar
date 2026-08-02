@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { Fingerprint, Loader2, LogOut, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -7,19 +6,20 @@ import { toast } from "sonner";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
+import { useLangNav } from "@/hooks/useLangNav";
 import http from "@/lib/api";
 
 export default function AccountPage() {
   const { t } = useApp();
   const { user, loading, logout, addPasskey, passkeySupported, errorMessage } = useAuth();
-  const navigate = useNavigate();
+  const { go } = useLangNav();
 
   const [passkeys, setPasskeys] = useState([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!loading && !user) navigate("/login", { replace: true });
-  }, [loading, user, navigate]);
+    if (!loading && !user) go("/login", { replace: true });
+  }, [loading, user, go]);
 
   const load = async () => {
     try {
@@ -167,7 +167,7 @@ export default function AccountPage() {
           variant="outline"
           onClick={async () => {
             await logout();
-            navigate("/", { replace: true });
+            go("/", { replace: true });
           }}
           className="mt-6 h-11 gap-2 rounded-[10px] border-border bg-card px-4 text-[14px] font-medium hover:bg-muted"
         >

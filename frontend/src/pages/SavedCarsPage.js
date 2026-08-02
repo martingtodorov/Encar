@@ -1,18 +1,22 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { HeartOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HeaderBar } from "@/components/HeaderBar";
 import { CarGrid } from "@/components/CarGrid";
 import { useApp } from "@/context/AppContext";
+import { useLangNav } from "@/hooks/useLangNav";
+import { useSeo } from "@/lib/seo";
 import { getListingsByIds } from "@/lib/api";
 
 /** Saved cars, resolved from the locally stored favourite ids. */
 export default function SavedCarsPage() {
-  const navigate = useNavigate();
   const { t, lang, favourites } = useApp();
+  const { path, go } = useLangNav();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  useSeo({ lang, title: `${t("savedCars")} · Encar`, description: t("seoSavedDesc") });
 
   useEffect(() => {
     let cancelled = false;
@@ -50,7 +54,7 @@ export default function SavedCarsPage() {
             <p className="mx-auto mt-1.5 max-w-sm text-sm text-muted-foreground">
               {t("noSavedBody")}
             </p>
-            <Link to="/">
+            <Link to={path("/")}>
               <Button className="mt-4 h-10 rounded-[10px] bg-[hsl(var(--primary))] px-5 text-primary-foreground hover:brightness-110">
                 {t("navSearch")}
               </Button>
@@ -60,7 +64,7 @@ export default function SavedCarsPage() {
           <CarGrid
             items={items}
             loading={loading}
-            onOpen={(car) => navigate(`/car/${car.id}`)}
+            onOpen={(car) => go(`/car/${car.id}`)}
             pageSize={favourites.length || 4}
           />
         )}

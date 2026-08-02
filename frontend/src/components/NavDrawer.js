@@ -8,35 +8,38 @@ import {
   LogOut,
   Gauge,
   ShieldCheck,
+  Bookmark,
   Sun,
   Moon,
 } from "lucide-react";
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
+import { useLangNav } from "@/hooks/useLangNav";
 import { LANGS, CURRENCIES } from "@/i18n";
 
 export const NavDrawer = () => {
-  const { t, favourites, lang, setLang, currency, setCurrency, theme, toggleTheme } = useApp();
+  const { t, favourites, lang, currency, setCurrency, theme, toggleTheme, searches } = useApp();
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
-  const navigate = useNavigate();
+  const { path, go, switchLang } = useLangNav();
   const [open, setOpen] = useState(false);
 
   const items = [
     { to: "/", label: t("navSearch"), icon: Search },
     { to: "/saved", label: t("savedCars"), icon: Heart, count: favourites.length },
+    { to: "/searches", label: t("savedSearches"), icon: Bookmark, count: searches.length },
     { to: "/how-it-works", label: t("navHowItWorks"), icon: HelpCircle },
   ];
 
-  const go = (to) => {
+  const navTo = (to) => {
     setOpen(false);
-    navigate(to);
+    go(to);
   };
 
   return (
@@ -66,11 +69,11 @@ export const NavDrawer = () => {
         <nav className="flex flex-col p-2" data-testid="nav-drawer">
           <div className="sm:grid sm:grid-cols-3 sm:gap-2">
             {items.map(({ to, label, icon: Icon, count }) => {
-              const activeRoute = pathname === to;
+              const activeRoute = pathname === path(to);
               return (
                 <Link
                   key={to}
-                  to={to}
+                  to={path(to)}
                   onClick={() => setOpen(false)}
                   data-testid={`nav-link-${to === "/" ? "search" : to.slice(1)}`}
                   className={`flex items-center gap-3 rounded-[10px] px-3 py-3 text-[14px] font-medium transition-colors ${
@@ -106,7 +109,7 @@ export const NavDrawer = () => {
                     key={l.code}
                     type="button"
                     data-testid={`language-option-${l.code}`}
-                    onClick={() => setLang(l.code)}
+                    onClick={() => switchLang(l.code)}
                     aria-pressed={l.code === lang}
                     className={`h-8 rounded-[8px] px-3 text-[12.5px] font-semibold uppercase transition-colors ${
                       l.code === lang
@@ -202,7 +205,7 @@ export const NavDrawer = () => {
                   <Button
                     data-testid="drawer-admin-button"
                     variant="outline"
-                    onClick={() => go("/admin")}
+                    onClick={() => navTo("/admin")}
                     className="h-11 flex-1 justify-center gap-2 rounded-[10px] border-border bg-card text-[14px] font-medium hover:bg-muted"
                   >
                     <Gauge className="h-4 w-4" aria-hidden="true" />
@@ -212,7 +215,7 @@ export const NavDrawer = () => {
                 <Button
                   data-testid="drawer-account-button"
                   variant="outline"
-                  onClick={() => go("/account")}
+                  onClick={() => navTo("/account")}
                   className="h-11 flex-1 justify-center gap-2 rounded-[10px] border-border bg-card text-[14px] font-medium hover:bg-muted"
                 >
                   <ShieldCheck className="h-4 w-4" aria-hidden="true" />
@@ -236,7 +239,7 @@ export const NavDrawer = () => {
             <div data-testid="drawer-auth" className="flex flex-col gap-2 px-1 pb-2 sm:flex-row">
               <Button
                 data-testid="drawer-login-button"
-                onClick={() => go("/login")}
+                onClick={() => navTo("/login")}
                 className="h-11 flex-1 justify-center gap-2 rounded-[10px] bg-[hsl(var(--primary))] text-[14px] font-semibold text-primary-foreground hover:brightness-110"
               >
                 <LogIn className="h-4 w-4" aria-hidden="true" />
@@ -245,7 +248,7 @@ export const NavDrawer = () => {
               <Button
                 data-testid="drawer-register-button"
                 variant="outline"
-                onClick={() => go("/login?mode=register")}
+                onClick={() => navTo("/login?mode=register")}
                 className="h-11 flex-1 justify-center gap-2 rounded-[10px] border-border bg-card text-[14px] font-medium hover:bg-muted"
               >
                 <UserPlus className="h-4 w-4" aria-hidden="true" />

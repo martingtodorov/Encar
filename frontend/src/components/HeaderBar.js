@@ -1,9 +1,12 @@
 import { Link } from "react-router-dom";
 import { BrandLogo } from "@/components/BrandLogo";
+import { useLangNav } from "@/hooks/useLangNav";
 import { NavDrawer } from "@/components/NavDrawer";
 import { HeaderNav } from "@/components/HeaderNav";
 
 export const HeaderBar = ({ hidden = false }) => {
+  const { path } = useLangNav();
+
   return (
     <header
       data-testid="header-bar"
@@ -19,7 +22,7 @@ export const HeaderBar = ({ hidden = false }) => {
         <div className="w-10 shrink-0 lg:hidden" aria-hidden="true" />
 
         <div className="flex flex-1 justify-center lg:flex-none lg:justify-start">
-          <Link to="/" aria-label="Encar" className="inline-flex items-center">
+          <Link to={path("/")} aria-label="Encar" className="inline-flex items-center">
             <BrandLogo compact />
           </Link>
         </div>

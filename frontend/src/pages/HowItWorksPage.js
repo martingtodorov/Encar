@@ -1,6 +1,7 @@
 import { Ship, FileSearch, Receipt, Truck } from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useApp } from "@/context/AppContext";
+import { useSeo } from "@/lib/seo";
 
 const Step = ({ icon: Icon, title, body, n }) => (
   <div className="rounded-[16px] border border-border bg-card p-5 shadow-sm">
@@ -18,7 +19,9 @@ const Step = ({ icon: Icon, title, body, n }) => (
 );
 
 export default function HowItWorksPage() {
-  const { t } = useApp();
+  const { t, lang } = useApp();
+
+  useSeo({ lang, title: `${t("navHowItWorks")} \u00b7 Encar`, description: t("howIntro") });
 
   return (
     <div className="min-h-screen bg-background">

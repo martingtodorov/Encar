@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { SlidersHorizontal, Loader2, RotateCcw } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
+import { SlidersHorizontal, Loader2, RotateCcw, Bookmark, BookmarkCheck } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -19,82 +20,27 @@ import { SortControl, DEFAULT_SORT_BROWSE, DEFAULT_SORT_FILTERED } from "@/compo
 import { CarGrid } from "@/components/CarGrid";
 import { ResultsPagination } from "@/components/ResultsPagination";
 import { useApp } from "@/context/AppContext";
+import { useLangNav } from "@/hooks/useLangNav";
 import { getCatalogueSize, getFilters, searchCars } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { useScrollDirection } from "@/hooks/useScrollDirection";
-
-const EMPTY = {
-  fuels: [],
-  regions: [],
-  transmissions: [],
-  year_min: "",
-  year_max: "",
-  mileage_min: "",
-  mileage_max: "",
-  price_min: "",
-  price_max: "",
-  only_inspection: false,
-  only_record: false,
-  only_diagnosed: false,
-};
-
-const EMPTY_TAX = { make: "", model: "", badge: "", badgeDetail: "" };
+import { useSeo } from "@/lib/seo";
+import {
+  EMPTY,
+  EMPTY_TAX,
+  buildPayload,
+  paramsToState,
+  savableQuery,
+  stateToParams,
+} from "@/lib/searchQuery";
+import { describeSearch } from "@/lib/describeSearch";
 
 // 16 ads per page on every viewport: mobile shows them as cards, desktop as rows.
 const PAGE_SIZE = 16;
 
-// ── search state <-> URL ─────────────────────────────────────────────────────
-// The whole search lives in the query string, not just in component state. Opening a
-// car and pressing Back used to remount this page with everything cleared, throwing the
-// visitor into an unfiltered catalogue; now the browser restores the exact result set.
-// It also makes any set of filters a shareable link.
-const LIST_SEP = "~";
-
-function stateToParams({ filters, tax, sort, page }) {
-  const p = new URLSearchParams();
-  Object.entries(tax).forEach(([k, v]) => {
-    if (v) p.set(k, v);
-  });
-  Object.entries(filters).forEach(([k, v]) => {
-    if (Array.isArray(v)) {
-      if (v.length) p.set(k, v.join(LIST_SEP));
-    } else if (typeof v === "boolean") {
-      if (v) p.set(k, "1");
-    } else if (v !== "" && v !== null && v !== undefined) {
-      p.set(k, String(v));
-    }
-  });
-  if (sort) p.set("sort", sort);
-  if (page > 1) p.set("page", String(page));
-  return p;
-}
-
-function paramsToState(p) {
-  const tax = { ...EMPTY_TAX };
-  Object.keys(EMPTY_TAX).forEach((k) => {
-    if (p.get(k)) tax[k] = p.get(k);
-  });
-
-  const filters = { ...EMPTY };
-  Object.entries(EMPTY).forEach(([k, fallback]) => {
-    const raw = p.get(k);
-    if (raw === null) return;
-    if (Array.isArray(fallback)) filters[k] = raw.split(LIST_SEP).filter(Boolean);
-    else if (typeof fallback === "boolean") filters[k] = raw === "1";
-    else filters[k] = raw;
-  });
-
-  return {
-    filters,
-    tax,
-    sort: p.get("sort") || "",
-    page: Math.max(1, parseInt(p.get("page") || "1", 10) || 1),
-  };
-}
-
 export default function SearchPage() {
-  const { t, lang } = useApp();
-  const navigate = useNavigate();
+  const { t, lang, currency, rates, saveSearch, isSearchSaved } = useApp();
+  const { go } = useLangNav();
   const [searchParams, setSearchParams] = useSearchParams();
   // Read the URL ONCE on mount; after that this component owns the state and writes
   // back. Re-reading on every param change would fight the effect below.
@@ -119,6 +65,8 @@ export default function SearchPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
 
   const headerHidden = useScrollDirection(140);
+
+  useSeo({ lang, title: t("seoHomeTitle"), description: t("seoHomeDesc") });
 
   const resultsRef = useRef(null);
   const debounce = useRef(null);
@@ -148,31 +96,10 @@ export default function SearchPage() {
     }
   }, []);
 
-  const payload = useMemo(() => {
-    const num = (v) => (v === "" || v === null || v === undefined ? null : Number(v));
-    return {
-      makes: tax.make ? [tax.make] : [],
-      models: tax.model ? [tax.model] : [],
-      badges: tax.badge ? [tax.badge] : [],
-      badge_details: tax.badgeDetail ? [tax.badgeDetail] : [],
-      fuels: filters.fuels,
-      regions: filters.regions,
-      transmissions: filters.transmissions,
-      year_min: num(filters.year_min),
-      year_max: num(filters.year_max),
-      mileage_min: num(filters.mileage_min),
-      mileage_max: num(filters.mileage_max),
-      price_min: num(filters.price_min),
-      price_max: num(filters.price_max),
-      only_inspection: filters.only_inspection,
-      only_record: filters.only_record,
-      only_diagnosed: filters.only_diagnosed,
-      sort,
-      page,
-      page_size: PAGE_SIZE,
-      lang,
-    };
-  }, [filters, tax, sort, page, lang]);
+  const payload = useMemo(
+    () => buildPayload({ filters, tax, sort, page }, { lang, pageSize: PAGE_SIZE }),
+    [filters, tax, sort, page, lang]
+  );
 
   useEffect(() => {
     if (debounce.current) clearTimeout(debounce.current);
@@ -274,11 +201,22 @@ export default function SearchPage() {
   // and the visitor lands in an unfiltered catalogue.
   const openCar = useCallback(
     (car) =>
-      navigate(`/car/${car.id}`, {
+      go(`/car/${car.id}`, {
         state: { from: `?${stateToParams({ filters, tax, sort, page })}` },
       }),
-    [navigate, filters, tax, sort, page]
+    [go, filters, tax, sort, page]
   );
+
+  // A saved search is the current filters, nothing else: it always reopens on page 1
+  // with the default sort, so it keeps working as the catalogue changes.
+  const query = useMemo(() => savableQuery({ filters, tax }), [filters, tax]);
+  const alreadySaved = isSearchSaved(query);
+
+  const saveThis = useCallback(() => {
+    const name = describeSearch({ filters, tax, taxLabels, facets, t, lang, currency, rates });
+    saveSearch({ name, query, total: result.total });
+    toast.success(t("searchSavedToast"), { description: name });
+  }, [filters, tax, taxLabels, facets, t, lang, currency, rates, query, result.total, saveSearch]);
 
   const countLabel =
     result.total === 1
@@ -399,7 +337,23 @@ export default function SearchPage() {
                 {countLabel}
               </div>
 
-              <div className="ml-auto">
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  data-testid="save-search-button"
+                  variant="outline"
+                  disabled={!query || alreadySaved}
+                  onClick={saveThis}
+                  className="h-11 gap-2 rounded-[10px] border border-input bg-card px-4 text-sm shadow-sm disabled:opacity-60"
+                >
+                  {alreadySaved ? (
+                    <BookmarkCheck className="h-4 w-4 text-[hsl(var(--primary))]" aria-hidden="true" />
+                  ) : (
+                    <Bookmark className="h-4 w-4 text-[hsl(var(--primary))]" aria-hidden="true" />
+                  )}
+                  <span className="hidden sm:inline">
+                    {alreadySaved ? t("searchSaved") : t("saveThisSearch")}
+                  </span>
+                </Button>
                 <SortControl value={sort} onChange={changeSort} />
               </div>
             </div>

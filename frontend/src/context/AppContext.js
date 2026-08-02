@@ -13,6 +13,7 @@ const AppContext = createContext(null);
 const LS_LANG = "encar.lang";
 const LS_CUR = "encar.currency";
 const LS_FAV = "encar.favourites";
+const LS_SEARCHES = "encar.searches";
 const LS_THEME = "encar.theme";
 
 function detectLang() {
@@ -40,6 +41,13 @@ export function AppProvider({ children }) {
   const [favourites, setFavourites] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem(LS_FAV) || "[]");
+    } catch (e) {
+      return [];
+    }
+  });
+  const [searches, setSearches] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(LS_SEARCHES) || "[]");
     } catch (e) {
       return [];
     }
@@ -96,6 +104,70 @@ export function AppProvider({ children }) {
     setFavourites(next);
   }, []);
 
+  // ── saved searches: a stored query string plus a name ──────────────────────
+  const writeSearches = useCallback((next) => {
+    localStorage.setItem(LS_SEARCHES, JSON.stringify(next));
+    setSearches(next);
+    return next;
+  }, []);
+
+  const saveSearch = useCallback(
+    ({ name, query, total }) => {
+      const item = {
+        id: `s_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+        name,
+        query,
+        seen_total: total ?? null,
+        alerts: false,   // reserved: "email me when a new car matches this search"
+        created_at: new Date().toISOString(),
+      };
+      setSearches((prev) => {
+        const next = [item, ...prev.filter((s) => s.query !== query)].slice(0, 60);
+        localStorage.setItem(LS_SEARCHES, JSON.stringify(next));
+        return next;
+      });
+      return item;
+    },
+    []
+  );
+
+  const renameSearch = useCallback((id, name) => {
+    setSearches((prev) => {
+      const next = prev.map((s) => (s.id === id ? { ...s, name } : s));
+      localStorage.setItem(LS_SEARCHES, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const removeSearch = useCallback((id) => {
+    setSearches((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      localStorage.setItem(LS_SEARCHES, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const markSearchSeen = useCallback((id, total) => {
+    setSearches((prev) => {
+      const item = prev.find((s) => s.id === id);
+      if (!item || item.seen_total === total) return prev;
+      const next = prev.map((s) => (s.id === id ? { ...s, seen_total: total } : s));
+      localStorage.setItem(LS_SEARCHES, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const replaceSearches = useCallback((items) => {
+    const seen = new Set();
+    const next = (items || []).filter((s) => s?.id && !seen.has(s.id) && seen.add(s.id));
+    return writeSearches(next);
+  }, [writeSearches]);
+
+  const isSearchSaved = useCallback(
+    (query) => searches.some((s) => s.query === query),
+    [searches]
+  );
+
   const value = useMemo(
     () => ({
       lang,
@@ -109,10 +181,18 @@ export function AppProvider({ children }) {
       toggleFavourite,
       replaceFavourites,
       isFavourite: (id) => favourites.includes(id),
+      searches,
+      saveSearch,
+      renameSearch,
+      removeSearch,
+      markSearchSeen,
+      replaceSearches,
+      isSearchSaved,
       t: (key, vars) => translate(lang, key, vars),
     }),
     [lang, setLang, currency, setCurrency, theme, toggleTheme, rates, favourites,
-     toggleFavourite, replaceFavourites]
+     toggleFavourite, replaceFavourites, searches, saveSearch, renameSearch,
+     removeSearch, markSearchSeen, replaceSearches, isSearchSaved]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

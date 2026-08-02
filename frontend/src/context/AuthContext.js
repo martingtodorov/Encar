@@ -4,11 +4,13 @@ import {
   apiLogout,
   apiMe,
   apiMergeFavourites,
+  apiMergeSearches,
   apiPasskeyLoginOptions,
   apiPasskeyLoginVerify,
   apiPasskeyRegisterOptions,
   apiPasskeyRegisterVerify,
   apiPutFavourites,
+  apiPutSearches,
   apiRegister,
 } from "@/lib/api";
 import { createCredential, getCredential, passkeySupported } from "@/lib/passkey";
@@ -25,14 +27,14 @@ function message(e, fallback) {
 }
 
 export function AuthProvider({ children }) {
-  const { favourites, replaceFavourites } = useApp();
+  const { favourites, replaceFavourites, searches, replaceSearches } = useApp();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   // Fold whatever the browser collected while logged out into the account, then adopt
   // the account's list locally so the two never silently diverge.
   const adopt = useCallback(
-    async (nextUser, localIds) => {
+    async (nextUser, localIds, localSearches) => {
       setUser(nextUser);
       try {
         const { ids } = await apiMergeFavourites(localIds || []);
@@ -40,8 +42,14 @@ export function AuthProvider({ children }) {
       } catch (e) {
         /* favourites sync is best-effort; never block sign-in on it */
       }
+      try {
+        const { items } = await apiMergeSearches(localSearches || []);
+        replaceSearches(items);
+      } catch (e) {
+        /* same for saved searches */
+      }
     },
-    [replaceFavourites]
+    [replaceFavourites, replaceSearches]
   );
 
   useEffect(() => {
@@ -52,6 +60,7 @@ export function AuthProvider({ children }) {
         if (!alive) return;
         setUser(u);
         if (u?.favourites?.length) replaceFavourites(u.favourites);
+        if (u?.saved_searches?.length) replaceSearches(u.saved_searches);
       } catch (e) {
         /* not signed in */
       } finally {
@@ -72,24 +81,34 @@ export function AuthProvider({ children }) {
     return () => clearTimeout(id);
   }, [favourites, user?.id]);
 
+  useEffect(() => {
+    if (!user) return;
+    const id = setTimeout(() => {
+      apiPutSearches(searches).catch(() => {});
+    }, 800);
+    return () => clearTimeout(id);
+  }, [searches, user?.id]);
+
   const login = useCallback(
     async (email, password) => {
       const local = favourites;
+      const localSearches = searches;
       const { user: u } = await apiLogin({ email, password });
-      await adopt(u, local);
+      await adopt(u, local, localSearches);
       return u;
     },
-    [adopt, favourites]
+    [adopt, favourites, searches]
   );
 
   const register = useCallback(
     async (email, password, name) => {
       const local = favourites;
+      const localSearches = searches;
       const { user: u } = await apiRegister({ email, password, name: name || "" });
-      await adopt(u, local);
+      await adopt(u, local, localSearches);
       return u;
     },
-    [adopt, favourites]
+    [adopt, favourites, searches]
   );
 
   const logout = useCallback(async () => {
@@ -100,15 +119,16 @@ export function AuthProvider({ children }) {
   /** One tap, no email typed: the authenticator picks the passkey for this site. */
   const passkeyLogin = useCallback(async () => {
     const local = favourites;
+    const localSearches = searches;
     const start = await apiPasskeyLoginOptions();
     const credential = await getCredential(start.options);
     const { user: u } = await apiPasskeyLoginVerify({
       flow_id: start.flow_id,
       credential,
     });
-    await adopt(u, local);
+    await adopt(u, local, localSearches);
     return u;
-  }, [adopt, favourites]);
+  }, [adopt, favourites, searches]);
 
   const addPasskey = useCallback(async () => {
     const start = await apiPasskeyRegisterOptions();

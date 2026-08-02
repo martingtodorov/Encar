@@ -157,6 +157,16 @@ export async function apiPutFavourites(ids) {
   return data;
 }
 
+export async function apiMergeSearches(items) {
+  const { data } = await http.post("/auth/saved-searches/merge", { items });
+  return data;
+}
+
+export async function apiPutSearches(items) {
+  const { data } = await http.put("/auth/saved-searches", { items });
+  return data;
+}
+
 export async function apiPasskeyRegisterOptions() {
   const { data } = await http.post("/auth/passkey/register/options", {});
   return data;

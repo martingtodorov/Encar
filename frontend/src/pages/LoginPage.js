@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import { Fingerprint, Loader2, LogIn, UserPlus, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,13 +8,14 @@ import { Separator } from "@/components/ui/separator";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
+import { useLangNav } from "@/hooks/useLangNav";
 
 const MIN_PASSWORD = 8;
 
 export default function LoginPage() {
   const { t } = useApp();
   const { user, login, register, passkeyLogin, passkeySupported, errorMessage } = useAuth();
-  const navigate = useNavigate();
+  const { path, go } = useLangNav();
   const [params] = useSearchParams();
 
   const [mode, setMode] = useState(params.get("mode") === "register" ? "register" : "login");
@@ -25,15 +26,15 @@ export default function LoginPage() {
   const [busy, setBusy] = useState("");
 
   useEffect(() => {
-    if (user) navigate("/", { replace: true });
-  }, [user, navigate]);
+    if (user) go("/", { replace: true });
+  }, [user, go]);
 
   const run = async (kind, fn) => {
     setError("");
     setBusy(kind);
     try {
       await fn();
-      navigate("/", { replace: true });
+      go("/", { replace: true });
     } catch (e) {
       const msg = errorMessage(e, t("authFailed"));
       if (msg) setError(msg);
@@ -193,7 +194,7 @@ export default function LoginPage() {
         </button>
 
         <Link
-          to="/"
+          to={path("/")}
           className="mt-2 text-[13px] text-[hsl(var(--primary))] transition-opacity hover:opacity-80"
         >
           {t("backToSearch")}

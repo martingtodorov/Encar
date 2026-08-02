@@ -161,6 +161,7 @@ def _public(user, passkeys=0):
         "has_password": bool(user.get("password_hash")),
         "passkeys": passkeys,
         "favourites": user.get("favourites") or [],
+        "saved_searches": user.get("saved_searches") or [],
         "is_admin": bool(user.get("is_admin")),
         "created_at": user.get("created_at"),
     }
@@ -185,6 +186,10 @@ class CeremonyBody(BaseModel):
 
 class FavouritesBody(BaseModel):
     ids: list[str] = Field(default_factory=list)
+
+
+class SavedSearchesBody(BaseModel):
+    items: list[dict] = Field(default_factory=list)
 
 
 # ── password auth -------------------------------------------------------------
@@ -437,3 +442,49 @@ async def merge_favourites(body: FavouritesBody, user=Depends(current_user)):
     await _db.users.update_one({"_id": user["_id"]},
                                {"$set": {"favourites": merged, "favourites_at": _now()}})
     return {"ids": merged}
+
+
+# ── saved searches, synced to the account -------------------------------------
+_SEARCH_KEYS = ("id", "name", "query", "seen_total", "alerts", "created_at")
+
+
+def _clean_searches(items):
+    out, seen = [], set()
+    for raw in items or []:
+        if not isinstance(raw, dict):
+            continue
+        sid, query = str(raw.get("id") or "")[:64], str(raw.get("query") or "")[:2000]
+        if not sid or sid in seen:
+            continue
+        seen.add(sid)
+        item = {k: raw.get(k) for k in _SEARCH_KEYS if k in raw}
+        item["id"], item["query"] = sid, query
+        item["name"] = str(raw.get("name") or "")[:120]
+        item["alerts"] = bool(raw.get("alerts"))
+        out.append(item)
+    return out[:60]
+
+
+@router.get("/auth/saved-searches")
+async def get_saved_searches(user=Depends(current_user)):
+    return {"items": user.get("saved_searches") or []}
+
+
+@router.put("/auth/saved-searches")
+async def put_saved_searches(body: SavedSearchesBody, user=Depends(current_user)):
+    items = _clean_searches(body.items)
+    await _db.users.update_one({"_id": user["_id"]},
+                               {"$set": {"saved_searches": items, "searches_at": _now()}})
+    return {"items": items}
+
+
+@router.post("/auth/saved-searches/merge")
+async def merge_saved_searches(body: SavedSearchesBody, user=Depends(current_user)):
+    """Sign-in: fold in whatever was saved while logged out, newest first, no duplicates."""
+    stored = user.get("saved_searches") or []
+    by_query = {s.get("query"): s for s in stored}
+    incoming = [s for s in _clean_searches(body.items) if s["query"] not in by_query]
+    items = _clean_searches(incoming + stored)
+    await _db.users.update_one({"_id": user["_id"]},
+                               {"$set": {"saved_searches": items, "searches_at": _now()}})
+    return {"items": items}

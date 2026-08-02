@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { Activity, Inbox, PieChart } from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useAuth } from "@/context/AuthContext";
+import { useLangNav } from "@/hooks/useLangNav";
 import { Spinner } from "@/components/admin/AdminBits";
 import { AdminOverview } from "@/components/admin/AdminOverview";
 import { AdminCoverage } from "@/components/admin/AdminCoverage";
@@ -16,7 +17,7 @@ const TABS = [
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
-  const navigate = useNavigate();
+  const { go } = useLangNav();
   const [params, setParams] = useSearchParams();
   const [tab, setTab] = useState(params.get("tab") || "overview");
 
@@ -24,9 +25,9 @@ export default function AdminPage() {
   // this is only so the page does not flash before the 401s land.
   useEffect(() => {
     if (loading) return;
-    if (!user) navigate("/login", { replace: true });
-    else if (!user.is_admin) navigate("/", { replace: true });
-  }, [loading, user, navigate]);
+    if (!user) go("/login", { replace: true });
+    else if (!user.is_admin) go("/", { replace: true });
+  }, [loading, user, go]);
 
   const pick = (id) => {
     setTab(id);

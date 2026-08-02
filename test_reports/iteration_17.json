@@ -1,0 +1,81 @@
+{
+  "summary": "Verified all features from the review request for the Encar skin (multi-language + saved searches + SEO). Backend: 16/16 pytest cases pass for /api/auth/saved-searches (GET/PUT/merge, dedupe, auth-required), /robots.txt, /sitemap.xml, and shell serving for /bg /ro /en / how-it-works / searches / saved paths. Frontend: bare-root redirects to /en, legacy /saved and /?year=... redirect to /en/... preserving query, SEO tags (title + canonical + hreflang alternates for bg/ro/en/x-default) present on home + how-it-works with RO title localised in Romanian. Save-search flow on desktop works end-to-end: button toggles 'Save this search' -> 'Saved', header badge shows count, /en/searches shows card with live 'N cars now' count + real thumbnail image, view returns to filtered URL, rename persists across reload, delete removes card, and simulated seen_total reduction shows 'N new' badge. Mobile (390x844): logo horizontally centred (194.99 of 390), nav-menu-button flush right, NO theme toggle in header, drawer contains nav-link-searches + theme-toggle/theme-option-light that actually toggle dark/light. Sync: while signed out saved a search, signed in as admin, POST merge folded the local item into the account, GET /api/auth/saved-searches and /api/auth/me both include it; after clearing localStorage and reloading /en/searches, the card came back from the account. Currency: EN/BG show EUR, RO shows RON on both list and detail pages. Car detail page opens at scrollY=0 after scrolling the list to 3000. All 4 nav pages (/en/how-it-works, /en/saved, /en/account, /en/admin) render without JS errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/en/account, /en/admin (private pages)", "issues": ["document.title stays at the generic index.html value 'Emergent | Fullstack App' when the page renders the sign-in prompt (before the user is signed in). Not visible to search engines because both routes are Disallowed in robots.txt, but it's inconsistent with the rest of the app where useSeo() sets a localised title. Consider adding a useSeo() call in the pre-auth branch of AccountPage/AdminPage/LoginPage."]}
+    ]
+  },
+  "verifications": {
+    "bare_and_legacy_redirects": {
+      "/": "-> /en?sort=newest",
+      "/saved": "-> /en/saved",
+      "/?year_min=2020": "-> /en?year_min=2020&sort=newest (query preserved)"
+    },
+    "unknown_prefix": {
+      "/xx/saved": "-> /en/xx/saved (spec says /en/saved). The LangRedirect prepends /en to the whole path rather than stripping the unknown xx segment. Minor deviation from spec, but the page still resolves to the SPA and renders."
+    },
+    "seo": {
+      "home_en": "title='Korean cars with a final landed price | Encar', canonical=/en, alternates=[bg,ro,en,x-default] OK",
+      "home_ro": "title='Mașini din Coreea cu preț final livrat | Encar' (localised)",
+      "how_it_works_en": "title='How it works · Encar', canonical=/en/how-it-works, alternates present for all 3 langs + x-default",
+      "robots_txt": "200 with Cloudflare-managed AI content signals + explicit Disallow for /*/login /*/account /*/admin /*/saved /*/searches, Sitemap declared",
+      "sitemap_xml": "200, lists /bg /ro /en with hreflang alternates and lastmod"
+    },
+    "saved_searches_desktop": {
+      "save_button_toggle": "'Save this search' -> 'Saved' after click",
+      "header_badge": "header-nav-link-searches shows count 1",
+      "card_thumbnail": "real image from ci.encar.com loaded (naturalWidth=640, not fallback)",
+      "live_total": "'89,327 cars now' shown for saved 'year_min=2019'",
+      "view_returns_to_filters": "-> /en/?year_min=2019 (+sort=newest default) OK",
+      "rename_persists_reload": true,
+      "new_badge_after_lowering_seen_total": "'5 new' visible after subtracting 5 from stored seen_total",
+      "delete_removes_card": true
+    },
+    "saved_searches_mobile": {
+      "drawer_contains_nav-link-searches": true,
+      "drawer_testids": ["nav-drawer","nav-link-search","nav-link-saved","nav-link-searches","nav-link-how-it-works","language-option-bg","language-option-ro","language-option-en","currency-option-EUR","currency-option-RON","theme-option-light","theme-toggle","drawer-auth","drawer-login-button","drawer-register-button"],
+      "logo_centered": "centerX=194.99, viewportWidth=390 -> logo horizontally centred",
+      "nav_menu_button_right_edge": "12px from right edge",
+      "theme_in_header": false,
+      "theme_toggle_in_drawer_works": "theme-toggle turns dark on, theme-option-light turns it off"
+    },
+    "account_sync": {
+      "merge_on_signin": "local search 'year_min=2019' persisted server-side after login; /api/auth/me.saved_searches=1",
+      "roundtrip_after_localStorage_clear": "card 'year_min=2019' reappears on /en/searches purely from the account"
+    },
+    "car_detail_scroll_to_top": {
+      "scrollY_before_click_on_list": 3000,
+      "scrollY_after_navigating_to_detail": 0
+    },
+    "language_currency_switch": {
+      "en_detail": "€15,199 for car 42318384",
+      "ro_detail": "shows RON prices (regex captured RON tokens)",
+      "bg_detail": "shows EUR (€ tokens present)",
+      "url_stays_on_same_page": "/en/?year_min=2020 -> /ro?year_min=2020&sort=newest"
+    },
+    "pages_render_without_errors": ["/en/how-it-works","/en/saved","/en/account","/en/admin"]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_saved_searches_and_seo.py",
+    "/app/test_reports/pytest/saved_searches.xml"
+  ],
+  "action_items": [
+    "MINOR: LangRedirect strips unknown language prefixes to '/{lang}/saved' instead of the observed '/{lang}/xx/saved'. Currently /xx/saved becomes /en/xx/saved. Consider matching an allow-list ['bg','ro','en'] on the FIRST segment and, if it looks like a lang-shaped 2-letter token that isn't in the list, drop it before appending /en/.",
+    "MINOR: Add useSeo() to LoginPage, AccountPage and AdminPage so the tab title stays branded even in the pre-auth (or admin-forbidden) state instead of falling back to 'Emergent | Fullstack App'."
+  ],
+  "critical_code_review_comments": [
+    "_clean_searches in /app/backend/auth.py correctly caps at 60 items, dedupes by id, and forces query/name/alerts types — good.",
+    "merge_saved_searches uses by_query keyed on 'query' to prevent duplicate filters even when the client generates a new id — good, verified end-to-end.",
+    "public().saved_searches is returned by /api/auth/me — good for the client to hydrate on page load without a second round-trip."
+  ],
+  "updated_files": ["/app/backend/tests/test_saved_searches_and_seo.py"],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% on all covered flows"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created and later deleted transient saved search 'year_min=2019' on the admin account.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All features from the review request verified. Backend pytest suite added at /app/backend/tests/test_saved_searches_and_seo.py covers saved-searches CRUD, merge dedupe (by query), auth-required, /robots.txt and /sitemap.xml. Only two minor cosmetic items reported: unknown 2-letter prefix not stripped (/xx/saved -> /en/xx/saved) and generic HTML title on Login/Account/Admin pages. Photo-swiper regression not re-verified in this iteration because iteration_16 already confirmed it comprehensively at 1600x900, 1280x800 and 390x844."
+}
