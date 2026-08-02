@@ -3,11 +3,11 @@
 ## 1) Objectives
 - Provide a BG/RO/EN “skin” over Encar’s full catalogue (≈218k ads) with fast search, deep pagination in **our DB**, and detail pages.
 - Reprice every listing using the landed-cost + margin + tier + **charm-up** spec in `/app/memory/pricing_spec.md` (constants runtime-editable).
-- Include on detail: photos (hotlinked), translated description, option list (resolved from option dictionaries), insurance history, inspection sheet, diagnosis.
+- Include on detail: photos (hotlinked), translated dealer text (lazy), translated spec/equipment/docs labels, insurance history, inspection sheet, diagnosis.
 - Minimize upstream load and avoid anti-abuse circumvention: polite syncing + caching; no residential proxy pool.
 - Keep the system reproducible and correct despite upstream quirks:
   - **Do not rely on upstream offset pagination** (proved unstable); instead use an exact partitioned crawl.
-  - Handle duplicated ads correctly and prefer the duplicate that has insurance history.
+  - Handle duplicated ads correctly and **prefer the duplicate that has insurance history**.
 
 ## 2) Implementation Steps
 
@@ -24,8 +24,8 @@
 
 **Build** `/app/test_core.py` that proves, with real calls:
 - Encar list endpoint: `limit=500` works and can return big batches.
-- **(Updated)** Demonstrate that naive offset pagination can be unstable under `ModifiedDate` sort and must not be used for completeness.
-- **(Updated)** Demonstrate partitioned crawl exactness on numeric facets:
+- Demonstrate that naive offset pagination can be unstable under `ModifiedDate` sort and must not be used for completeness.
+- Demonstrate partitioned crawl exactness on numeric facets:
   - For Price/Year/Mileage splits, verify `count(left)+count(right)==count(parent)`.
   - Prove a leaf partition of `<=500` returns complete results in one request.
 - Identify mapping between search `Id` and the underlying physical vehicle (via photo URL parsing → `vehicle_key`), enabling dedupe.
@@ -34,16 +34,16 @@
 - Insurance: `/v1/readside/record/vehicle/{vehicleId}/open?vehicleNo=...` works.
 - Inspection + diagnosis endpoints work.
 - Translation: Emergent LLM call KO→EN/BG/RO with MongoDB cache; demonstrate cache hit on second run.
-- Pricing: implement compute per `/app/memory/pricing_spec.md` with **charm-up**; assert worked examples A/B/C/D match charm-up outputs.
+- Pricing: implement compute per `/app/memory/pricing_spec.md` with **charm-up**; assert worked examples A/B/C/D match outputs.
 - FX: fetch live `fx_krw_eur` and `usd_eur` (TTL cached in script).
 
 **Exit gate:** POC script prints PASS for every section + stores sample docs into MongoDB.
 
 ### Phase 2 — V1 App Development (MVP; build around proven core)
 **User stories**
-1. As a user, I can search/filter cars (make/model/year/price/mileage/fuel/transmission/region) and get instant results.
-2. As a user, I can sort by newest and by computed landed/sale price so I can find the best import deals.
-3. As a user, I can open a detail page and read translated description, options, and see insurance/inspection/diagnosis.
+1. As a user, I can search/filter cars (make/model/submodel/trim/year/price/mileage/fuel/transmission/region) and get instant results.
+2. As a user, I can sort by lowest price (default), newest, mileage, year and computed landed/sale price.
+3. As a user, I can open a detail page and read translated equipment/specs and see insurance/inspection/diagnosis.
 4. As a user, I can switch language (BG/RO/EN) and currency (EUR/BGN/RON) and the UI + prices update.
 5. As a user, I can favorite cars and send an enquiry with a link to the car.
 
@@ -55,13 +55,13 @@
   - `settings` (pricing constants, VAT reclaimable, FX overrides, sync intervals)
   - `favorites` + `enquiries` (no auth initially: browser local id)
 - Catalogue sync worker:
-  - **(Updated)** Use an adaptive partitioned crawl (faceted bisection) for completeness.
+  - Use adaptive partitioned crawl (faceted bisection) for completeness.
   - Upsert summaries, drop lease listings (`SellType=리스`).
   - Mark missing listings inactive (`active=false`) after the run.
   - Stamp `last_crawl=run_id` and retire via `last_crawl != run_id` rather than a giant `$nin` list.
   - One worker, polite interval + exponential backoff via `EncarClient`.
 - Dedupe:
-  - **(Updated requirement)** Prefer the duplicate ad with insurance history.
+  - Prefer the duplicate ad with insurance history.
   - Keep-order: `has_record → has_inspection → has_resume → photo_count → recency`.
 - API endpoints:
   - `POST /api/search` served from MongoDB (faceted filters + sort + pagination).
@@ -69,6 +69,12 @@
   - `POST /api/translate` internal helper (batched) using Emergent LLM + cache.
   - `GET/PUT /api/admin/settings` (no auth initially; gated by env secret header).
   - `POST /api/favorites`, `GET /api/favorites`, `POST /api/enquiry`.
+- Translation behavior (updated):
+  - **Never render Hangul** for make/model/submodel/trim in search results: synchronous cache-around translation for those fields.
+  - Detail pages synchronously translate spec/equipment/insurance/inspection/diagnosis labels/values when Hangul is present (bounded set); dealer description remains lazy.
+  - Safety: LLM circuit breaker to avoid per-request retry storms when budget/auth is broken; status surfaced on `/api/health`.
+- Insurance claim amounts:
+  - Convert own/third-party accident claim amounts from KRW → EUR with straight FX (`KRW / fx_krw_eur`) and expose as EUR fields.
 - Pricing service:
   - Implements `/app/memory/pricing_spec.md` exactly; constants from `settings`; computes both customs scenarios.
 - FX service:
@@ -76,12 +82,17 @@
 
 **Frontend (React + shadcn/ui)**
 - Pages:
-  - Search page: filter sidebar, listing grid, pagination, sort incl. landed/sale.
-  - Detail page: photo gallery (hotlink), translated spec/description, options grouped, insurance/inspection/diagnosis panels, landed breakdown + profit range.
+  - Search page: filter sidebar, listings, pagination, sort incl. landed/sale.
+  - Detail page: photo gallery (hotlink), translated spec/equipment/docs, insurance/inspection/diagnosis panels, landed breakdown + profit range.
   - Favorites drawer/page; enquiry form.
   - Admin settings page (constants + FX override; guarded).
 - i18n: BG/RO/EN UI strings + server-provided translated content.
 - Currency switcher: EUR/BGN/RON (BGN fixed 1.95583; RON via FX).
+- UX defaults (updated):
+  - 16 ads per page.
+  - Default sort: lowest price first.
+  - Desktop layout: 16 full-width listing rows (not a card grid). Mobile/tablet: cards.
+  - Sort dropdown: native `<select>` (iOS/Android OS picker).
 
 **End of Phase 2:** run testing agent for full E2E (search→detail→translate→pricing→favorites→enquiry).
 
@@ -94,11 +105,11 @@
 5. As an operator, I can monitor sync/429 rates and error budgets.
 
 - Add saved searches + (optional) email/telegram alerts.
-- Add observability: sync metrics, 429 handling stats, dead-letter retries.
+- Add observability: sync metrics, 429 handling stats, dead-letter retries, translation breaker status in UI.
 - Add translation QA tools (flag/edit overrides).
 - Optimize indexes (compound indexes for top filters/sorts).
 - Optional: browser-extension companion (true per-user IP for API calls), if later required.
-- **(Updated)** Improve “Newest listings” ordering:
+- Improve “Newest listings” ordering (less urgent now that default sort is price_asc):
   - `recency` from the old offset sweep is no longer globally meaningful.
   - Option A: run a `recency_pass` over the newest ~20k (small stable window) to refresh recency.
   - Option B: shift “newest” sort to `last_seen` / a stable upstream timestamp if available.
@@ -110,16 +121,28 @@
    - lease-drop, last_crawl stamp, retire missing
    - dedupe keep-order prefers insurance history
 3. **(Done)** Add manual runner `/app/backend/crawl.py` for operator runs.
-4. Run the partitioned crawler for remaining manufacturers, then `--all` for full catalogue; monitor:
+4. **(Done)** Listing UX updates:
+   - 16 ads per page
+   - Desktop uses full-width rows (`CarRow`); mobile/tablet uses cards
+   - Sort control is native `<select>` and defaults to `price_asc`
+5. **(Done)** Translate + docs UX updates:
+   - make/model/submodel/trim never render Hangul (synchronous translate in search + taxonomy)
+   - detail page translates spec/equipment/insurance/inspection/diagnosis payload values
+   - KRW insurance claim amounts converted to EUR and shown in UI
+6. **(Done)** Fix filter sidebar clipping (extra padding + adjusted max height).
+7. **(Blocked by user action)** Top up EMERGENT_LLM_KEY budget, then run:
+   - `cd /app/backend && python warm.py`
+   to fill translation cache for all distinct makes/models/submodels/spec phrases in BG/RO/EN.
+8. Run the partitioned crawler for remaining manufacturers, then `--all` for full catalogue; monitor:
    - coverage (distinct vs reachable)
    - request count / duration / backoffs
-5. Decide and implement “newest” sorting strategy post-partition crawl (recency pass or alternate sort key).
-6. Rebuild taxonomy and warm translations after the full crawl.
+9. Decide and implement “newest” sorting strategy post full-crawl (recency pass or alternate sort key).
 
 ## 4) Success Criteria
 - POC: all endpoints + option resolution + translation caching + charm-up pricing assertions pass.
-- V1: users can browse the full catalogue with fast search (DB-backed), open any detail, see translated content, options, insurance/inspection/diagnosis, and landed/sale pricing.
-- **Completeness:** partitioned crawl reaches ~100% of non-lease listings (validated on Mercedes and Rolls-Royce).
+- V1: users can browse the full catalogue with fast search (DB-backed), open any detail, see translated content (no Hangul in make/model/submodel/spec/equipment/docs), options, insurance/inspection/diagnosis, and landed/sale pricing.
+- Completeness: partitioned crawl reaches ~100% of non-lease listings (validated on Mercedes and Rolls-Royce).
 - Dedupe correctness: for duplicate groups, the visible ad preferentially has insurance history.
 - Upstream load stays low and respectful: partitioned crawl completes reliably with backoff; user searches cause 0 upstream calls.
 - Pricing matches `/app/memory/pricing_spec.md` exactly with charm-up; constants editable without redeploy.
+- Operational safety: translation circuit breaker prevents request storms on budget/auth failures; breaker status visible on `/api/health`.
