@@ -18,6 +18,8 @@ from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 
 load_dotenv(Path(__file__).parent / ".env")
+# This script IS allowed to wait out rate-limit windows (web requests are not).
+os.environ["TRANSLATE_PATIENT"] = "1"
 
 from translate import warm_translations  # noqa: E402
 

@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, Header, HTTPException, Query
+from fastapi import APIRouter, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
 
+import auth                  # noqa: E402
 import fx as fx_mod          # noqa: E402
 import pricing               # noqa: E402
 import sync as sync_mod      # noqa: E402
@@ -786,9 +787,21 @@ def _check_admin(token):
         raise HTTPException(status_code=401, detail="bad admin token")
 
 
+async def _require_admin(request: Request, token: str = ""):
+    """Admin access via a signed-in admin account (the normal path, per the login
+    requirement) or the pre-existing header token (for scripts/curl)."""
+    if token and token == ADMIN_TOKEN:
+        return None
+    user = await auth.optional_user(request)
+    if not (user and user.get("is_admin")):
+        raise HTTPException(status_code=401, detail="administrator sign-in required")
+    return user
+
+
 @api.put("/settings")
-async def put_settings(body: SettingsBody, x_admin_token: str = Header(default="")):
-    _check_admin(x_admin_token)
+async def put_settings(body: SettingsBody, request: Request,
+                       x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
     clean = {}
     for k, v in (body.constants or {}).items():
         if k not in pricing.DEFAULT_SETTINGS:
@@ -853,6 +866,8 @@ async def translate_endpoint(body: TranslateBody):
     return await translate_many(db, body.texts[:400], norm_lang(body.lang))
 
 
+auth.set_db(db)
+api.include_router(auth.router)
 app.include_router(api)
 
 app.add_middleware(
@@ -867,6 +882,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     await sync_mod.ensure_indexes(db)
+    await auth.ensure_indexes(db)
     if not await db.settings.find_one({"_id": "pricing"}):
         await db.settings.update_one(
             {"_id": "pricing"},

@@ -1,78 +1,34 @@
 [
   {
-    "content": "Phase 1: POC — Encar search (limit=500, deep offsets, 217k reachable)",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 1: POC — detail endpoint + Id/vehicleId mismatch handling",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 1: POC — option dictionaries (recursive subOptions flatten) + per-vehicle choice options",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 1: POC — insurance history, inspection sheet, diagnosis",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 1: POC — AI translation KO->EN/BG/RO with permanent Mongo cache (0 LLM calls on 2nd run)",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 1: POC — pricing engine reproduces spec examples A/B/C/D with charm-UP",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 1: POC — live FX + CDN image hotlinking",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2: Design guidelines from design_agent",
+    "content": "Switch translation layer to user's direct Gemini API key (gemini-2.5-flash) and run full warm-up for BG/RO/EN",
     "status": "in_progress"
   },
   {
-    "content": "Phase 2: Backend — Encar client, catalogue sync worker, polite queue + backoff",
+    "content": "Auth backend: users/sessions/credentials collections, argon2 password hashing (min 8), httpOnly session cookie, /api/auth/* routes",
     "status": "pending"
   },
   {
-    "content": "Phase 2: Backend — pricing service (admin-editable constants) + FX service",
+    "content": "Passkeys: discoverable (one-tap, no email) registration + authentication ceremonies with RP ID derived from origin",
     "status": "pending"
   },
   {
-    "content": "Phase 2: Backend — translation service with batch + permanent cache",
+    "content": "Login/Register page UI with password + passkey, and auth context in frontend",
     "status": "pending"
   },
   {
-    "content": "Phase 2: Backend — search API (filters, sort by landed EUR), detail API assembling all documents",
+    "content": "Gate admin settings page behind login; sync favourites to the account",
     "status": "pending"
   },
   {
-    "content": "Phase 2: Backend — favourites, enquiries, admin settings endpoints",
+    "content": "Mobile header: hamburger to the right; drawer slides down from top; login/register or email+logout at bottom",
     "status": "pending"
   },
   {
-    "content": "Phase 2: Frontend — search page (filter sidebar, grid, pagination, sorting)",
+    "content": "Send enquiry (Прати запитване) on car detail page with guest + logged-in options",
     "status": "pending"
   },
   {
-    "content": "Phase 2: Frontend — detail page (gallery, spec, description, options, insurance, inspection, diagnosis, price breakdown)",
-    "status": "pending"
-  },
-  {
-    "content": "Phase 2: Frontend — i18n BG/RO/EN + currency switcher EUR/BGN/RON",
-    "status": "pending"
-  },
-  {
-    "content": "Phase 2: Frontend — favourites, enquiry form, admin settings panel",
-    "status": "pending"
-  },
-  {
-    "content": "Phase 2: All user stories from plan.md covered",
-    "status": "pending"
-  },
-  {
-    "content": "Phase 2: End to End Testing using testing_agent_v3",
+    "content": "Track my vehicle (Maersk container tracking + MarineTraffic vessel) - needs API credentials from user",
     "status": "pending"
   }
 ]

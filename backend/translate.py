@@ -20,15 +20,27 @@ log = logging.getLogger("translate")
 
 LANGS = {"en": "English", "bg": "Bulgarian", "ro": "Romanian"}
 CHUNK = 60
+# Seconds to wait between batched LLM calls. Sized for a free-tier RPM allowance;
+# set TRANSLATE_CHUNK_PACE=0 on a paid key to run flat out.
+CHUNK_PACE = float(os.environ.get("TRANSLATE_CHUNK_PACE", "6"))
 MODEL = ("gemini", "gemini-3-flash-preview")
 
 # ── LLM circuit breaker ──────────────────────────────────────────────────────
-# Errors that cannot possibly be fixed by retrying (no credit, bad key, quota).
-FATAL_MARKERS = ("budget has been exceeded", "exceeded your current quota",
-                 "insufficient_quota", "insufficient balance", "invalid api key",
-                 "unauthorized", "authentication")
+# Errors that cannot possibly be fixed by retrying (no credit, bad key, no quota at all).
+# NOTE: a bare HTTP 429 is NOT here. Gemini's free tier answers "You exceeded your
+# current quota" for ordinary per-minute rate limiting, which recovers on its own, so
+# treating that as fatal would abandon a whole warm-up run after one hiccup.
+FATAL_MARKERS = ("budget has been exceeded", "insufficient_quota",
+                 "insufficient balance", "api key not valid", "api_key_invalid",
+                 "invalid api key", "unauthorized", "permission_denied",
+                 "limit: 0")
+RATE_LIMIT_PREFIX = "RATE_LIMIT"
 FATAL_COOLDOWN = 900        # 15 min before we probe the provider again
 SOFT_COOLDOWN = 60          # transient failures
+MAX_ATTEMPTS = 6            # generous, because free-tier RPM limits are common
+# Only the offline warm-up script may block waiting for a rate-limit window to pass.
+# Inside a web request we always fail fast and fall back to cached/Korean text.
+PATIENT = os.environ.get("TRANSLATE_PATIENT") == "1"
 _BREAKER = {"open_until": 0.0, "reason": None, "trips": 0}
 
 
@@ -88,36 +100,88 @@ def _extract_json(s):
     return json.loads(s)
 
 
-async def _llm_translate(chunk, lang):
-    """Translate a list of strings in one call. Returns {source: translation}."""
+def _user_prompt(chunk, lang):
+    payload = {str(i): t for i, t in enumerate(chunk)}
+    return (f"Translate each value to {LANGS[lang]}. Reply with ONLY a JSON "
+            f"object using the same keys.\n\n"
+            + json.dumps(payload, ensure_ascii=False))
+
+
+GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
+
+
+async def _gemini_call(chunk, lang):
+    """Direct Google Gemini REST call using the project's own API key."""
+    import httpx
+
+    key = os.environ["GEMINI_API_KEY"]
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    body = {
+        "systemInstruction": {"parts": [{"text": SYSTEM.format(lang=LANGS[lang])}]},
+        "contents": [{"role": "user", "parts": [{"text": _user_prompt(chunk, lang)}]}],
+        # responseMimeType makes the model emit strict JSON, so no fence-stripping games
+        "generationConfig": {"temperature": 0.2, "responseMimeType": "application/json"},
+    }
+    async with httpx.AsyncClient(timeout=180) as c:
+        r = await c.post(GEMINI_URL.format(m=model), params={"key": key}, json=body)
+    if r.status_code == 429:
+        # Free-tier RPM limiting. Google returns a RetryInfo hint we should respect.
+        wait = 25.0
+        try:
+            for d in (r.json().get("error", {}).get("details") or []):
+                delay = str(d.get("retryDelay") or "")
+                if delay.endswith("s"):
+                    wait = max(wait, float(delay[:-1]) + 2)
+        except Exception:
+            pass
+        raise RuntimeError(f"{RATE_LIMIT_PREFIX}:{wait:.0f}: gemini 429 {r.text[:200]}")
+    if r.status_code != 200:
+        raise RuntimeError(f"gemini {r.status_code}: {r.text[:300]}")
+    data = r.json()
+    cands = data.get("candidates") or []
+    if not cands:
+        raise RuntimeError(f"gemini returned no candidates: {str(data)[:300]}")
+    # 2.5 models interleave 'thought' parts; keep only the real text parts.
+    parts = (cands[0].get("content") or {}).get("parts") or []
+    return "".join(p["text"] for p in parts if isinstance(p.get("text"), str))
+
+
+async def _emergent_call(chunk, lang):
+    """Fallback: Emergent universal key via the emergentintegrations wrapper."""
     from emergentintegrations.llm.chat import LlmChat, UserMessage
 
-    key = os.environ.get("EMERGENT_LLM_KEY")
-    if not key:
-        log.error("EMERGENT_LLM_KEY missing - cannot translate")
-        return {}
-
-    # Circuit breaker: make/model/spec translation is now SYNCHRONOUS on a cache miss,
-    # so a dead provider (exhausted budget, bad key) must never turn into 3 retries
-    # with backoff on every single request. While the breaker is open we fail instantly
-    # and the caller falls back to the Korean source.
-    if _breaker_open():
-        return {}
-
-    payload = {str(i): t for i, t in enumerate(chunk)}
     chat = LlmChat(
-        api_key=key,
+        api_key=os.environ["EMERGENT_LLM_KEY"],
         session_id=f"trans-{lang}-{int(time.time()*1000)}",
         system_message=SYSTEM.format(lang=LANGS[lang]),
     ).with_model(*MODEL)
+    return await chat.send_message(UserMessage(text=_user_prompt(chunk, lang)))
 
-    for attempt in range(3):
+
+async def _llm_translate(chunk, lang):
+    """Translate a list of strings in one call. Returns {source: translation}.
+
+    Prefers the project's own Gemini API key when present, because the shared
+    Emergent universal key is subject to a small shared budget.
+    """
+    if os.environ.get("GEMINI_API_KEY"):
+        call, provider = _gemini_call, "gemini"
+    elif os.environ.get("EMERGENT_LLM_KEY"):
+        call, provider = _emergent_call, "emergent"
+    else:
+        log.error("no translation API key configured (GEMINI_API_KEY/EMERGENT_LLM_KEY)")
+        return {}
+
+    # Circuit breaker: make/model/spec translation is SYNCHRONOUS on a cache miss, so a
+    # dead provider (exhausted budget, bad key) must never turn into 3 retries with
+    # backoff on every single request. While the breaker is open we fail instantly and
+    # the caller falls back to the Korean source.
+    if _breaker_open():
+        return {}
+
+    for attempt in range(MAX_ATTEMPTS):
         try:
-            resp = await chat.send_message(UserMessage(
-                text=f"Translate each value to {LANGS[lang]}. Reply with ONLY a JSON "
-                     f"object using the same keys.\n\n"
-                     + json.dumps(payload, ensure_ascii=False)))
-            got = _extract_json(resp)
+            got = _extract_json(await call(chunk, lang))
             _breaker_reset()
             return {chunk[int(i)]: v.strip()
                     for i, v in got.items()
@@ -125,13 +189,33 @@ async def _llm_translate(chunk, lang):
                     and isinstance(v, str) and v.strip()}
         except Exception as e:
             msg = str(e)
-            log.warning("translate attempt %s failed (%s): %s", attempt + 1, lang, msg[:160])
+            low = msg.lower()
+            # Rate limiting is expected on free tiers: wait out the window and retry
+            # rather than abandoning the run.
+            if msg.startswith(RATE_LIMIT_PREFIX):
+                # A user-facing request must NEVER sit and wait out a rate-limit window.
+                # Trip the breaker so this and following requests fall back to cached
+                # text (or Korean) instantly; the background warm-up is the only caller
+                # allowed to be patient.
+                if not PATIENT:
+                    _breaker_trip(f"rate limited: {msg[:120]}", SOFT_COOLDOWN)
+                    return {}
+                try:
+                    wait = float(msg.split(":")[1])
+                except Exception:
+                    wait = 25.0
+                log.warning("translate rate-limited (%s/%s), waiting %.0fs (attempt %s/%s)",
+                            provider, lang, wait, attempt + 1, MAX_ATTEMPTS)
+                await asyncio.sleep(wait)
+                continue
+            log.warning("translate attempt %s failed (%s/%s): %s",
+                        attempt + 1, provider, lang, msg[:200])
             # Retrying a budget/credential failure cannot succeed - trip immediately.
-            if any(m in msg.lower() for m in FATAL_MARKERS):
+            if any(m in low for m in FATAL_MARKERS):
                 _breaker_trip(msg, FATAL_COOLDOWN)
                 return {}
             await asyncio.sleep(1.2 * (attempt + 1))
-    _breaker_trip("3 consecutive failures", SOFT_COOLDOWN)
+    _breaker_trip(f"{MAX_ATTEMPTS} consecutive failures", SOFT_COOLDOWN)
     return {}
 
 
@@ -165,7 +249,19 @@ async def translate_many(db, texts, lang):
     from pymongo import UpdateOne
     for i in range(0, len(todo), CHUNK):
         chunk = todo[i:i + CHUNK]
+        # Proactive pacing between chunks. Free Gemini tiers allow only a handful of
+        # requests per minute, so spacing the calls out is far cheaper than discovering
+        # the limit through 429s and backoff.
+        if i and CHUNK_PACE:
+            await asyncio.sleep(CHUNK_PACE)
         got = await _llm_translate(chunk, lang)
+        if not got and _breaker_open():
+            # provider is down/out of credit - stop hammering it, keep what we have
+            log.warning("translate: provider unavailable, stopping after %s/%s",
+                        i, len(todo))
+            for src in todo[i:]:
+                out.setdefault(src, src)
+            break
         docs = []
         for src in chunk:
             tr = got.get(src)

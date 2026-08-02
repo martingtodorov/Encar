@@ -262,7 +262,6 @@ export default function CarDetailPage() {
                   />
                 ) : null}
                 {car.spec?.colour && <Row label={t("colour")} value={car.spec.colour} />}
-                {car.spec?.body && <Row label={t("body")} value={car.spec.body} />}
                 {car.spec?.seats ? <Row label={t("seats")} value={car.spec.seats} /> : null}
                 {car.spec?.vin && <Row label={t("vin")} value={car.spec.vin} />}
               </Panel>
@@ -386,7 +385,7 @@ export default function CarDetailPage() {
                       <Row label={t("documents")} value={car.inspection.guaranty} />
                     )}
                     {car.inspection.board_state && (
-                      <Row label={t("body")} value={car.inspection.board_state} />
+                      <Row label={t("chassisCondition")} value={car.inspection.board_state} />
                     )}
                     {car.inspection.vin && <Row label={t("vin")} value={car.inspection.vin} />}
                     {car.inspection.validity_end && (

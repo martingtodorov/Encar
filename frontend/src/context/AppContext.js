@@ -1,6 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { getFx } from "@/lib/api";
-import { t as translate } from "@/i18n";
+import { t as translate, CURRENCIES } from "@/i18n";
+
+/** A currency we retired (e.g. BGN) can still be sitting in a returning visitor's
+ *  localStorage, which would format prices in a currency we no longer convert. */
+function validCurrency(code) {
+  return CURRENCIES.some((c) => c.code === code) ? code : null;
+}
 
 const AppContext = createContext(null);
 
@@ -27,7 +33,7 @@ function detectTheme() {
 export function AppProvider({ children }) {
   const [lang, setLangState] = useState(detectLang);
   const [currency, setCurrencyState] = useState(
-    () => localStorage.getItem(LS_CUR) || (detectLang() === "ro" ? "RON" : "EUR")
+    () => validCurrency(localStorage.getItem(LS_CUR)) || (detectLang() === "ro" ? "RON" : "EUR")
   );
   const [theme, setThemeState] = useState(detectTheme);
   const [rates, setRates] = useState(null);
@@ -78,6 +84,13 @@ export function AppProvider({ children }) {
     });
   }, []);
 
+  // Used when signing in: the account's list becomes the source of truth locally.
+  const replaceFavourites = useCallback((ids) => {
+    const next = Array.from(new Set(ids || []));
+    localStorage.setItem(LS_FAV, JSON.stringify(next));
+    setFavourites(next);
+  }, []);
+
   const value = useMemo(
     () => ({
       lang,
@@ -89,10 +102,12 @@ export function AppProvider({ children }) {
       rates,
       favourites,
       toggleFavourite,
+      replaceFavourites,
       isFavourite: (id) => favourites.includes(id),
       t: (key, vars) => translate(lang, key, vars),
     }),
-    [lang, setLang, currency, setCurrency, theme, toggleTheme, rates, favourites, toggleFavourite]
+    [lang, setLang, currency, setCurrency, theme, toggleTheme, rates, favourites,
+     toggleFavourite, replaceFavourites]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

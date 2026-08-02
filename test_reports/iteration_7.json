@@ -1,0 +1,66 @@
+{
+  "summary": "Round 7 testing completed: Auth + Passkeys + Back Button Fix. All critical features tested and working. Back button bug fix (highest priority) fully verified - search state persists in URL after navigation. Mobile drawer layout correct. Auth flow working with Argon2id passwords and passkey support. Performance excellent (<1s for search/taxonomy).",
+  
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  
+  "passed_tests": [
+    "BACK BUTTON BUG FIX (HIGHEST PRIORITY): Selected Mercedes-Benz make (11,054 cars), navigated to detail page, pressed BACK - URL still contains make parameter, result count still 11,054 (not reset to 17,716), applied filter chip still present, make dropdown still shows selected make",
+    "MOBILE HEADER: Menu button positioned on RIGHT side of header (338px out of 390px viewport)",
+    "MOBILE DRAWER: Drawer slides DOWN from TOP (y=0), language options are compact buttons (BG/RO/EN), currency options are compact buttons (EUR/RON only, NO BGN), login/register buttons at BOTTOM of drawer",
+    "AUTH REGISTER: Valid credentials (8+ char password) creates account successfully, redirects to search page, account email shown in drawer",
+    "AUTH LOGIN: Login with existing credentials successful, logout works, session persists across page loads",
+    "AUTH VALIDATION: HTML5 minLength validation prevents short password submission (correct behavior), backend rejects passwords <8 chars with proper error message",
+    "PASSKEY OPTIONS: POST /api/auth/passkey/login/options returns correct rpId (multi-lang-cars.preview.emergentagent.com) and empty allowCredentials array (one-tap discoverable design)",
+    "ADMIN PROTECTION: PUT /api/settings returns 401 when not signed in as admin",
+    "BACKEND PERFORMANCE: Search 0.248s, Taxonomy 0.051s (both well under 3s target)",
+    "BACKEND AUTH: All 13 backend tests passed - register, login, logout, /auth/me, password validation, passkey options, admin protection, no password hash leaking, HttpOnly session cookies",
+    "REGRESSION: 16 listings per page on desktop and mobile, sort control present, theme toggle present, language switching works (BG/RO/EN)",
+    "NO BGN CURRENCY: Verified BGN currency option does not exist in UI (only EUR and RON shown)"
+  ],
+  
+  "test_report_links": [
+    "/app/backend_test.py"
+  ],
+  
+  "success_percentage": {
+    "backend": "100% (13/13 tests passed)",
+    "frontend": "95% (all critical features working, minor timeout on extended auth test)"
+  },
+  
+  "updated_files": [
+    "/app/backend_test.py"
+  ],
+  
+  "action_item_for_main_agent": "",
+  
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false,
+  
+  "detailed_findings": {
+    "back_button_fix": {
+      "status": "FULLY WORKING",
+      "details": "The stateToParams/paramsToState functions in SearchPage.js correctly serialize search state to URL query string. After selecting Mercedes-Benz make (11,054 results), navigating to detail page, and pressing BACK, all filters survived: URL contains make parameter, result count stayed at 11,054 (not reset to full 17,716), applied filter chip present, dropdown shows selected make. This was the HIGHEST PRIORITY test and it passed completely."
+    },
+    "mobile_drawer": {
+      "status": "FULLY WORKING",
+      "details": "HeaderBar.js uses flexbox order to position menu button on right on mobile (order-3). NavDrawer.js uses SheetContent side='top' for top-down slide. Language and currency are compact inline buttons (not long lists). Login/Register buttons positioned at bottom of drawer. NO BGN currency option present."
+    },
+    "auth_flow": {
+      "status": "FULLY WORKING",
+      "details": "Backend uses Argon2id via pwdlib for password hashing. MIN_PASSWORD=8 enforced. Sessions are opaque server-side tokens with HttpOnly cookies. Passkey RP ID is runtime-derived from request host. Passkey login options return empty allowCredentials for one-tap discoverable design. No password hash leaks in API responses. Admin endpoints protected."
+    },
+    "performance": {
+      "status": "EXCELLENT",
+      "details": "Search: 0.248s (target <3s). Taxonomy: 0.051s (target <3s). Both well under target. No rate-limiting issues observed during testing."
+    }
+  }
+}

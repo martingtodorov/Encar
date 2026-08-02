@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { SlidersHorizontal, Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
@@ -37,19 +37,73 @@ const EMPTY_TAX = { make: "", model: "", badge: "", badgeDetail: "" };
 // 16 ads per page on every viewport: mobile shows them as cards, desktop as rows.
 const PAGE_SIZE = 16;
 
+// ── search state <-> URL ─────────────────────────────────────────────────────
+// The whole search lives in the query string, not just in component state. Opening a
+// car and pressing Back used to remount this page with everything cleared, throwing the
+// visitor into an unfiltered catalogue; now the browser restores the exact result set.
+// It also makes any set of filters a shareable link.
+const LIST_SEP = "~";
+
+function stateToParams({ filters, tax, sort, page }) {
+  const p = new URLSearchParams();
+  Object.entries(tax).forEach(([k, v]) => {
+    if (v) p.set(k, v);
+  });
+  Object.entries(filters).forEach(([k, v]) => {
+    if (Array.isArray(v)) {
+      if (v.length) p.set(k, v.join(LIST_SEP));
+    } else if (typeof v === "boolean") {
+      if (v) p.set(k, "1");
+    } else if (v !== "" && v !== null && v !== undefined) {
+      p.set(k, String(v));
+    }
+  });
+  if (sort) p.set("sort", sort);
+  if (page > 1) p.set("page", String(page));
+  return p;
+}
+
+function paramsToState(p) {
+  const tax = { ...EMPTY_TAX };
+  Object.keys(EMPTY_TAX).forEach((k) => {
+    if (p.get(k)) tax[k] = p.get(k);
+  });
+
+  const filters = { ...EMPTY };
+  Object.entries(EMPTY).forEach(([k, fallback]) => {
+    const raw = p.get(k);
+    if (raw === null) return;
+    if (Array.isArray(fallback)) filters[k] = raw.split(LIST_SEP).filter(Boolean);
+    else if (typeof fallback === "boolean") filters[k] = raw === "1";
+    else filters[k] = raw;
+  });
+
+  return {
+    filters,
+    tax,
+    sort: p.get("sort") || "",
+    page: Math.max(1, parseInt(p.get("page") || "1", 10) || 1),
+  };
+}
+
 export default function SearchPage() {
   const { t, lang } = useApp();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Read the URL ONCE on mount; after that this component owns the state and writes
+  // back. Re-reading on every param change would fight the effect below.
+  const initial = useMemo(() => paramsToState(searchParams), []);
 
-  const [filters, setFilters] = useState(EMPTY);
-  const [tax, setTax] = useState(EMPTY_TAX);
+  const [filters, setFilters] = useState(initial.filters);
+  const [tax, setTax] = useState(initial.tax);
   // Translated labels for the current taxonomy selection, published by TaxonomySelects
   // so the applied-filter chips never show raw Korean values.
   const [taxLabels, setTaxLabels] = useState(EMPTY_TAX);
-  const [sort, setSort] = useState(DEFAULT_SORT_BROWSE);
-  // Once the visitor picks a sort themselves we stop overriding it.
-  const [sortTouched, setSortTouched] = useState(false);
-  const [page, setPage] = useState(1);
+  const [sort, setSort] = useState(initial.sort || DEFAULT_SORT_BROWSE);
+  // Once the visitor picks a sort themselves we stop overriding it. A sort in the URL
+  // counts as a deliberate choice, so returning via Back keeps it.
+  const [sortTouched, setSortTouched] = useState(!!initial.sort);
+  const [page, setPage] = useState(initial.page);
 
   const [facets, setFacets] = useState(null);
   const [result, setResult] = useState({ items: [], total: 0, pages: 0 });
@@ -149,6 +203,13 @@ export default function SearchPage() {
     setSort(auto);
     setPage(1);
   }, [tax.make, tax.model, sortTouched]);
+
+  // Mirror the live search into the query string. `replace` so we do not push a history
+  // entry per keystroke - the entry that exists when a car is opened already carries
+  // these params, which is exactly what Back needs to restore.
+  useEffect(() => {
+    setSearchParams(stateToParams({ filters, tax, sort, page }), { replace: true });
+  }, [filters, tax, sort, page, setSearchParams]);
 
   const changeSort = useCallback((v) => {
     setSort(v);

@@ -16,19 +16,24 @@ export const HeaderBar = ({ hidden = false }) => {
         hidden ? "-translate-y-full" : "translate-y-0"
       }`}
     >
-      <div className="mx-auto grid h-16 max-w-[1280px] grid-cols-[auto_1fr_auto] items-center gap-2 px-3 sm:px-6">
-        {/* left: navigation drawer (also holds language + currency) */}
-        <NavDrawer />
+      {/*
+        Flex + `order` rather than two rendered copies, so there is exactly ONE menu
+        button in the DOM (one element, one test id) while its position differs:
+          mobile  -> logo, theme, menu   (thumb reaches the menu at the right edge)
+          desktop -> menu, logo, theme  (unchanged from before)
+      */}
+      <div className="mx-auto flex h-16 max-w-[1280px] items-center gap-2 px-3 sm:px-6">
+        <div className="order-3 flex shrink-0 lg:order-1">
+          <NavDrawer />
+        </div>
 
-        {/* centre: logo */}
-        <div className="flex justify-center">
+        <div className="order-1 flex flex-1 justify-start lg:order-2 lg:justify-center">
           <Link to="/" aria-label="Encar" className="inline-flex items-center">
             <BrandLogo compact />
           </Link>
         </div>
 
-        {/* right: theme toggle only */}
-        <div className="flex items-center justify-end">
+        <div className="order-2 flex shrink-0 items-center justify-end lg:order-3">
           <Button
             data-testid="theme-toggle"
             variant="outline"
