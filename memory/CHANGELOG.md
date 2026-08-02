@@ -207,3 +207,28 @@ Verified (iteration_9): 100% both.
   when it DIFFERS from the sort the rule would have picked (`autoSort(tax)`).
 - Verified: make only -> newest, + model -> cheapest, model cleared -> newest again, and an
   explicit `sort=mileage_asc` still survives a reload.
+
+## 2026-06 — Passkeys after registration, mobile car page, lightbox close
+- **Passkeys removed from the registration form** and offered afterwards instead
+  (`PasskeyPrompt`): the account exists and the session is live by then, so the credential
+  has something to belong to. The dialog is only offered when the device actually has a
+  platform authenticator (`platformPasskeyAvailable()`), and the WebAuthn ceremony starts in
+  the button's click handler — moving it into an effect loses the user gesture and the
+  browser cancels. Cancellation / "Maybe later" / a credential that already exists all close
+  quietly; only a real failure shows a message. Sign-in keeps its passkey button.
+  **Email verification does NOT exist** — the owner deferred it ("skip for now") because the
+  shared Resend sender only delivers to the Resend account owner, so a verification gate
+  would lock out every real user. When a domain is verified, the prompt can move behind it.
+- **Mobile car detail page**: the in-page "Back to results" and the duplicated
+  title/subtitle/price/"Final price" block are gone; the header carries a back arrow
+  (`HeaderBar onBack`) and the condensed car bar is now ALWAYS visible below `lg` (still
+  scroll-gated on desktop), with `pt-[72px]` on the container so nothing hides under it.
+  The enquiry button sits immediately after the photos on mobile and beside the specs on
+  desktop (two mounts, one painted per breakpoint).
+- **Lightbox close button**: the stock dialog close is absolute inside the scrolling photo
+  column, so it slid out of reach. Hidden in favour of a sticky zero-height rail holding a
+  white circular button with a black X — pinned to the top-right of the phone at any scroll
+  depth (verified: top 47 / right 13 at open and after scrolling 2,400px).
+- Mobile header back and menu buttons enlarged to 48x48 with bigger glyphs.
+- Testing agent iteration_18: 100% pass, including the CDP virtual-authenticator run of the
+  passkey enrolment dialog (options + verify called, passkey listed on the account page).

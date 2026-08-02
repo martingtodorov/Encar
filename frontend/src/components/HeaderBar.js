@@ -26,16 +26,16 @@ export const HeaderBar = ({ hidden = false, onBack }) => {
         {/* On a car page the way back belongs in the header on mobile, where the
             in-page button sat below the fold. Otherwise this cell just balances the
             menu button so the logo stays centred. */}
-        <div className="flex w-10 shrink-0 lg:hidden">
+        <div className="flex w-12 shrink-0 lg:hidden">
           {onBack ? (
             <Button
               data-testid="header-back-button"
               variant="ghost"
               onClick={onBack}
               aria-label={t("backToResults")}
-              className="h-10 w-10 rounded-full p-0 hover:bg-muted"
+              className="h-12 w-12 rounded-full p-0 hover:bg-muted"
             >
-              <ArrowLeft className="h-5 w-5 text-foreground" aria-hidden="true" />
+              <ArrowLeft className="h-7 w-7 text-foreground" aria-hidden="true" />
             </Button>
           ) : null}
         </div>
@@ -50,7 +50,7 @@ export const HeaderBar = ({ hidden = false, onBack }) => {
           <HeaderNav />
         </div>
 
-        <div className="flex w-10 shrink-0 justify-end lg:hidden">
+        <div className="flex w-12 shrink-0 justify-end lg:hidden">
           <NavDrawer />
         </div>
       </div>

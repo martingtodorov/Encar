@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -603,12 +604,28 @@ export default function CarDetailPage() {
       <Dialog open={lightbox} onOpenChange={setLightbox}>
         <DialogContent
           data-testid="detail-lightbox"
-          className="max-h-[92vh] max-w-4xl overflow-y-auto border-border bg-black p-0"
+          // The stock close button is absolute inside this scrolling column, so it slides
+          // out of reach on the second photo. Hidden here in favour of the sticky one below.
+          className="max-h-[92vh] max-w-4xl overflow-y-auto border-border bg-black p-0 [&>button]:hidden"
         >
           <DialogTitle className="sr-only">{car?.title || t("allPhotos")}</DialogTitle>
           <DialogDescription className="sr-only">
             {t("allPhotos")} — {photos.length}
           </DialogDescription>
+          {/* Sticky, zero-height rail: the close button rides along at the top of the
+              viewport however far down the photos the visitor has scrolled. */}
+          <div className="pointer-events-none sticky top-0 z-20 flex h-0 justify-end">
+            <button
+              type="button"
+              data-testid="lightbox-close-button"
+              onClick={() => setLightbox(false)}
+              aria-label={t("close")}
+              className="pointer-events-auto mr-3 mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-[0_2px_10px_rgba(0,0,0,.45)] transition-transform active:scale-95"
+            >
+              <X className="h-6 w-6" aria-hidden="true" />
+            </button>
+          </div>
+
           <div className="flex flex-col gap-1.5 bg-black py-1.5">
             {photos.map((p, i) => (
               <div key={i} className="w-full bg-black">

@@ -125,6 +125,14 @@ that owns the Resend account.
   canonical and hreflang tags; generated `robots.txt` + `sitemap.xml`
   (`frontend/scripts/gen-seo.js` — re-run with the real domain at go-live).
 - Car detail pages now open scrolled to the top.
+- Passkeys are no longer offered on the registration form; a "Sign in faster next time"
+  dialog appears after registration instead (only on devices with a platform authenticator).
+  Email verification is deliberately NOT built — deferred by the owner until a sending domain
+  is verified in Resend.
+- Mobile car page: back arrow in the header, always-visible car bar (title/subtitle/price/
+  save), no duplicated title block, enquiry button directly after the photos, and a white
+  circular close button pinned to the top-right of the photo viewer at any scroll depth.
+  Header back and menu buttons enlarged to 48x48.
 
 ## Backlog
 ### P0 (blocked on the owner)

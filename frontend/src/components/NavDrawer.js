@@ -49,9 +49,9 @@ export const NavDrawer = () => {
           data-testid="nav-menu-button"
           variant="ghost"
           aria-label={t("navMenu")}
-          className="h-10 w-10 shrink-0 p-0 hover:bg-muted"
+          className="h-12 w-12 shrink-0 rounded-full p-0 hover:bg-muted"
         >
-          <Menu className="h-6 w-6 text-foreground" aria-hidden="true" />
+          <Menu className="h-7 w-7 text-foreground" aria-hidden="true" />
         </Button>
       </SheetTrigger>
 
