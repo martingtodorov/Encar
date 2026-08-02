@@ -30,7 +30,12 @@ const Field = ({ id, label, items, current, onPick, disabled, busyKey, placehold
         data-testid={`taxonomy-${busyKey}-select`}
         value={current || ANY}
         disabled={disabled}
-        onChange={(e) => onPick(e.target.value)}
+        onChange={(e) =>
+          onPick(
+            e.target.value,
+            items.find((i) => i.value === e.target.value)?.label || ""
+          )
+        }
         className="h-11 w-full appearance-none truncate rounded-[10px] border border-input bg-card pl-3 pr-9 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
       >
         <option value={ANY}>{placeholder}</option>
@@ -48,7 +53,7 @@ const Field = ({ id, label, items, current, onPick, disabled, busyKey, placehold
   </div>
 );
 
-export const TaxonomySelects = ({ value, onChange, layout = "row" }) => {
+export const TaxonomySelects = ({ value, onChange, onLabels, layout = "row" }) => {
   const { t, lang } = useApp();
   const { make = "", model = "", badge = "", badgeDetail = "" } = value || {};
 
@@ -100,6 +105,20 @@ export const TaxonomySelects = ({ value, onChange, layout = "row" }) => {
     }
     load(4, { make, model, badge }, setDetails, "badgeDetail");
   }, [make, model, badge, lang]);
+
+  // Publish the human-readable label for each selection so the applied-filter chips
+  // can show "Mercedes-Benz" instead of the raw Korean value. Derived from the loaded
+  // options rather than stored, so it re-resolves when the language changes.
+  useEffect(() => {
+    if (!onLabels) return;
+    const pick = (items, v) => (v ? items.find((i) => i.value === v)?.label || v : "");
+    onLabels({
+      make: pick(makes, make),
+      model: pick(models, model),
+      badge: pick(badges, badge),
+      badgeDetail: pick(details, badgeDetail),
+    });
+  }, [makes, models, badges, details, make, model, badge, badgeDetail]);
 
   return (
     <div

@@ -1,0 +1,53 @@
+{
+  "summary": "Completed comprehensive testing of applied filter chip translation bug fix (iteration 5). PRIMARY BUG FIX VERIFIED: Applied filter chips now correctly display translated labels (e.g., 'Make: Mercedes-Benz') instead of raw Korean values (e.g., 'Make: 벤츠'). Language switching works perfectly - chips update to the new language while preserving translated taxonomy labels. All regressions passed: 16 listings per page (desktop/mobile), sort defaults to price_asc, detail page loads without hang, filter sidebar visible, TrustStrip positioned correctly.",
+  
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  
+  "passed_tests": [
+    "Backend: Health endpoint returns ok and translation_breaker status (8/8 tests passed, 100%)",
+    "Backend: Taxonomy endpoint returns 49 makes with 43 translated (budget-blocked Korean is expected)",
+    "Backend: Search honours page_size=16 correctly",
+    "Backend: Sort by price_asc returns ascending prices",
+    "Backend: Pagination works (pages 1, 2, 3)",
+    "Backend: Filters work (make, price, only_record)",
+    "Backend: Car detail endpoint converts insurance claims to EUR and loads in 0.10s",
+    "Backend: Meta filters endpoint returns facets",
+    "Frontend PRIMARY FIX: Make chip shows 'Make: Mercedes-Benz' with NO Hangul characters (was showing 'Make: 벤츠' before fix)",
+    "Frontend PRIMARY FIX: Model chip shows 'Model: A-Class W176' with NO Hangul characters",
+    "Frontend PRIMARY FIX: Chip removal (X button) works correctly",
+    "Frontend LANGUAGE SWITCH: Chip updates from 'Make: Mercedes-Benz' (EN) to 'Марка: Mercedes-Benz' (BG) with NO Hangul",
+    "Frontend REGRESSION: TrustStrip is above taxonomy selects",
+    "Frontend REGRESSION: Sort control is native SELECT defaulting to 'price_asc'",
+    "Frontend REGRESSION: Desktop shows exactly 16 car rows (data-testid='car-row')",
+    "Frontend REGRESSION: Mobile (390x844) shows exactly 16 car cards (data-testid='car-card')",
+    "Frontend REGRESSION: Filter sidebar visible with no clipping (height: 2884px)",
+    "Frontend REGRESSION: Detail page loads successfully with no multi-second hang",
+    "Frontend REGRESSION: Detail page shows spec, equipment, inspection, insurance sections with 27 images",
+    "Frontend REGRESSION: No console errors on detail page"
+  ],
+  
+  "test_report_links": [
+    "/app/backend/backend_test.py"
+  ],
+  
+  "success_percentage": {
+    "backend": "100% (8/8 tests passed)",
+    "frontend": "100% (all primary bug fix tests and regressions passed)"
+  },
+  
+  "updated_files": [],
+  
+  "action_item_for_main_agent": "",
+  
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": false
+}

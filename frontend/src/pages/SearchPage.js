@@ -34,7 +34,6 @@ const EMPTY = {
 
 const EMPTY_TAX = { make: "", model: "", badge: "", badgeDetail: "" };
 
-// 10 per page keeps each request small and the grid fast, per requirement.
 // 16 ads per page on every viewport: mobile shows them as cards, desktop as rows.
 const PAGE_SIZE = 16;
 
@@ -44,6 +43,9 @@ export default function SearchPage() {
 
   const [filters, setFilters] = useState(EMPTY);
   const [tax, setTax] = useState(EMPTY_TAX);
+  // Translated labels for the current taxonomy selection, published by TaxonomySelects
+  // so the applied-filter chips never show raw Korean values.
+  const [taxLabels, setTaxLabels] = useState(EMPTY_TAX);
   const [sort, setSort] = useState(DEFAULT_SORT);
   const [page, setPage] = useState(1);
 
@@ -214,7 +216,7 @@ export default function SearchPage() {
       {/* Cascading Make -> Model -> Submodel -> Trim replaces the old search box */}
       <section className="border-b border-border bg-card">
         <div className="mx-auto max-w-[1280px] px-4 py-5 sm:px-6">
-          <TaxonomySelects value={tax} onChange={changeTax} />
+          <TaxonomySelects value={tax} onChange={changeTax} onLabels={setTaxLabels} />
         </div>
       </section>
 
@@ -310,6 +312,7 @@ export default function SearchPage() {
               <AppliedFiltersChips
                 filters={filters}
                 tax={tax}
+                taxLabels={taxLabels}
                 facets={facets}
                 onRemove={removeChip}
                 onClearAll={resetAll}

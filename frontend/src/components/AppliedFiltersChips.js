@@ -4,7 +4,7 @@ import { useApp } from "@/context/AppContext";
 import { formatMoney, formatNumber } from "@/lib/format";
 
 /** Removable chips summarising every active filter, so nothing is ever hidden. */
-export const AppliedFiltersChips = ({ filters, tax, facets, onRemove, onClearAll }) => {
+export const AppliedFiltersChips = ({ filters, tax, taxLabels, facets, onRemove, onClearAll }) => {
   const { t, lang, currency, rates } = useApp();
 
   const labelFor = (list, value) =>
@@ -12,12 +12,19 @@ export const AppliedFiltersChips = ({ filters, tax, facets, onRemove, onClearAll
 
   const chips = [];
 
-  // taxonomy selections (make -> model -> submodel -> trim)
-  if (tax?.make) chips.push({ key: "make", label: `${t("make")}: ${tax.make}` });
-  if (tax?.model) chips.push({ key: "model", label: `${t("model")}: ${tax.model}` });
-  if (tax?.badge) chips.push({ key: "badge", label: `${t("submodel")}: ${tax.badge}` });
+  // Taxonomy selections (make -> model -> submodel -> trim). Use the TRANSLATED label
+  // published by TaxonomySelects; the raw value is Korean and is only a fallback.
+  if (tax?.make)
+    chips.push({ key: "make", label: `${t("make")}: ${taxLabels?.make || tax.make}` });
+  if (tax?.model)
+    chips.push({ key: "model", label: `${t("model")}: ${taxLabels?.model || tax.model}` });
+  if (tax?.badge)
+    chips.push({ key: "badge", label: `${t("submodel")}: ${taxLabels?.badge || tax.badge}` });
   if (tax?.badgeDetail)
-    chips.push({ key: "badgeDetail", label: `${t("trimLevel")}: ${tax.badgeDetail}` });
+    chips.push({
+      key: "badgeDetail",
+      label: `${t("trimLevel")}: ${taxLabels?.badgeDetail || tax.badgeDetail}`,
+    });
 
   (filters.fuels || []).forEach((f) =>
     chips.push({ key: `fuels:${f}`, label: labelFor(facets?.fuels, f) })
