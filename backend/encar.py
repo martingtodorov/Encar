@@ -32,7 +32,10 @@ HEADERS = {
     "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
 }
 
-BASE_Q = "(And.Hidden.N._.CarType.A.)"
+# SellType.일반. = regular sale only. Lease (리스) and rental (렌트) cars belong to a
+# finance company and cannot be exported, so they are filtered out UPSTREAM - we never
+# fetch them, and every count we compare against is already the exportable subset.
+BASE_Q = "(And.Hidden.N._.CarType.A._.SellType.\uc77c\ubc18.)"
 
 
 def flatten_options(options):

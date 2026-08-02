@@ -6,6 +6,7 @@ import {
   LogIn,
   UserPlus,
   LogOut,
+  Gauge,
   ShieldCheck,
 } from "lucide-react";
 import { useState } from "react";
@@ -165,6 +166,17 @@ export const NavDrawer = () => {
               </div>
 
               <div className="flex flex-col gap-2 sm:flex-row">
+                {user.is_admin && (
+                  <Button
+                    data-testid="drawer-admin-button"
+                    variant="outline"
+                    onClick={() => go("/admin")}
+                    className="h-11 flex-1 justify-center gap-2 rounded-[10px] border-border bg-card text-[14px] font-medium hover:bg-muted"
+                  >
+                    <Gauge className="h-4 w-4" aria-hidden="true" />
+                    Operations
+                  </Button>
+                )}
                 <Button
                   data-testid="drawer-account-button"
                   variant="outline"

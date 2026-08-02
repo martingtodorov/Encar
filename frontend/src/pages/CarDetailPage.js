@@ -214,17 +214,18 @@ export default function CarDetailPage() {
                   data-testid="detail-save-button"
                   variant="outline"
                   onClick={() => toggleFavourite(id)}
-                  className="h-11 gap-2 border-border bg-card px-4 text-sm hover:bg-muted"
+                  aria-label={saved ? t("saved") : t("save")}
+                  title={saved ? t("saved") : t("save")}
+                  className="h-11 w-11 border-border bg-card p-0 hover:bg-muted"
                 >
                   <Heart
-                    className={`h-4 w-4 ${
+                    className={`h-5 w-5 ${
                       saved
                         ? "fill-[hsl(var(--primary))] text-[hsl(var(--primary))]"
                         : "text-muted-foreground"
                     }`}
                     aria-hidden="true"
                   />
-                  {saved ? t("saved") : t("save")}
                 </Button>
               </div>
             </div>

@@ -29,6 +29,7 @@ load_dotenv(ROOT / ".env")
 
 import auth                  # noqa: E402
 import fx as fx_mod          # noqa: E402
+import mailer                # noqa: E402
 import pricing               # noqa: E402
 import sync as sync_mod      # noqa: E402
 from encar import encar, image_url  # noqa: E402
@@ -877,6 +878,105 @@ async def put_settings(body: SettingsBody, request: Request,
             "fx_overrides": fxo, "repriced": repriced}
 
 
+@api.get("/admin/overview")
+async def admin_overview(request: Request, x_admin_token: str = Header(default="")):
+    """Everything the operator needs on one screen: index size, crawl progress,
+    translation cache health and the enquiry backlog."""
+    await _require_admin(request, x_admin_token)
+    state = await sync_mod.get_state(db)
+    partition = await db.sync_state.find_one({"_id": "catalogue_partition"}) or {}
+    tax = await db.sync_state.find_one({"_id": "taxonomy"}) or {}
+    return jsonable({
+        "listings_total": await db.listings.count_documents({}),
+        "listings_active": await db.listings.count_documents({"active": True}),
+        "unique_cars": await db.listings.count_documents(
+            {"active": True, "duplicate": {"$ne": True}}),
+        "duplicate_ads_hidden": await db.listings.count_documents(
+            {"active": True, "duplicate": True}),
+        "upstream": await upstream_size_cached(),
+        "translations_cached": await db.translations.count_documents({}),
+        "translation_breaker": breaker_status(),
+        "taxonomy": {"nodes": tax.get("nodes", 0), "built_at": tax.get("built_at")},
+        "sync": {k: v for k, v in state.items() if k != "_id"},
+        "partition": {k: v for k, v in partition.items() if k != "_id"},
+        "encar_stats": dict(encar.stats),
+        "enquiries": {
+            "total": await db.enquiries.count_documents({}),
+            "new": await db.enquiries.count_documents({"status": "new"}),
+        },
+        "email": mailer.status(),
+    })
+
+
+@api.get("/admin/coverage")
+async def admin_coverage(request: Request, x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
+    data = await sync_mod.get_brand_coverage(db)
+    # brand keys are Korean in the index; the operator should not have to read Hangul
+    brands = data.get("brands") or []
+    labels = await translate_cached_only(db, [b["make"] for b in brands], "en")
+    for b in brands:
+        b["label"] = labels.get(b["make"], b["make"])
+    return jsonable(data)
+
+
+@api.post("/admin/coverage/refresh")
+async def admin_coverage_refresh(request: Request, x_admin_token: str = Header(default="")):
+    """One upstream count per brand takes a couple of minutes, so it runs detached and
+    the dashboard polls /admin/coverage for progress."""
+    await _require_admin(request, x_admin_token)
+    asyncio.get_running_loop().create_task(sync_mod.refresh_brand_coverage(db))
+    return {"started": True}
+
+
+ENQUIRY_STATUSES = ("new", "contacted", "closed")
+
+
+@api.get("/admin/enquiries")
+async def admin_enquiries(request: Request, status: str = "", q: str = "",
+                          page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100),
+                          x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
+    query = {}
+    if status in ENQUIRY_STATUSES:
+        query["status"] = status
+    if q.strip():
+        rx = re.escape(q.strip())
+        query["$or"] = [{f: {"$regex": rx, "$options": "i"}}
+                        for f in ("car_title", "name", "email", "phone", "message",
+                                  "listing_id")]
+    total = await db.enquiries.count_documents(query)
+    rows = [d async for d in db.enquiries.find(query)
+            .sort("created_at", -1)
+            .skip((page - 1) * page_size)
+            .limit(page_size)]
+    for r in rows:
+        r["id"] = r.pop("_id")
+    counts = {s: await db.enquiries.count_documents({"status": s})
+              for s in ENQUIRY_STATUSES}
+    return jsonable({"total": total, "page": page, "page_size": page_size,
+                     "pages": max(1, -(-total // page_size)),
+                     "counts": counts, "items": rows})
+
+
+class EnquiryStatusBody(BaseModel):
+    status: str
+
+
+@api.patch("/admin/enquiries/{enquiry_id}")
+async def admin_enquiry_status(enquiry_id: str, body: EnquiryStatusBody, request: Request,
+                               x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
+    if body.status not in ENQUIRY_STATUSES:
+        raise HTTPException(400, f"status must be one of {', '.join(ENQUIRY_STATUSES)}")
+    res = await db.enquiries.update_one(
+        {"_id": enquiry_id},
+        {"$set": {"status": body.status, "updated_at": datetime.now(timezone.utc)}})
+    if not res.matched_count:
+        raise HTTPException(404, "no such enquiry")
+    return {"ok": True, "status": body.status}
+
+
 @api.post("/admin/sync")
 async def admin_sync(max_pages: int | None = None, x_admin_token: str = Header(default="")):
     _check_admin(x_admin_token)
@@ -956,6 +1056,7 @@ async def create_enquiry(body: EnquiryBody, request: Request):
     await db.enquiries.insert_one(doc)
     log.info("enquiry %s for listing %s (guest=%s)", doc["_id"], doc["listing_id"],
              doc["is_guest"])
+    mailer.send_enquiry_emails(doc)
     return {"ok": True, "id": doc["_id"]}
 
 

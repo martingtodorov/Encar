@@ -9,6 +9,7 @@ import SavedCarsPage from "@/pages/SavedCarsPage";
 import HowItWorksPage from "@/pages/HowItWorksPage";
 import LoginPage from "@/pages/LoginPage";
 import AccountPage from "@/pages/AccountPage";
+import AdminPage from "@/pages/AdminPage";
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
             <Route path="/how-it-works" element={<HowItWorksPage />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/account" element={<AccountPage />} />
+            <Route path="/admin" element={<AdminPage />} />
           </Routes>
         </AuthProvider>
       </BrowserRouter>

@@ -304,7 +304,7 @@ export default function SearchPage() {
       <TrustStrip />
 
       {/* Cascading Make -> Model -> Submodel -> Trim replaces the old search box */}
-      <section className="border-b border-border bg-card">
+      <section className="bg-card">
         <div className="mx-auto max-w-[1280px] px-4 py-5 sm:px-6">
           <TaxonomySelects value={tax} onChange={changeTax} onLabels={setTaxLabels} />
         </div>

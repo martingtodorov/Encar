@@ -1,0 +1,42 @@
+{
+  "summary": "Verified new admin surface (Operations dashboard: Overview, Brand coverage, Enquiry inbox), enquiry email hook (Resend, fire-and-forget), and three UI changes (icon-only save button, taxonomy section divider removed, drawer Operations link admin-only) end-to-end on preview. 9/9 backend admin tests pass; frontend flows all pass with one minor observation on /saved page render timing.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      { "flow": "Save car -> /saved page", "issue": "After clicking [data-testid=detail-save-button] on a car detail page (title flips Save->Saved and persists across reload, confirming the toggle worked), the newly-saved listing id was not present in the /saved page DOM within 6s of load. Other pre-saved cars were listed. Likely a lazy-list render/refresh delay rather than a save API bug (state was persisted). Worth a look but not blocking.", "affected_selectors": ["/saved page listing"] }
+    ],
+    "design_issues": []
+  },
+  "verification_details": {
+    "ADMIN_ACCESS_a_guest_redirect": "Guest visiting /admin -> redirected to /login. PASS.",
+    "ADMIN_ACCESS_b_nonadmin_redirect": "Registered fresh nonadmin_<ts>@example.com, then /admin -> /?sort=newest (the home search page, decorated with default sort). PASS.",
+    "ADMIN_ACCESS_c_admin_renders": "Signed in as admin@encarskin.com, /admin renders with [data-testid=admin-title] = 'Operations'. PASS.",
+    "ADMIN_ACCESS_d_api_401_and_200": "curl-equivalent: GET /api/admin/overview no header -> 401; with x-admin-token: encar-admin -> 200 with rich payload (listings_total=210,435, unique_cars=149,427, translations_cached=18,372, email.shared_sender=true). PASS (backend pytest).",
+    "ADMIN_NAV_LINK": "As admin, [data-testid=nav-menu-button] opens [data-testid=nav-drawer-panel] and [data-testid=drawer-admin-button] is present. As non-admin same drawer does NOT contain drawer-admin-button. PASS.",
+    "OVERVIEW_TAB": "[data-testid=admin-overview] shows stat cards: stat-upstream=210,250; stat-held=210,303 (100.03% of upstream — expected slight over-100 as noted in request); stat-unique=149,427 (60,876 dupes hidden); stat-translations=18,372. Crawl section shows [data-testid=admin-sync-status]='idle' plus crawl facts (last full crawl 12h ago, 1,185 partition leaves, 5,062 lease/rental skipped, 10,703 taxonomy nodes, 2,592 upstream requests, 89 retired, 0 encar errors). Email section present, [data-testid=admin-email-warning] visible warning about Resend shared sender. [data-testid=admin-overview-refresh] click succeeded without any .error element appearing. PASS.",
+    "COVERAGE_TAB": "[data-testid=coverage-rows] renders 62 brand rows. Zero Hangul characters found in the rendered rows text. Confirmed Latin labels present: Hyundai, Kia, BMW, Mercedes-Benz, Genesis. [data-testid=admin-coverage-refresh] is present and NOT disabled (button not clicked, per instructions). PASS.",
+    "ENQUIRIES_TAB": "[data-testid=admin-enquiries] renders enquiry-row list (8 rows — 7 seeded + 1 test enquiry I created via /api/enquiry). First row [data-testid=enquiry-car-link] -> /car/42318384, has [data-testid=enquiry-email] mailto link. Status filter pills all present (all/new/contacted/closed). Search 'QM6' narrows to 3 rows, nonsense search shows empty state ('No enquiries match.'). [data-testid=enquiry-mark-contacted] click moved the row to Contacted (visible under Contacted filter, 'Marked contacted' toast). Reverted with [data-testid=enquiry-mark-new] and 'Marked new' toast confirmed. PASS.",
+    "ENQUIRY_EMAIL_HOOK": "POST /api/enquiry (via UI form on car detail page + separately via backend pytest) returned 200/201 and the enquiry appeared at the top of the admin inbox. Backend log shows mailer failed to deliver to test_buyer@example.com because Resend blocks example.com, but degrades gracefully with a WARNING (no unhandled exception in /var/log/supervisor/backend.err.log). PASS — no crash, no slowdown observed.",
+    "UI_A_SAVE_ICON_ONLY": "detail-save-button rendered with size 44x44, aria-label & title toggle between 'Save' and 'Saved', innerText is empty (icon-only, contains an <svg>). Bounding boxes: price.x=1407.25, save.x=1532 -> save.x > price.x. Vertical centres overlap (inline row). Click toggles the label. PASS on all icon-only + placement + toggle assertions.",
+    "UI_B_DIVIDER_REMOVED": "Computed borderBottomWidth of the <section> wrapping make/model/submodel selects = '0px'. Visual screenshot confirms no line between taxonomy row and Filters. PASS.",
+    "REGRESSION_search_still_works": "Home page loads with hero count '149,427 cars in the catalogue', filters apply, first car detail opens with photos/specs/inspection/diagnosis.",
+    "REGRESSION_back_to_results": "From /?make=BMW&year_min=2018&sort=price_asc&page=2 opening a car and clicking back-to-results restored the URL exactly (all four params intact). PASS."
+  },
+  "test_report_links": ["/app/backend/tests/test_admin_features.py", "/app/test_reports/pytest/admin_features.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "detail-save-button aria-pressed is not set — the button uses title/aria-label to convey state instead of aria-pressed. Semantically a toggle button should carry aria-pressed=true|false; minor a11y polish.",
+    "Overview 'Ads indexed by us' shows 100.03% which is technically OVER the upstream count; the request notes this is expected but a UX-friendly clamp at 100% (with a tooltip explaining retired-ads carryover) would prevent operator confusion.",
+    "mailer.py currently logs 'Invalid to field' as a WARNING when sending to example.com/unverified domains — consider marking such delivery attempts as SKIPPED in the enquiry document so operators know outreach didn't actually leave the building.",
+    "/saved page may benefit from an eager refetch after a save+navigation to avoid the stale-list observation flagged as a minor integration concern."
+  ],
+  "updated_files": ["/app/backend/tests/test_admin_features.py"],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "test_credentials": "admin@encarskin.com / AdminTest2026! (admin), plus a throwaway non-admin nonadmin_<timestamp>@example.com created during test; x-admin-token: encar-admin",
+  "seed_data_creation": "One extra enquiry inserted into the DB via POST /api/enquiry from backend tests (name='TEST_Buyer', message contains 'TEST enquiry from backend test suite'), and one UI-form enquiry (name='TEST_UI_Buyer'). Both are visible in the admin inbox; safe to purge if desired. One car was toggled to Saved and left saved (state persists on backend); user can unsave manually.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Admin surface uses [data-testid=admin-tab-overview|coverage|enquiries] with corresponding [data-testid=admin-overview|coverage|enquiries] panels. Enquiry rows expose enquiry-row, enquiry-car-link, enquiry-email, enquiry-phone, enquiry-mark-contacted, enquiry-mark-new, enquiry-filter-all|new|contacted|closed, enquiry-search. Admin API endpoints all live under /api/admin/ and require either an authenticated admin session cookie OR header x-admin-token: encar-admin. Enquiry creation endpoint is POST /api/enquiry (singular, not /enquiries) with payload keys: listing_id, car_title, name, email, phone, message, lang. Do NOT click [data-testid=admin-coverage-refresh] in tests — it triggers ~62 upstream Encar calls (~2 min job). Backend tests: /app/backend/tests/test_admin_features.py.",
+  "rca of the issue": "N/A — no bugs found this iteration."
+}

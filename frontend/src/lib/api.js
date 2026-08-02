@@ -44,6 +44,32 @@ export async function getHealth() {
   return data;
 }
 
+// ── admin ──────────────────────────────────────────────────────────────────
+export async function getAdminOverview() {
+  const { data } = await http.get("/admin/overview");
+  return data;
+}
+
+export async function getAdminCoverage() {
+  const { data } = await http.get("/admin/coverage");
+  return data;
+}
+
+export async function refreshAdminCoverage() {
+  const { data } = await http.post("/admin/coverage/refresh");
+  return data;
+}
+
+export async function getAdminEnquiries(params) {
+  const { data } = await http.get("/admin/enquiries", { params });
+  return data;
+}
+
+export async function setEnquiryStatus(id, status) {
+  const { data } = await http.patch(`/admin/enquiries/${id}`, { status });
+  return data;
+}
+
 export async function getQuote(priceKrw) {
   const { data } = await http.get("/pricing/quote", { params: { price_krw: priceKrw } });
   return data;

@@ -20,7 +20,7 @@ from pymongo import UpdateOne
 
 import fx as fx_mod
 import pricing
-from encar import encar, normalise_row
+from encar import BASE_Q, encar, normalise_row
 
 log = logging.getLogger("sync")
 
@@ -204,9 +204,10 @@ DIM_BOUNDS = {
 
 
 def _q(clauses):
-    """Build the upstream query from a list of facet clauses."""
+    """Build the upstream query from a list of facet clauses, on top of the shared base
+    (which already restricts to regular-sale, non-lease, non-rental cars)."""
     body = "".join(f"_.{c}." for c in clauses)
-    return f"(And.Hidden.N._.CarType.A.{body})"
+    return f"{BASE_Q[:-1]}{body})"
 
 
 def _dim_clauses(dims):
@@ -471,6 +472,78 @@ async def dedupe_pass(db):
 # A weekly TTL froze them at whatever the first build of the week saw.
 TAXONOMY_TTL_HOURS = float(os.environ.get("TAXONOMY_TTL_HOURS", "6"))
 _TAX_BUILDING = {"on": False}
+
+
+BRAND_COVERAGE_KEY = "brand_coverage"
+_COVERAGE_RUNNING = {"on": False}
+
+
+async def refresh_brand_coverage(db):
+    """True per-brand coverage: our indexed count vs Encar's own live count.
+
+    One count-only upstream request per make (~60 requests, politely paced). The base
+    query already excludes lease/rental, so `upstream` is the exportable population and
+    the ratio is honest rather than flattered by cars we deliberately skip.
+    """
+    if _COVERAGE_RUNNING["on"]:
+        return {"running": True}
+    _COVERAGE_RUNNING["on"] = True
+    started = datetime.now(timezone.utc)
+    await db.sync_state.update_one(
+        {"_id": BRAND_COVERAGE_KEY},
+        {"$set": {"status": "running", "started_at": started, "brands": [],
+                  "done": 0, "total": 0}},
+        upsert=True)
+    try:
+        pipe = [
+            {"$match": {"active": True, "manufacturer": {"$nin": [None, ""]}}},
+            {"$group": {"_id": "$manufacturer",
+                        "ads": {"$sum": 1},
+                        "unique": {"$sum": {"$cond": [{"$eq": ["$duplicate", True]}, 0, 1]}}}},
+            {"$sort": {"ads": -1}},
+        ]
+        ours = [d async for d in db.listings.aggregate(pipe, allowDiskUse=True)]
+        await db.sync_state.update_one({"_id": BRAND_COVERAGE_KEY},
+                                       {"$set": {"total": len(ours)}})
+        brands = []
+        for i, row in enumerate(ours):
+            make = row["_id"]
+            try:
+                upstream = await encar.count(_q([f"Manufacturer.{make}"]))
+            except Exception as e:
+                log.warning("brand count failed for %s: %s", make, str(e)[:120])
+                upstream = None
+            brands.append({
+                "make": make,
+                "upstream": upstream,
+                "ads": row["ads"],
+                "unique": row["unique"],
+                "coverage": round(row["ads"] / upstream, 4) if upstream else None,
+            })
+            await db.sync_state.update_one(
+                {"_id": BRAND_COVERAGE_KEY},
+                {"$set": {"brands": brands, "done": i + 1}})
+        await db.sync_state.update_one(
+            {"_id": BRAND_COVERAGE_KEY},
+            {"$set": {"status": "idle", "finished_at": datetime.now(timezone.utc),
+                      "duration_s": round(
+                          (datetime.now(timezone.utc) - started).total_seconds(), 1)}})
+        log.info("brand coverage refreshed for %s makes", len(brands))
+        return {"brands": len(brands)}
+    except Exception as e:
+        log.warning("brand coverage refresh failed: %s", e)
+        await db.sync_state.update_one({"_id": BRAND_COVERAGE_KEY},
+                                       {"$set": {"status": "error", "error": str(e)[:300]}})
+        return {"error": str(e)[:300]}
+    finally:
+        _COVERAGE_RUNNING["on"] = False
+
+
+async def get_brand_coverage(db):
+    doc = await db.sync_state.find_one({"_id": BRAND_COVERAGE_KEY})
+    if not doc:
+        return {"status": "never", "brands": [], "done": 0, "total": 0}
+    return {k: v for k, v in doc.items() if k != "_id"}
 
 
 async def build_taxonomy(db):
