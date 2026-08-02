@@ -33,12 +33,48 @@ export const PhotoSwiper = ({
 
   const box = useRef(null);
   const drag = useRef(null);
+  const wheel = useRef({ acc: 0, until: 0 });
   const [dx, setDx] = useState(0);
   const [dragging, setDragging] = useState(false);
+
+  // The wheel listener is registered once, so it must read the current index and setter
+  // through refs rather than closing over a stale render.
+  const activeRef = useRef(active);
+  const setActiveRef = useRef(setActive);
+  activeRef.current = active;
+  setActiveRef.current = setActive;
 
   // Guard against a parent handing us a shorter list than the current index.
   useEffect(() => {
     if (active > slides.length - 1) setActive(Math.max(0, slides.length - 1));
+  }, [slides.length]);
+
+  // Mac trackpads emit a horizontal wheel for a two-finger sideways swipe, so the same
+  // gesture that works on a phone works here. Registered natively because React's onWheel
+  // is passive and cannot preventDefault the browser's own sideways scroll. Deltas are
+  // accumulated to a threshold with a short cooldown, otherwise one flick would race
+  // through the whole gallery.
+  useEffect(() => {
+    const el = box.current;
+    if (!el || slides.length < 2) return;
+
+    const onWheel = (e) => {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;   // vertical: let the page scroll
+      e.preventDefault();
+      const now = Date.now();
+      if (now < wheel.current.until) return;
+      wheel.current.acc += e.deltaX;
+      if (Math.abs(wheel.current.acc) < 45) return;
+      const step = wheel.current.acc > 0 ? 1 : -1;
+      wheel.current.acc = 0;
+      wheel.current.until = now + 320;
+      setActiveRef.current(
+        Math.min(slides.length - 1, Math.max(0, activeRef.current + step))
+      );
+    };
+
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
   }, [slides.length]);
 
   if (slides.length === 0) {
@@ -131,6 +167,8 @@ export const PhotoSwiper = ({
             data-testid={`${testId}-prev`}
             aria-label="Previous photo"
             disabled={active === 0}
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               setActive(Math.max(0, active - 1));
@@ -144,6 +182,8 @@ export const PhotoSwiper = ({
             data-testid={`${testId}-next`}
             aria-label="Next photo"
             disabled={active === slides.length - 1}
+            onPointerDown={(e) => e.stopPropagation()}
+            onPointerUp={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
               setActive(Math.min(slides.length - 1, active + 1));

@@ -2,6 +2,31 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-06 — Desktop header nav + car detail gallery and sticky bar
+Verified (iteration_15): 100%, 46 UI assertions across 1600/1920/1280/390 widths.
+- **Desktop navigation is now inline in the header at all times.** On a wide screen there
+  is room for it and a drawer costs a click per move, so `HeaderNav` (links, language
+  pills, theme toggle, and either account+Operations or login+register) shows at `lg` and
+  the hamburger `NavDrawer` is mobile-only. The owner supplied a reference screenshot of
+  another site's header for the LAYOUT pattern; it was implemented with our own Encar
+  palette and components rather than reproducing their branding.
+- **Detail main image is smaller on desktop but still a true 16:9.** First attempt used
+  `object-cover` inside a fixed-height row and squashed the photo to ~2.4:1, which the
+  owner rightly rejected. Now the image keeps `aspect-[16/9]` at
+  `lg:w-[calc(100%-226px)]`, so its own height defines the row, and the `<img>` box
+  matches its container exactly — nothing is cropped.
+- **Thumbnails moved beside the main image and got much bigger** — 214x120, up from
+  96x64. The strip is `lg:absolute lg:inset-y-0 lg:right-0` so it is pinned to the main
+  image's height and scrolls internally (scrollHeight 3330 vs 566 client) without
+  stretching the page. Mobile keeps the stacked layout with a horizontal strip.
+- **Desktop prev/next arrows** on the main photo (`arrows` prop on `PhotoSwiper`), since
+  dragging is an awkward gesture with a mouse. They `stopPropagation` so they do not also
+  open the lightbox.
+- **New sticky detail bar** with the make/model, sub-model, price and favourite button.
+  Deliberately `fixed`, not `sticky`: a sticky element stays in normal flow and was
+  reserving its full 64px height under the header even while invisible, which was the
+  cause of the excess whitespace above "Back to results" (73px → 8px).
+
 ## 2026-06 — Faster description translation + UI consistency
 - **Dealer-description translation felt like a 10-20s hang; now first words appear in
   ~0.7s.** Measured the cause rather than guessing: a 657-char Korean description

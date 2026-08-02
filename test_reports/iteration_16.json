@@ -1,0 +1,42 @@
+{
+  "summary": "Frontend-only verification of the 3 photo-gallery bugs on encar skin. All three fixes are confirmed working end-to-end at 1600x900, 1280x800 and 390x844. Also verified counter-checks (vertical wheel does NOT change photo, page scrolls normally) and that flick throttling (45px threshold + 320ms cooldown) prevents runaway advancement.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verifications": {
+    "BUG1_native_ratio_lightbox": {
+      "car": "41995353 (26 photos)",
+      "1600x900": "10 lightbox <img> checked: naturalRatio 1.7778 vs clientRatio 1.7773 (delta 0.0005 << 0.02) — MATCH",
+      "1280x800": "6 imgs: 1.7778 vs 1.7773 — MATCH",
+      "390x844_mobile": "6 imgs: 1.7778 vs 1.7798 (delta 0.0020) — MATCH; cw=388 ch=218 confirms full-width, contained, uncropped",
+      "note": "All 26 encar images for car 41995353 happen to be delivered at 1280x720 (16:9) via encar's impolicy=widthRate CDN transform, so a true portrait/square test wasn't possible on this car; however the ratio-equality assertion proves object-contain + h-auto is in effect and would preserve any native ratio."
+    },
+    "BUG2_trackpad_horizontal_wheel": {
+      "detail_page": "5 x wheel(30,0) advanced counter 3/26 -> 5/26; 5 x wheel(-30,0) went 5/26 -> 3/26 (throttle prevented racing through all 5 events)",
+      "detail_vertical_countercheck": "wheel(0,300) kept counter at 3/26 while window.scrollY went 0 -> 300 — PAGE scrolled, photo did NOT change",
+      "row_swiper_1920x900": "1/4 -> 3/4 -> 1/4 forward/back OK; vertical wheel kept counter at 1/4 while scrollY went 57 -> 357",
+      "card_swiper_390x844_mobile": "1/4 -> 3/4 -> 1/4 forward/back OK; vertical wheel kept counter at 1/4 while scrollY went 886 -> 1186",
+      "horizontal_page_scroll": "During horizontal wheeling over cards, window.scrollY did NOT change — results list did not horizontally scroll"
+    },
+    "BUG3_arrows_no_longer_open_viewer": {
+      "next_button": "4 consecutive clicks: 1/26 -> 5/26, lightbox count = 0 throughout",
+      "prev_button": "3 consecutive clicks: 5/26 -> 2/26, lightbox count = 0 throughout",
+      "thumbnail_click": "Thumb #3 click -> counter 3/26, lightbox count = 0",
+      "main_image_click_still_opens_viewer": "Click on centre of [data-testid=detail-main-photo] opened [data-testid=detail-lightbox] as expected"
+    }
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Fixes in PhotoSwiper.js (native wheel listener with { passive:false }, activeRef for stale-closure avoidance, 45px threshold + 320ms cooldown) and pointer-event stopPropagation on prev/next buttons are effective. No further changes needed."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100%"},
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All 3 gallery bugs verified fixed at desktop 1600x900, 1280x800 and mobile 390x844. Row swiper on results uses [data-testid=car-row-swiper] + [data-testid=car-row-swiper-counter]; mobile card equivalents are car-card-swiper / car-card-swiper-counter. Note that all 26 photos of car 41995353 are 16:9 native — for a true mixed-aspect test try another car ID if one becomes available."
+}

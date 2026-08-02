@@ -7,7 +7,7 @@ import { useApp } from "@/context/AppContext";
  * They arrive at arbitrary aspect ratios and can be slow or fail, so this handles
  * skeleton -> slow label -> loaded, plus a real fallback panel on error.
  */
-export const ImageWithFallback = ({ src, alt, className = "", testId }) => {
+export const ImageWithFallback = ({ src, alt, className = "", testId, fit = "cover" }) => {
   const { t } = useApp();
   const [state, setState] = useState(src ? "loading" : "error");
   const [slow, setSlow] = useState(false);
@@ -43,7 +43,11 @@ export const ImageWithFallback = ({ src, alt, className = "", testId }) => {
   }
 
   return (
-    <div className={`relative h-full w-full overflow-hidden bg-muted ${className}`}>
+    <div
+      className={`relative w-full overflow-hidden bg-muted ${
+        fit === "contain" ? "" : "h-full"
+      } ${className}`}
+    >
       {state === "loading" && (
         <div className="shimmer absolute inset-0" aria-hidden="true">
           {slow && (
@@ -68,9 +72,9 @@ export const ImageWithFallback = ({ src, alt, className = "", testId }) => {
           done();
           setState("error");
         }}
-        className={`h-full w-full object-cover transition-opacity duration-300 ${
-          state === "loaded" ? "opacity-100" : "opacity-0"
-        }`}
+        className={`w-full transition-opacity duration-300 ${
+          fit === "contain" ? "h-auto object-contain" : "h-full object-cover"
+        } ${state === "loaded" ? "opacity-100" : "opacity-0"}`}
       />
     </div>
   );

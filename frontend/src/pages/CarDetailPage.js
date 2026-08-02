@@ -585,10 +585,11 @@ export default function CarDetailPage() {
           </DialogDescription>
           <div className="flex flex-col gap-1.5 bg-black py-1.5">
             {photos.map((p, i) => (
-              <div key={i} className="aspect-[4/3] w-full bg-black">
+              <div key={i} className="w-full bg-black">
                 <ImageWithFallback
                   src={p.full}
                   alt={car?.title || ""}
+                  fit="contain"
                   testId={i === 0 ? "detail-lightbox-photo" : undefined}
                 />
               </div>
