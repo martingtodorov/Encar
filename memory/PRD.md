@@ -32,10 +32,14 @@ caching translation layer.
 | Metric | Value |
 |---|---|
 | Ads live on Encar | ~217,800 |
-| Lease/rental ads skipped (not exportable) | ~5,062 |
-| Ads held in our DB | 212,707 (99.97% of reachable) |
-| Re-registered duplicate ads hidden | 60,876 |
-| Unique physical cars shown | 151,831 |
+| Lease (리스) + rental (렌트) ads excluded — not exportable | ~7,500 |
+| Ads held in our DB | 210,435 |
+| Re-registered duplicate ads hidden | ~61,000 |
+| Unique physical cars shown | 149,427 |
+
+Only `일반` (regular sale) listings are indexed. `EXCLUDED_SELL_TYPES` in `sync.py`
+drops 리스 and 렌트 in BOTH import paths (the legacy sequential sync and the
+partitioned crawler's `sink`), so they can never be re-introduced.
 
 Duplicate pairs were verified as genuine re-registrations (identical
 make/model/badge/year/mileage/price, byte-identical photo paths); `vehicle_key` comes
@@ -43,6 +47,12 @@ from the photo path's underlying vehicleId and shows no false collisions. There 
 crawl gap.
 
 ## Implemented
+- 2026-06: **Lease and rental vehicles excluded entirely.** Lease (리스) was already
+  dropped by the partitioned crawler, but rental (렌트) was not, and the legacy
+  sequential sync filtered neither — 2,404 rental cars were live in search. Added
+  `EXCLUDED_SELL_TYPES = {리스, 렌트}` and applied it in both import paths, purged the
+  2,404 existing rows, and rebuilt the taxonomy (10,703 nodes). Verified: the only
+  `sell_type` left in the collection is `일반`, and search/hero now report 149,427.
 - 2026-06: **Catalogue counter** — was frozen at the last crawl's
   `sync_state.listings_upstream` snapshot. Added `GET /api/catalogue/size`
   (`upstream_size_cached`, 15-min memory + Mongo cache) returning

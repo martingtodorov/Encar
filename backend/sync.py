@@ -102,6 +102,8 @@ async def run_full_sync(db, max_pages=None, page_size=PAGE):
                     ops = []
                     now = datetime.now(timezone.utc)
                     for i, row in enumerate(rows):
+                        if (row.get("SellType") or "") in EXCLUDED_SELL_TYPES:
+                            continue
                         doc = normalise_row(row, recency=offset + i)
                         if not doc["_id"] or not doc["price_krw"]:
                             continue
@@ -186,7 +188,9 @@ async def run_full_sync(db, max_pages=None, page_size=PAGE):
 
 LEAF_MAX = 500          # a single request returns at most this many rows
 DEFAULT_RECENCY = 10_000_000
-LEASE_SELL_TYPE = "\ub9ac\uc2a4"        # 리스 - lease cars are not exportable, drop them
+# 리스 (lease) and 렌트 (rental) cars are owned by a finance/rental company, not the
+# seller, so they cannot be exported. They are dropped at import time, never indexed.
+EXCLUDED_SELL_TYPES = {"\ub9ac\uc2a4", "\ub80c\ud2b8"}
 
 # Split order. Bounds only control bisection granularity: the lowest band is
 # emitted open-ended (`range(..hi)`) and the highest too (`range(lo..)`), so
@@ -285,15 +289,15 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
     S = pricing.merge_settings(sdoc.get("constants"))
 
     st = {"leaves": 0, "probes": 0, "rows": 0, "expected": 0, "short_leaves": 0,
-          "unsplittable": 0, "lease_skipped": 0, "written": 0}
+          "unsplittable": 0, "excluded_skipped": 0, "written": 0}
     seen = set()
 
     async def sink(rows):
         ops = []
         now = datetime.now(timezone.utc)
         for row in rows:
-            if (row.get("SellType") or "") == LEASE_SELL_TYPE:
-                st["lease_skipped"] += 1
+            if (row.get("SellType") or "") in EXCLUDED_SELL_TYPES:
+                st["excluded_skipped"] += 1
                 continue
             doc = normalise_row(row)
             if not doc["_id"] or not doc["price_krw"]:
@@ -324,24 +328,24 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
         base = [f"Manufacturer.{mfr}"] if mfr else []
         total = await encar.count(_q(base))
         before = len(seen)
-        before_lease = st["lease_skipped"]
+        before_excluded = st["excluded_skipped"]
         await _set(db, **{f"{progress_key}_current": mfr or "ALL"})
         log.info("partition crawl start: %s upstream=%s", mfr or "ALL", total)
 
         await _crawl_node(base, _fresh_dims(), total, sink, st)
 
         got = len(seen) - before
-        lease = st["lease_skipped"] - before_lease
-        # lease cars are intentionally dropped, so completeness is measured against
-        # the exportable subset of the upstream count
-        reachable = max(total - lease, 0)
+        excluded = st["excluded_skipped"] - before_excluded
+        # lease/rental cars are intentionally dropped, so completeness is measured
+        # against the exportable subset of the upstream count
+        reachable = max(total - excluded, 0)
         per_make[mfr or "ALL"] = {
-            "upstream": total, "lease_skipped": lease, "reachable": reachable,
+            "upstream": total, "excluded_skipped": excluded, "reachable": reachable,
             "distinct_kept": got,
             "coverage": round(got / reachable, 4) if reachable else 0,
         }
-        log.info("partition crawl done: %s upstream=%s lease=%s distinct=%s leaves=%s",
-                 mfr or "ALL", total, lease, got, st["leaves"])
+        log.info("partition crawl done: %s upstream=%s excluded=%s distinct=%s leaves=%s",
+                 mfr or "ALL", total, excluded, got, st["leaves"])
         await db.sync_state.update_one(
             {"_id": progress_key},
             {"$set": {"run_id": run_id, "stats": st, "per_make": per_make,
