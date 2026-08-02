@@ -1,0 +1,93 @@
+# Changelog
+
+Newest first. Verified = confirmed by the testing agent, report referenced.
+
+## 2026-06 — Exchange buffer + a price-consistency bug it exposed
+- **Exchange buffer applied to EUR/KRW.** `fx.HAIRCUT = 0.995319` (0.4681% held back).
+  Market rate 1,653.545 → published 1,645.805. `fx_krw_eur_market` is kept alongside
+  `fx_krw_eur` on every quote for auditing. Skipped when a manual override is set, so an
+  operator's rate is never double-discounted. Verified (iteration_12).
+- **Google Finance rejected as the rate source** after investigation — see PRD for the
+  full reasoning. A positional scrape returned 1,070.98 instead of ~1,650 (a 54%
+  mis-price). Caught by a cross-check against the reference feed before it shipped.
+- **CRITICAL bug found and fixed: search rows were €100 below detail prices.** Listings
+  store a precomputed `sale_eur`; the catalogue had never been repriced after the buffer
+  shipped, so rows quoted the unbuffered rate and the price jumped when a buyer clicked a
+  car. Repriced all 210,435 listings; all sampled cars now match.
+- **Guarded against recurrence.** `fx.get_rates` flags `reprice_needed` on a >0.2% raw
+  rate move; `server._fx_watchdog` refreshes every 30 min and lets
+  `sync.reprice_if_fx_drifted` run the pass detached. Added `reprice.py` as the manual
+  trigger. Without this the drift would have returned on every rate move.
+- Fixed duplicate React keys in the photo thumbnail strip and lightbox (keyed by index —
+  car 41995353 lists the same photo URL twice). Added an sr-only `DialogTitle` and
+  `DialogDescription` to the lightbox for accessibility. Console is now clean.
+- Corrected `warm_status.py`, which had been overstating outstanding translation work by
+  counting taxonomy PATHS instead of distinct values.
+- **Translation coverage reached 100%** on Claude: 62 makes, 1,260 models, 4,231 trims,
+  525 sub-trims across bg/ro/en — 18,399 strings, zero rate-limit failures.
+
+## 2026-06 — Swipeable photos, vertical lightbox, manual description translation
+Verified (iteration_11): 100% backend, 90% frontend.
+- **`PhotoSwiper`** — finger-tracking carousel on result cards, result rows and the detail
+  page's main photo. Locks its axis once per gesture so vertical page scrolling still
+  works, rubber-bands at the ends, and treats <8px in <500ms as a tap so the same surface
+  still opens the car. `listing_out` now ships an `images` array.
+- **Vertical photo column** — tapping the big photo opens every photo stacked in one
+  scrollable column on black, separated by thin bars.
+- **Manual dealer-description translation** — button ABOVE the text, one on-demand Claude
+  call via `POST /api/car/{id}/translate-description`, cached permanently, with a
+  show-original toggle. Descriptions are never auto-translated on page load.
+- **`/saved` made fast** — new `POST /api/listings/by-ids` reads grid rows straight from
+  our index. It previously called `/car/{id}` per favourite, pulling detail, insurance,
+  inspection and diagnosis from Encar for data the grid never shows. 0.83s, was ~6s.
+
+## 2026-06 — Admin Operations area + Resend email
+Verified (iteration_10): 100% both.
+- **Sync dashboard** (`/admin`) — index size, crawl progress, translation health, Encar API
+  error count, email status with a warning while the shared sender is in use.
+- **Brand coverage** — per-brand our-vs-Encar counts with Latin-script labels, measured by
+  one count-only upstream request per make (~62, paced). Established that Encar's API
+  accepts a `SellType.일반.` facet, which makes the comparison exact.
+- **Enquiry inbox** — every enquiry with car, contact details and message; search, status
+  filters, and a new/contacted/closed workflow.
+- **Resend wired** to the enquiry form: operator notification + buyer acknowledgement in
+  their own language, fire-and-forget so a lost email never costs an enquiry.
+- Seeded an admin test account. Note: pydantic's `EmailStr` rejects reserved TLDs, so the
+  first seed on `.test` could never log in (422) — recorded in test_credentials.md.
+
+## 2026-06 — Four search/detail fixes
+Verified (iteration_9): 100% both.
+- **Back to results no longer wipes filters.** Root cause was a hardcoded `<Link to="/">`
+  on the detail page which dropped the query string; the remounted search page then wrote
+  its own `?sort=newest`. Opening a car now carries the live search in navigation state,
+  with `navigate(-1)` and `/` as fallbacks for cold/shared links. `SavedCarsPage` moved off
+  `window.location.href` so Back works from there too.
+- **Diagnosis panels read as words** — `_panel_label()` turns `FRONT_DOOR_LEFT` into
+  `Front door left`.
+- **Save button** moved inline with the price, to its right, and later reduced to an
+  icon-only heart.
+- **Auto-sort rules** — nothing or make-only → newest; model or trim → price ascending. A
+  manually chosen sort is never overridden; `resetAll` clears the flag.
+- Removed the landed-price breakdown panel from the detail page, and the divider between
+  the taxonomy selects and the filters panel, both by request.
+
+## 2026-06 — Lease and rental excluded entirely
+- Lease (리스) was already dropped by the partitioned crawler, but **rental (렌트) was not**,
+  and the legacy sequential sync filtered neither — 2,404 rental cars were live in search.
+  Added `EXCLUDED_SELL_TYPES` to both import paths, purged the 2,404 rows, rebuilt the
+  taxonomy. Later moved the filter upstream into `BASE_Q` so they are never fetched at all.
+
+## 2026-06 — Counters and dropdown freshness
+- **Catalogue counter** was frozen at the last crawl's snapshot. Added
+  `GET /api/catalogue/size` (15-min cache) and, per the owner, the hero now shows OUR
+  inventory (`unique_cars`) rather than Encar's ad total, with `indexNote` reworded in all
+  three languages.
+- **Dropdown counts** were frozen for up to a week. `TAXONOMY_TTL_DAYS = 7` became
+  `TAXONOMY_TTL_HOURS` (6), and `refresh_taxonomy_if_stale()` rebuilds in the background
+  while serving the older tree, so nobody waits on the ~30s aggregation. Verified: request
+  returned in 0.24s while a 10,725-node rebuild ran behind it.
+- **Claude became the primary translator** (`_anthropic_call`, honours `retry-after` on
+  429, SDK retries disabled so backoff isn't doubled), unblocking the warm-up that
+  Gemini's free tier had been rejecting.
+- Established that Encar's ~217k headline is ADS, not cars: ~5k lease/rental are excluded
+  and ~61k are re-registered duplicates of the same physical vehicle.

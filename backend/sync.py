@@ -643,6 +643,37 @@ async def refresh_taxonomy_if_stale(db):
     asyncio.get_running_loop().create_task(_job())
 
 
+async def reprice_if_fx_drifted(db):
+    """Reprice the catalogue when fx.get_rates flagged a meaningful rate move.
+
+    Listings store a precomputed sale_eur while detail pages quote live, so a rate move
+    that is not followed by a reprice makes the price visibly jump when a buyer clicks
+    a search row. Runs at most one pass at a time.
+    """
+    doc = await db.fx.find_one({"_id": "rates"})
+    if not (doc or {}).get("reprice_needed"):
+        return {"repriced": 0}
+    if _REPRICING["on"]:
+        return {"running": True}
+
+    async def _job():
+        _REPRICING["on"] = True
+        try:
+            n = await reprice_all(db)
+            await db.fx.update_one({"_id": "rates"}, {"$unset": {"reprice_needed": ""}})
+            log.info("fx drift reprice done: %s listings", n)
+        except Exception as e:
+            log.warning("fx drift reprice failed: %s", e)
+        finally:
+            _REPRICING["on"] = False
+
+    asyncio.get_running_loop().create_task(_job())
+    return {"started": True}
+
+
+_REPRICING = {"on": False}
+
+
 async def reprice_all(db, batch=5000):
     """Landed price is derived from FX + editable constants, so it must be recomputed
     whenever either changes. ~218k docs in one sweep."""

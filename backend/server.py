@@ -1130,8 +1130,26 @@ async def on_startup():
             {"$set": {"constants": {}, "fx_overrides": {},
                       "created_at": datetime.now(timezone.utc)}},
             upsert=True)
+    asyncio.get_running_loop().create_task(_fx_watchdog())
     log.info("startup complete: %s listings in index",
              await db.listings.count_documents({}))
+
+
+async def _fx_watchdog(period=1800):
+    """Keep stored listing prices in step with the rate.
+
+    Search rows serve a precomputed sale_eur while detail pages quote live, so an
+    unnoticed rate move shows up as a price that jumps when the buyer clicks a car.
+    Refreshing the bundle on a timer lets fx flag real drift, and the reprice then runs
+    detached.
+    """
+    while True:
+        await asyncio.sleep(period)
+        try:
+            await fx_mod.get_rates(db)
+            await sync_mod.reprice_if_fx_drifted(db)
+        except Exception as e:
+            log.warning("fx watchdog: %s", str(e)[:200])
 
 
 @app.on_event("shutdown")

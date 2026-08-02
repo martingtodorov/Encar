@@ -34,6 +34,11 @@ EUR_BGN_PEG = 1.95583  # Bulgarian lev is pegged to the euro
 # what protects the margin when the rate moves between quoting and paying.
 HAIRCUT = 0.995319
 
+# Listings carry a precomputed sale price, so when the rate moves the whole catalogue has
+# to be repriced or search rows drift away from detail pages. Anything larger than this
+# relative move raises a flag for sync.reprice_if_fx_drifted() to act on.
+REPRICE_EPS = 0.002
+
 FALLBACK = {"fx_krw_eur": 1664.0, "usd_eur": 0.867, "eur_ron": 4.977, "eur_bgn": EUR_BGN_PEG}
 
 
@@ -120,17 +125,27 @@ async def get_rates(db, force=False):
     base.update(live)
 
     source = "open.er-api.com" if live else ("stale-cache" if doc else "fallback")
-    await db.fx.update_one(
-        {"_id": "rates"},
-        {"$set": {
-            "fx_krw_eur": base["fx_krw_eur"],
-            "usd_eur": base["usd_eur"],
-            "eur_ron": base["eur_ron"],
-            "fetched_at": now,
-            "source": source,
-        }},
-        upsert=True,
+    # Raw-to-raw comparison: both sides are pre-haircut, so the check is independent of
+    # whatever HAIRCUT happens to be set to.
+    previous = (doc or {}).get("fx_krw_eur")
+    drifted = bool(
+        live.get("fx_krw_eur") and previous
+        and abs(live["fx_krw_eur"] - previous) / previous > REPRICE_EPS
     )
+    if drifted:
+        log.info("EUR/KRW moved %.4f -> %.4f, catalogue reprice flagged",
+                 previous, live["fx_krw_eur"])
+
+    update = {
+        "fx_krw_eur": base["fx_krw_eur"],
+        "usd_eur": base["usd_eur"],
+        "eur_ron": base["eur_ron"],
+        "fetched_at": now,
+        "source": source,
+    }
+    if drifted:
+        update["reprice_needed"] = True
+    await db.fx.update_one({"_id": "rates"}, {"$set": update}, upsert=True)
 
     out = _apply_haircut(_apply_overrides(base, overrides))
     out["fetched_at"] = now
