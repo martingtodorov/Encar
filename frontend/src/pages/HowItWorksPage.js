@@ -3,7 +3,7 @@ import { HeaderBar } from "@/components/HeaderBar";
 import { useApp } from "@/context/AppContext";
 
 const Step = ({ icon: Icon, title, body, n }) => (
-  <div className="rounded-[16px] border border-border bg-card p-5 shadow-[var(--shadow-sm)]">
+  <div className="rounded-[16px] border border-border bg-card p-5 shadow-sm">
     <div className="mb-3 flex items-center gap-3">
       <span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-secondary">
         <Icon className="h-[18px] w-[18px] text-[hsl(var(--primary))]" aria-hidden="true" />

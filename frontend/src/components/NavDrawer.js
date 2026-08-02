@@ -108,7 +108,7 @@ export const NavDrawer = () => {
                     aria-pressed={l.code === lang}
                     className={`h-8 rounded-[8px] px-3 text-[12.5px] font-semibold uppercase transition-colors ${
                       l.code === lang
-                        ? "bg-card text-[hsl(var(--primary))] shadow-[var(--shadow-sm)]"
+                        ? "bg-card text-[hsl(var(--primary))] shadow-sm"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
@@ -132,7 +132,7 @@ export const NavDrawer = () => {
                     aria-pressed={c.code === currency}
                     className={`h-8 rounded-[8px] px-3 text-[12.5px] font-semibold transition-colors ${
                       c.code === currency
-                        ? "bg-card text-[hsl(var(--primary))] shadow-[var(--shadow-sm)]"
+                        ? "bg-card text-[hsl(var(--primary))] shadow-sm"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                   >

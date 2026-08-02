@@ -1,0 +1,51 @@
+{
+  "summary": "Focused re-test of the shadow-fix from iteration_13. Verified that shadow-[var(--shadow-sm)] arbitrary form is gone (grep returned 0 matches in /app/frontend/src) and that tailwind.config.js now registers boxShadow.sm/md = var(--shadow-sm/md). Verified computed boxShadow on ALL required elements at both viewports contains the design token 'rgba(17, 20, 26, 0.07) 0px 1px 2px 0px' and is not 'none'. UI consistency, mobile Filters button placement, filter-sheet accessibility, and admin/detail spot checks all pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "shadow_verification": {
+    "grep_shadow_var_leftovers": "0 matches (clean)",
+    "mobile_390x844": {
+      "[data-testid=taxonomy-make-select]":   {"shadow_has_token": true, "borderRadius": "10px", "borderWidth": "1px", "borderColor": "rgb(223, 226, 231)"},
+      "[data-testid=taxonomy-model-select]":  {"shadow_has_token": true, "borderRadius": "10px", "borderWidth": "1px", "borderColor": "rgb(223, 226, 231)"},
+      "[data-testid=taxonomy-badge-select]":  {"shadow_has_token": true, "borderRadius": "10px", "borderWidth": "1px", "borderColor": "rgb(223, 226, 231)"},
+      "[data-testid=open-filters-button]":    {"shadow_has_token": true, "borderRadius": "10px", "borderWidth": "1px", "borderColor": "rgb(223, 226, 231)"},
+      "#sort-control":                         {"shadow_has_token": true, "borderRadius": "10px", "borderWidth": "1px", "borderColor": "rgb(223, 226, 231)"},
+      "[data-testid=car-card]":               {"shadow_has_token": true, "borderRadius": "14px", "borderWidth": "1px", "borderColor": "rgb(229, 231, 235)"}
+    },
+    "desktop_1920x900": {
+      "[data-testid=taxonomy-make-select]":   {"shadow_has_token": true, "borderRadius": "10px"},
+      "[data-testid=taxonomy-model-select]":  {"shadow_has_token": true, "borderRadius": "10px"},
+      "[data-testid=taxonomy-badge-select]":  {"shadow_has_token": true, "borderRadius": "10px"},
+      "#sort-control":                         {"shadow_has_token": true, "borderRadius": "10px"},
+      "[data-testid=car-row]":                {"shadow_has_token": true, "borderRadius": "14px"}
+    },
+    "computed_chain_example": "rgba(0,0,0,0) 0px 0px 0px 0px, rgba(0,0,0,0) 0px 0px 0px 0px, rgba(17, 20, 26, 0.07) 0px 1px 2px 0px",
+    "consistency": "All five controls share radius=10px, border=1px rgb(223,226,231). Ad cards use 14px radius as expected. Non-none shadow everywhere."
+  },
+  "other_checks": {
+    "mobile_filters_button_placement": "Same row as taxonomy-badge-select (both y=1082.94, height=44), filters button x=201 vs badge x=16 (to the right). Sheet opens on click.",
+    "filters_button_desktop_hidden": "count=1 in DOM, is_visible()=false — correctly hidden at 1920px.",
+    "filter_sheet_a11y": "Opened sheet on mobile — 0 Radix Description / aria-describedby warnings in console.",
+    "admin_operations_stat_cards": "10/10 sampled stat/panel cards render with non-none boxShadow.",
+    "car_detail_page_42398004": "Loaded, price €8,499 rendered, body length 3704 chars (photos+specs+description rendering).",
+    "no_console_errors": "Only INFO-level logs on preview navigation; no errors or warnings captured during sheet open / navigation."
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Tailwind boxShadow scale is now correctly wired to CSS design tokens (var(--shadow-sm/md)) — the previous shadow-[var(...)] pitfall is documented in a comment right above the config, which is a nice guardrail.",
+    "Suggestion (non-blocking): consider an ESLint rule / grep pre-commit hook that fails on /shadow-\\[var\\(--shadow/ so the broken arbitrary form cannot silently return."
+  ],
+  "updated_files": [],
+  "success_rate": {"frontend": "100%"},
+  "test_credentials": "Used admin@encarskin.com / AdminTest2026! from /app/memory/test_credentials.md for admin spot-check.",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The shadow-token regression is fully fixed. tailwind.config.js maps boxShadow.sm/md to the CSS variables and all 25 broken usages have been replaced with plain shadow-sm/shadow-md. If future work touches shadows, DO NOT reintroduce the shadow-[var(--shadow-*)] arbitrary-value syntax — Tailwind will treat the var() as a color and paint an empty shadow. Verify with: grep -rn 'shadow-\\[var(--shadow' /app/frontend/src (must be zero).",
+  "rca of the issue": "Fixed in iteration_14 code drop. Original RCA (from iteration_13): Tailwind JIT interpreted shadow-[var(--shadow-sm)] as a color-only arbitrary shadow modifier, emitting box-shadow with a color but no offsets/blur → visually 'none'. Mitigation applied by main agent: register the tokens as the actual boxShadow scale in tailwind.config.js (theme.extend.boxShadow.sm/md → var(--shadow-sm/md)) and replace all shadow-[var(--shadow-*)] occurrences with the plain shadow-sm/shadow-md utilities. Retest confirms computed boxShadow now contains 'rgba(17, 20, 26, 0.07) 0px 1px 2px 0px' on every required element."
+}

@@ -41,7 +41,7 @@ export const CarCard = ({ car, onOpen }) => {
       data-testid="car-card"
       data-car-id={car.id}
       data-under-contract={car.under_contract ? "true" : "false"}
-      className="group relative flex flex-col overflow-hidden rounded-[14px] border border-border bg-card shadow-[var(--shadow-sm)] transition-shadow duration-200 hover:shadow-[var(--shadow-md)]"
+      className="group relative flex flex-col overflow-hidden rounded-[14px] border border-border bg-card shadow-sm transition-shadow duration-200 hover:shadow-md"
     >
       {car.under_contract && (
         <span data-testid="car-card-contract-ribbon" className="ribbon">
@@ -76,7 +76,7 @@ export const CarCard = ({ car, onOpen }) => {
           }}
           aria-label={saved ? t("saved") : t("save")}
           aria-pressed={saved}
-          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card shadow-[var(--shadow-sm)] transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Heart
             className={`h-4 w-4 ${

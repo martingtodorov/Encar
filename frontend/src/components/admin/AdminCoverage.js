@@ -92,7 +92,7 @@ export const AdminCoverage = () => {
             ))}
           </div>
 
-          <div className="overflow-hidden rounded-[16px] border border-border bg-card shadow-[var(--shadow-sm)]">
+          <div className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm">
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-border text-[11px] uppercase tracking-wide text-muted-foreground">

@@ -5,7 +5,7 @@ const nf = new Intl.NumberFormat("en-GB");
 export const Stat = ({ label, value, sub, tone = "default", testId }) => (
   <div
     data-testid={testId}
-    className="rounded-[14px] border border-border bg-card px-4 py-3.5 shadow-[var(--shadow-sm)]"
+    className="rounded-[14px] border border-border bg-card px-4 py-3.5 shadow-sm"
   >
     <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
       {label}

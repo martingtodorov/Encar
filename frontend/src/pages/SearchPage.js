@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { SlidersHorizontal, Loader2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { HeaderBar } from "@/components/HeaderBar";
 import { Hero } from "@/components/Hero";
 import { TrustStrip } from "@/components/TrustStrip";
@@ -292,7 +298,7 @@ export default function SearchPage() {
         <Button
           data-testid="floating-filters-button"
           onClick={() => setSheetOpen(true)}
-          className="h-11 gap-2 rounded-full border border-border bg-[hsl(var(--primary))] px-5 text-sm font-semibold text-primary-foreground shadow-[var(--shadow-md)] hover:brightness-110"
+          className="h-11 gap-2 rounded-full border border-border bg-[hsl(var(--primary))] px-5 text-sm font-semibold text-primary-foreground shadow-md hover:brightness-110"
         >
           <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
           {t("filters")}
@@ -315,7 +321,7 @@ export default function SearchPage() {
                 data-testid="open-filters-button"
                 variant="outline"
                 onClick={() => setSheetOpen(true)}
-                className="h-11 w-full gap-2 rounded-[10px] border border-input bg-card px-4 text-sm shadow-[var(--shadow-sm)]"
+                className="h-11 w-full gap-2 rounded-[10px] border border-input bg-card px-4 text-sm shadow-sm"
               >
                 <SlidersHorizontal
                   className="h-4 w-4 text-[hsl(var(--primary))]"
@@ -348,6 +354,7 @@ export default function SearchPage() {
                 <SheetContent side="left" className="flex w-[92vw] max-w-sm flex-col gap-0 bg-card p-0">
                   <SheetHeader className="border-b border-border px-4 py-3 text-left">
                     <SheetTitle className="text-[15px] font-semibold">{t("filters")}</SheetTitle>
+                    <SheetDescription className="sr-only">{t("filters")}</SheetDescription>
                   </SheetHeader>
                   <FilterSidebar
                     filters={filters}

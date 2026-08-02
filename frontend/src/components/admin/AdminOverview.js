@@ -86,7 +86,7 @@ export const AdminOverview = () => {
         />
       </div>
 
-      <section className="rounded-[16px] border border-border bg-card p-5 shadow-[var(--shadow-sm)]">
+      <section className="rounded-[16px] border border-border bg-card p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-[14.5px] font-semibold text-foreground">Crawl</h2>
           <span
@@ -136,7 +136,7 @@ export const AdminOverview = () => {
         </dl>
       </section>
 
-      <section className="rounded-[16px] border border-border bg-card p-5 shadow-[var(--shadow-sm)]">
+      <section className="rounded-[16px] border border-border bg-card p-5 shadow-sm">
         <h2 className="flex items-center gap-2 text-[14.5px] font-semibold text-foreground">
           <Mail className="h-4 w-4 text-[hsl(var(--primary))]" aria-hidden="true" />
           Email

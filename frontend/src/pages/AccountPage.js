@@ -82,7 +82,7 @@ export default function AccountPage() {
           {t("myAccount")}
         </h1>
 
-        <section className="mt-6 rounded-[16px] border border-border bg-card p-5 shadow-[var(--shadow-sm)]">
+        <section className="mt-6 rounded-[16px] border border-border bg-card p-5 shadow-sm">
           <div className="flex items-center gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-secondary text-[16px] font-semibold text-[hsl(var(--primary))]">
               {(user.email || "?").slice(0, 1).toUpperCase()}

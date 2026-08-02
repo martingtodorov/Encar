@@ -12,7 +12,7 @@ export const HeaderBar = ({ hidden = false }) => {
     <header
       data-testid="header-bar"
       data-hidden={hidden ? "true" : "false"}
-      className={`sticky top-0 z-40 border-b border-border bg-card shadow-[var(--shadow-sm)] transition-transform duration-300 lg:translate-y-0 ${
+      className={`sticky top-0 z-40 border-b border-border bg-card shadow-sm transition-transform duration-300 lg:translate-y-0 ${
         hidden ? "-translate-y-full" : "translate-y-0"
       }`}
     >

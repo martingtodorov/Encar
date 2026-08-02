@@ -52,7 +52,7 @@ export const DescriptionPanelBody = ({ carId, original }) => {
             data-testid="description-show-original"
             variant="outline"
             onClick={() => setShowing("original")}
-            className="h-9 gap-2 rounded-[10px] border border-input bg-card px-3 text-[13px] font-medium shadow-[var(--shadow-sm)] hover:bg-muted"
+            className="h-9 gap-2 rounded-[10px] border border-input bg-card px-3 text-[13px] font-medium shadow-sm hover:bg-muted"
           >
             <Undo2 className="h-3.5 w-3.5" aria-hidden="true" />
             {t("showOriginal")}
@@ -63,7 +63,7 @@ export const DescriptionPanelBody = ({ carId, original }) => {
             variant="outline"
             onClick={run}
             disabled={busy}
-            className="h-9 gap-2 rounded-[10px] border border-input bg-card px-3 text-[13px] font-medium shadow-[var(--shadow-sm)] hover:bg-muted"
+            className="h-9 gap-2 rounded-[10px] border border-input bg-card px-3 text-[13px] font-medium shadow-sm hover:bg-muted"
           >
             {busy ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />

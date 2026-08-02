@@ -27,7 +27,7 @@ import { formatMileage, formatMoney, formatNumber, formatYearMonth } from "@/lib
 const Panel = ({ title, icon: Icon, children, testId, tone = "info" }) => (
   <section
     data-testid={testId}
-    className="overflow-hidden rounded-[16px] border border-border bg-card shadow-[var(--shadow-sm)]"
+    className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm"
   >
     <header className="flex items-center gap-2.5 border-b border-border px-4 py-3">
       <span

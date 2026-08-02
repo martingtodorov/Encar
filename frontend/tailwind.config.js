@@ -12,6 +12,13 @@ module.exports = {
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)'
       },
+      // The design tokens ARE the shadow scale. Do NOT write shadow-[var(--shadow-sm)]:
+      // Tailwind reads a bare var() as a *colour* and emits an empty box-shadow, so the
+      // class silently paints nothing. Use shadow-sm / shadow-md.
+      boxShadow: {
+        sm: 'var(--shadow-sm)',
+        md: 'var(--shadow-md)'
+      },
       colors: {
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',

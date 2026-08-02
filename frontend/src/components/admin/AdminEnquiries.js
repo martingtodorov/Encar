@@ -60,7 +60,7 @@ export const AdminEnquiries = () => {
               }}
               className={`rounded-[8px] px-3 py-1.5 text-[12.5px] font-medium transition-colors ${
                 status === s
-                  ? "bg-card text-foreground shadow-[var(--shadow-sm)]"
+                  ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -102,7 +102,7 @@ export const AdminEnquiries = () => {
             <li
               key={e.id}
               data-testid="enquiry-row"
-              className="rounded-[14px] border border-border bg-card p-4 shadow-[var(--shadow-sm)]"
+              className="rounded-[14px] border border-border bg-card p-4 shadow-sm"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">

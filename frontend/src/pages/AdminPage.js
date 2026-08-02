@@ -66,7 +66,7 @@ export default function AdminPage() {
               onClick={() => pick(id)}
               className={`inline-flex items-center gap-2 rounded-[10px] px-3.5 py-2 text-[13px] font-medium transition-colors ${
                 tab === id
-                  ? "bg-card text-foreground shadow-[var(--shadow-sm)]"
+                  ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
