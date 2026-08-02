@@ -232,3 +232,10 @@ Verified (iteration_9): 100% both.
 - Mobile header back and menu buttons enlarged to 48x48 with bigger glyphs.
 - Testing agent iteration_18: 100% pass, including the CDP virtual-authenticator run of the
   passkey enrolment dialog (options + verify called, passkey listed on the account page).
+
+## 2026-06 — Header button sizing gotcha
+- The mobile header back/menu buttons looked unchanged after being enlarged because the
+  shadcn `Button` base class forces `[&_svg]:size-4` on any nested icon, silently overriding
+  `h-7 w-7`. Icons need `!h-6 !w-6` (or similar) to win that specificity. Final sizing:
+  48x48 buttons with 24px glyphs, cells `w-12` so the logo stays centred.
+- Lightbox close button offset settled at `mt-14` (91px from the top of the phone).

@@ -51,7 +51,7 @@ export const NavDrawer = () => {
           aria-label={t("navMenu")}
           className="h-12 w-12 shrink-0 rounded-full p-0 hover:bg-muted"
         >
-          <Menu className="h-7 w-7 text-foreground" aria-hidden="true" />
+          <Menu className="!h-6 !w-6 text-foreground" aria-hidden="true" />
         </Button>
       </SheetTrigger>
 

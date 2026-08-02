@@ -620,7 +620,7 @@ export default function CarDetailPage() {
               data-testid="lightbox-close-button"
               onClick={() => setLightbox(false)}
               aria-label={t("close")}
-              className="pointer-events-auto mr-3 mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-[0_2px_10px_rgba(0,0,0,.45)] transition-transform active:scale-95"
+              className="pointer-events-auto mr-3 mt-14 flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-[0_2px_10px_rgba(0,0,0,.45)] transition-transform active:scale-95"
             >
               <X className="h-6 w-6" aria-hidden="true" />
             </button>
