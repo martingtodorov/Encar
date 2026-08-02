@@ -12,6 +12,30 @@ export const passkeySupported = () =>
   !!window.PublicKeyCredential &&
   !!navigator.credentials?.create;
 
+/**
+ * Whether THIS device can actually enrol a passkey with its own screen lock or
+ * biometrics. Only used to decide whether offering one is worth an interruption: a
+ * desktop with no platform authenticator would just get a dialog it cannot satisfy.
+ */
+export async function platformPasskeyAvailable() {
+  if (!passkeySupported() || !window.isSecureContext) return false;
+  const pk = window.PublicKeyCredential;
+  try {
+    if (typeof pk.getClientCapabilities === "function") {
+      const caps = await pk.getClientCapabilities();
+      if (typeof caps?.passkeyPlatformAuthenticator === "boolean") {
+        return caps.passkeyPlatformAuthenticator;
+      }
+    }
+    if (typeof pk.isUserVerifyingPlatformAuthenticatorAvailable === "function") {
+      return await pk.isUserVerifyingPlatformAuthenticatorAvailable();
+    }
+  } catch (e) {
+    return false;
+  }
+  return false;
+}
+
 function b64uToBytes(s) {
   const pad = "=".repeat((4 - (s.length % 4)) % 4);
   const bin = atob(s.replace(/-/g, "+").replace(/_/g, "/") + pad);

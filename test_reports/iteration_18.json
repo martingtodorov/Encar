@@ -1,0 +1,37 @@
+{
+  "summary": "Frontend-only regression + new-feature test for owner batch: registration passkey removal, post-registration passkey prompt (headless silent + CDP virtual authenticator flow), mobile car detail redesign (header back arrow, no in-page back button, no duplicated title block, always-visible sticky bar, enquiry between photos and specs), desktop unchanged, and saved-searches + language-switcher regression. All items verified PASS.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results_detail": {
+    "registration_screen_no_passkey": "PASS - /en/login?mode=register has no passkey-login-button (nor OR divider). auth-switch-mode toggles it back. /en/login (default sign-in) has it.",
+    "registration_end_to_end": "PASS - POST /api/auth/register returns 200, user lands on /en with header account link visible.",
+    "passkey_prompt_headless_no_authenticator": "PASS - No dialog appears, page fully interactive, no stuck overlay.",
+    "passkey_prompt_with_virtual_authenticator": "PASS via CDP WebAuthn.addVirtualAuthenticator (ctap2, internal, hasResidentKey, isUserVerified). Dialog appears with passkey-prompt-create and passkey-prompt-later. 'Maybe later' closes dialog with no API call and does not reappear on navigation. On a fresh registration + click Create, POST /api/auth/passkey/register/options (200) and POST /api/auth/passkey/register/verify (200) are called and the passkey is listed on /en/account.",
+    "passkey_signin_untouched": "PASS - /api/auth/passkey/login/options fires when clicking passkey-login-button on sign-in screen; no scary error surfaced (cancellation is silent).",
+    "mobile_car_detail_bg_and_en": "PASS both /bg/car/42318384 and /en/car/42318384 at 390x844 - header-back-button visible; back-to-results NOT painted; detail-title block NOT painted; detail-sticky-bar visible at scrollY 0 (opacity 1, position fixed) and still visible while scrolling; container clears the fixed bar (pt-[72px]).",
+    "mobile_header_back_navigates_back": "PASS - clicking header-back-button on detail page navigates back to results list.",
+    "mobile_enquiry_placement": "PASS - exactly one enquiry-open-button painted (top=476), positioned AFTER detail-thumb-strip (bottom=434) and BEFORE detail-specs (top=548).",
+    "desktop_car_detail_unchanged": "PASS at 1920x900 - back-to-results painted, header-back-button NOT painted, detail-title painted, sticky bar opacity 0 at scrollY 0 then 1 after scroll 500, exactly one enquiry button painted, dialog opens.",
+    "regression_saved_searches": "PASS - /en/searches shows saved search (2019+, 89,327 cars now) with thumbnail; delete/rename controls available.",
+    "regression_language_switcher": "PASS - RO switch changes URL to /ro?sort=newest and currency shown as RON (79,755 RON in listings)."
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PasskeyPrompt correctly uses platformPasskeyAvailable() to gate the dialog - no dialog on non-supporting environments as intended.",
+    "LoginPage: passkey block is correctly gated on `passkeySupported && !registering`.",
+    "CarDetailPage: mobile enquiry block placement (mt-4 lg:hidden right after photos) and desktop `hidden lg:block` next to specs both verified painted exclusively per breakpoint - no duplication."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100%"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! used for saved-search regression. Throwaway registrations used qa+<timestamp>@example.com with password TestPass2026!.",
+  "seed_data_creation": "3 throwaway users registered (qa+<ts>@example.com). 1 admin saved-search 2019+ created (still present on /en/searches after run).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "CDP virtual authenticator flow works: `client = await context.new_cdp_session(page); await client.send('WebAuthn.enable'); await client.send('WebAuthn.addVirtualAuthenticator', {options: {...}})`. Use `enquiry-open-button` (not `detail-enquiry-button`) as the enquiry testid. detail-sticky-bar is position:fixed so `offsetParent` is null - use getComputedStyle+rect for visibility checks. All owner-requested items in this batch verified.",
+  "rca of the issue": "No bugs found."
+}

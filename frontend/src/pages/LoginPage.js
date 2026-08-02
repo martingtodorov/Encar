@@ -73,7 +73,9 @@ export default function LoginPage() {
           {registering ? t("registerBlurb") : t("loginBlurb")}
         </p>
 
-        {passkeySupported && (
+        {/* Passkeys are offered AFTER the account exists (see PasskeyPrompt), never on the
+            registration form where there is no account for the credential to belong to. */}
+        {passkeySupported && !registering && (
           <>
             <Button
               data-testid="passkey-login-button"

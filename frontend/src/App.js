@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AppProvider } from "@/context/AppContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { LangLayout, LangRedirect } from "@/components/LangLayout";
+import { PasskeyPrompt } from "@/components/PasskeyPrompt";
 import SearchPage from "@/pages/SearchPage";
 import CarDetailPage from "@/pages/CarDetailPage";
 import SavedCarsPage from "@/pages/SavedCarsPage";
@@ -33,6 +34,7 @@ function App() {
             {/* Bare and legacy URLs keep working: same page, language added. */}
             <Route path="*" element={<LangRedirect />} />
           </Routes>
+          <PasskeyPrompt />
         </AuthProvider>
       </BrowserRouter>
       <Toaster position="bottom-right" />

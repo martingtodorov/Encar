@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button";
 import { useApp } from "@/context/AppContext";
 
 /**
- * Condensed car bar that appears once the title and price have scrolled away.
+ * Condensed car bar: what the car is, what it costs, and the save button.
  *
- * Long detail pages bury the two things a buyer keeps checking - what the car is and what
- * it costs - so both follow them down the page, along with the save button.
+ * On mobile it is the ONLY place those live, so it is always on screen. On desktop the
+ * page header already shows them at full size, so the bar only slides in once they have
+ * scrolled away.
  */
 export const DetailStickyBar = ({ car, price, saved, onToggleSave, showAfter = 340 }) => {
   const { t } = useApp();
@@ -28,13 +29,12 @@ export const DetailStickyBar = ({ car, price, saved, onToggleSave, showAfter = 3
     <div
       data-testid="detail-sticky-bar"
       data-visible={show ? "true" : "false"}
-      aria-hidden={!show}
       // `fixed`, not `sticky`: a sticky bar sits in normal flow and would reserve its
       // full height under the header even while invisible, pushing the page content down.
-      className={`fixed inset-x-0 top-16 z-30 border-b border-border bg-card/95 backdrop-blur-md transition-all duration-200 ${
+      className={`fixed inset-x-0 top-16 z-30 border-b border-border bg-card/95 shadow-sm backdrop-blur-md transition-all duration-200 ${
         show
-          ? "pointer-events-auto translate-y-0 opacity-100 shadow-sm"
-          : "pointer-events-none -translate-y-2 opacity-0"
+          ? "pointer-events-auto translate-y-0 opacity-100"
+          : "pointer-events-auto translate-y-0 opacity-100 lg:pointer-events-none lg:-translate-y-2 lg:opacity-0 lg:shadow-none"
       }`}
     >
       <div className="mx-auto flex h-16 max-w-[1280px] items-center gap-3 px-4 sm:px-6">

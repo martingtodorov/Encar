@@ -30,6 +30,8 @@ export function AuthProvider({ children }) {
   const { favourites, replaceFavourites, searches, replaceSearches } = useApp();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Drives the one-time passkey offer: set by registration, cleared once it is answered.
+  const [justRegistered, setJustRegistered] = useState(false);
 
   // Fold whatever the browser collected while logged out into the account, then adopt
   // the account's list locally so the two never silently diverge.
@@ -106,6 +108,7 @@ export function AuthProvider({ children }) {
       const localSearches = searches;
       const { user: u } = await apiRegister({ email, password, name: name || "" });
       await adopt(u, local, localSearches);
+      setJustRegistered(true);
       return u;
     },
     [adopt, favourites, searches]
@@ -141,6 +144,8 @@ export function AuthProvider({ children }) {
     return res;
   }, []);
 
+  const clearJustRegistered = useCallback(() => setJustRegistered(false), []);
+
   const value = useMemo(
     () => ({
       user,
@@ -152,8 +157,11 @@ export function AuthProvider({ children }) {
       addPasskey,
       passkeySupported: passkeySupported(),
       errorMessage: message,
+      justRegistered,
+      clearJustRegistered,
     }),
-    [user, loading, login, register, logout, passkeyLogin, addPasskey]
+    [user, loading, login, register, logout, passkeyLogin, addPasskey, justRegistered,
+     clearJustRegistered]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

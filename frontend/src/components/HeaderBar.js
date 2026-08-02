@@ -1,10 +1,14 @@
+import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import { BrandLogo } from "@/components/BrandLogo";
 import { useLangNav } from "@/hooks/useLangNav";
+import { useApp } from "@/context/AppContext";
 import { NavDrawer } from "@/components/NavDrawer";
 import { HeaderNav } from "@/components/HeaderNav";
 
-export const HeaderBar = ({ hidden = false }) => {
+export const HeaderBar = ({ hidden = false, onBack }) => {
+  const { t } = useApp();
   const { path } = useLangNav();
 
   return (
@@ -19,7 +23,22 @@ export const HeaderBar = ({ hidden = false }) => {
         {/* Mobile: logo centred, menu at the right edge under the thumb; the empty
             left cell is what keeps the logo optically centred. Theme lives in the drawer.
             Desktop: logo left, full nav inline, no drawer at all. */}
-        <div className="w-10 shrink-0 lg:hidden" aria-hidden="true" />
+        {/* On a car page the way back belongs in the header on mobile, where the
+            in-page button sat below the fold. Otherwise this cell just balances the
+            menu button so the logo stays centred. */}
+        <div className="flex w-10 shrink-0 lg:hidden">
+          {onBack ? (
+            <Button
+              data-testid="header-back-button"
+              variant="ghost"
+              onClick={onBack}
+              aria-label={t("backToResults")}
+              className="h-10 w-10 rounded-full p-0 hover:bg-muted"
+            >
+              <ArrowLeft className="h-5 w-5 text-foreground" aria-hidden="true" />
+            </Button>
+          ) : null}
+        </div>
 
         <div className="flex flex-1 justify-center lg:flex-none lg:justify-start">
           <Link to={path("/")} aria-label="Encar" className="inline-flex items-center">

@@ -151,7 +151,7 @@ export default function CarDetailPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <HeaderBar />
+      <HeaderBar onBack={goBack} />
       <DetailStickyBar
         car={car}
         price={money(q?.suggested_sale ?? 0)}
@@ -159,12 +159,14 @@ export default function CarDetailPage() {
         onToggleSave={() => toggleFavourite(id)}
       />
 
-      <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-2 sm:px-6">
+      {/* Mobile clears the always-visible car bar; desktop only needs the normal gap. */}
+      <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-[72px] sm:px-6 lg:pt-2">
         <Button
           data-testid="back-to-results"
           variant="ghost"
           onClick={goBack}
-          className="mb-1 h-9 gap-1.5 px-2 text-sm text-muted-foreground hover:bg-muted"
+          // Mobile has the arrow in the header instead; two back affordances is one too many.
+          className="mb-1 hidden h-9 gap-1.5 px-2 text-sm text-muted-foreground hover:bg-muted lg:inline-flex"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           {t("backToResults")}
@@ -212,7 +214,9 @@ export default function CarDetailPage() {
               </div>
             )}
 
-            <div className="flex flex-wrap items-start justify-between gap-4">
+            {/* Title, price and save live in the persistent bar on mobile, so this block
+                would only repeat them. */}
+            <div className="hidden flex-wrap items-start justify-between gap-4 lg:flex">
               <div className="min-w-0">
                 <h1
                   data-testid="detail-title"
@@ -315,6 +319,13 @@ export default function CarDetailPage() {
               )}
             </div>
 
+            {/* On mobile the enquiry is the next thing after the photos: by then the buyer
+                has seen the car and the price, and nothing should sit between that and
+                getting in touch. Desktop keeps it beside the specs. */}
+            <div className="mt-4 lg:hidden">
+              <EnquiryDialog car={car} title={car.title} />
+            </div>
+
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
               {/* specs */}
               <Panel title={t("specs")} icon={FileCheck2} testId="detail-specs" tone="info">
@@ -335,8 +346,8 @@ export default function CarDetailPage() {
                 {car.spec?.vin && <Row label={t("vin")} value={car.spec.vin} />}
               </Panel>
 
-              {/* enquiry: the primary call to action */}
-              <div className="mb-5">
+              {/* enquiry: the primary call to action (mobile has its own, above) */}
+              <div className="mb-5 hidden lg:block">
                 <EnquiryDialog car={car} title={car.title} />
               </div>
 
