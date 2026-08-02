@@ -676,6 +676,7 @@ async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
         }
 
     # ── Encar diagnosis (per-panel) ─────────────────────────────────────────────
+    # Encar names panels with raw enum codes (FRONT_DOOR_LEFT); show them as words.
     diag = cached.get("diagnosis") or {}
     diagnosis = None
     if diag and (diag.get("items") or []):
@@ -698,7 +699,8 @@ async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
             "center": diag.get("reservationCenterName"),
             "total": len(panels),
             "abnormal": len([i for i in panels if i.get("resultCode") != "NORMAL"]),
-            "items": [{"panel": i.get("name"), "result_code": i.get("resultCode"),
+            "items": [{"panel": _panel_label(i.get("name")),
+                       "result_code": i.get("resultCode"),
                        "result": T(i.get("result"))} for i in panels],
             "comments": [T(c["result"].strip()) for c in comments if c.get("result")],
         }
@@ -824,6 +826,13 @@ class SettingsBody(BaseModel):
     constants: dict = Field(default_factory=dict)
     fx_overrides: dict = Field(default_factory=dict)
     reprice: bool = True
+
+
+def _panel_label(name):
+    """FRONT_DOOR_LEFT -> 'Front door left'. Encar's raw enum codes are not something
+    to show a buyer."""
+    s = (name or "").replace("_", " ").strip().lower()
+    return s[:1].upper() + s[1:]
 
 
 def _check_admin(token):

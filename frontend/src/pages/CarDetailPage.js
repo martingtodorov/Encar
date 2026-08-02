@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Heart,
@@ -79,6 +79,8 @@ const CountRow = ({ label, count, testId }) => {
 
 export default function CarDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
 
   const [car, setCar] = useState(null);
@@ -119,21 +121,30 @@ export default function CarDetailPage() {
   const photos = car?.photos || [];
   const q = car?.quote;
 
+  // "Back to results" must land on the SAME result set the visitor came from. The
+  // search page hands us its query string; otherwise step back through history, and
+  // only fall back to a bare "/" when this page was opened cold (shared link).
+  const goBack = () => {
+    const from = location.state?.from;
+    if (typeof from === "string") navigate({ pathname: "/", search: from });
+    else if (location.key !== "default") navigate(-1);
+    else navigate("/");
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <HeaderBar />
 
       <div className="mx-auto max-w-[1280px] px-4 py-5 sm:px-6">
-        <Link to="/">
-          <Button
-            data-testid="back-to-results"
-            variant="ghost"
-            className="mb-4 h-9 gap-1.5 px-2 text-sm text-muted-foreground hover:bg-muted"
-          >
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            {t("backToResults")}
-          </Button>
-        </Link>
+        <Button
+          data-testid="back-to-results"
+          variant="ghost"
+          onClick={goBack}
+          className="mb-4 h-9 gap-1.5 px-2 text-sm text-muted-foreground hover:bg-muted"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          {t("backToResults")}
+        </Button>
 
         {loading && (
           <div className="space-y-4" data-testid="detail-loading">
@@ -189,14 +200,32 @@ export default function CarDetailPage() {
                   {[car.grade, car.badge_detail].filter(Boolean).join(" \u00b7 ")}
                 </p>
               </div>
-              <div className="text-right">
-                <div
-                  data-testid="detail-price"
-                  className="tnum text-3xl font-semibold tracking-tight text-foreground"
-                >
-                  {money(q?.suggested_sale ?? 0)}
+              <div className="flex shrink-0 items-center gap-3">
+                <div className="text-right">
+                  <div
+                    data-testid="detail-price"
+                    className="tnum text-3xl font-semibold tracking-tight text-foreground"
+                  >
+                    {money(q?.suggested_sale ?? 0)}
+                  </div>
+                  <div className="text-[12px] text-muted-foreground">{t("finalPrice")}</div>
                 </div>
-                <div className="text-[12px] text-muted-foreground">{t("finalPrice")}</div>
+                <Button
+                  data-testid="detail-save-button"
+                  variant="outline"
+                  onClick={() => toggleFavourite(id)}
+                  className="h-11 gap-2 border-border bg-card px-4 text-sm hover:bg-muted"
+                >
+                  <Heart
+                    className={`h-4 w-4 ${
+                      saved
+                        ? "fill-[hsl(var(--primary))] text-[hsl(var(--primary))]"
+                        : "text-muted-foreground"
+                    }`}
+                    aria-hidden="true"
+                  />
+                  {saved ? t("saved") : t("save")}
+                </Button>
               </div>
             </div>
 
@@ -515,24 +544,6 @@ export default function CarDetailPage() {
               </div>
             )}
 
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Button
-                data-testid="detail-save-button"
-                variant="outline"
-                onClick={() => toggleFavourite(id)}
-                className="h-11 gap-2 border-border bg-card px-4 text-sm hover:bg-muted"
-              >
-                <Heart
-                  className={`h-4 w-4 ${
-                    saved
-                      ? "fill-[hsl(var(--primary))] text-[hsl(var(--primary))]"
-                      : "text-muted-foreground"
-                  }`}
-                  aria-hidden="true"
-                />
-                {saved ? t("saved") : t("save")}
-              </Button>
-            </div>
           </>
         )}
       </div>

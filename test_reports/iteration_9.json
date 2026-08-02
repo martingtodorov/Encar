@@ -1,0 +1,34 @@
+{
+  "summary": "Verified all four fixes from the main agent's latest turn on the Encar Bulgarian/Romanian/English skin. BUG1 (filters lost on back), BUG2 (raw enum panel codes), BUG3 (save button placement/behaviour), and BUG4 (auto-sort rules) are all working as specified. Verified on desktop 1920px and mobile 390px, plus one backend API assertion for BUG2.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verification_details": {
+    "BUG1_desktop": "Opened /?make=BMW&year_min=2018&sort=price_asc&page=2, clicked car-row-details-button, then clicked back-to-results. URL restored exactly to /?make=BMW&year_min=2018&sort=price_asc&page=2 and applied-filters chips show 'Make: BMW' and 'Year: 2018-'. PASS.",
+    "BUG1_mobile": "390x844 viewport, clicked car-card-details-button then back-to-results. URL restored to the exact filtered/sorted/paginated URL. PASS.",
+    "BUG2_api": "GET /api/car/42244072?lang=bg diagnosis.items[*].panel returned humanised names: 'Front door left', 'Back door left', 'Trunk lid', 'Back door right', 'Front door right', 'Hood', 'Front fender right', 'Front fender left'. No underscores, first letter only capitalised. PASS.",
+    "BUG2_ui": "Regex /[A-Z]{2,}_[A-Z]/ over [data-testid=detail-diagnosis] text returned 0 matches. PASS.",
+    "BUG3_placement": "detail-save-button count=1. Price bbox x=1362.25 y=137 h=36; Save bbox x=1487 y=142 h=44. save.x > price.x = True and vertical centres overlap (inline row). PASS.",
+    "BUG3_toggle": "Clicking detail-save-button flips label Save -> Saved (heart fills). PASS.",
+    "BUG4_a_none": "Landing on / with no selection -> sort=newest. PASS.",
+    "BUG4_b_make_only": "Selecting Make=BMW -> URL sort=newest (previously incorrectly flipped to price_asc). PASS.",
+    "BUG4_c_make_model": "Adding Model=1 Series (E82) -> URL sort=price_asc. PASS.",
+    "BUG4_d_make_model_submodel": "Adding submodel/badge=120d Coupe -> URL sort=price_asc. PASS.",
+    "BUG4_manual_override": "After manually setting sort=price_desc and then selecting a model, sort stayed price_desc (auto-sort did not override user choice). PASS."
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Backend _panel_label helper works but should ideally live in a shared utils module rather than server.py to keep server.py from growing further.",
+    "Auto-sort useEffect logic relies on distinguishing user-changed sort from auto-set sort via a ref/flag; ensure that flag resets correctly if user later Clears all filters, so browsing default returns to 'newest'. Not tested here explicitly but worth a follow-up."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All four turn-scope bugs verified fixed. Test ids used: car-row-details-button, car-card-details-button, back-to-results, applied-filters, detail-price, detail-save-button, detail-diagnosis. Native <select> order on search page is [make, model, submodel, sort]. For BUG4 manual-override coverage, remember the check requires manually changing the sort dropdown BEFORE picking model/submodel."
+}

@@ -195,14 +195,16 @@ export default function SearchPage() {
     setPage(1);
   }, []);
 
-  // Newest first while browsing; lowest price first once a make or model narrows the
-  // list. Skipped entirely once the visitor has chosen a sort themselves.
+  // Newest first while browsing (including make-only); lowest price first once a model
+  // or trim narrows the list. Skipped entirely once the visitor has chosen a sort.
   useEffect(() => {
     if (sortTouched) return;
-    const auto = tax.make || tax.model ? DEFAULT_SORT_FILTERED : DEFAULT_SORT_BROWSE;
-    setSort(auto);
+    // Make alone is still browsing, so newest first. Once a model (or a trim below it)
+    // narrows the list the visitor is comparing like with like, so cheapest first.
+    const narrowed = !!(tax.model || tax.badge || tax.badgeDetail);
+    setSort(narrowed ? DEFAULT_SORT_FILTERED : DEFAULT_SORT_BROWSE);
     setPage(1);
-  }, [tax.make, tax.model, sortTouched]);
+  }, [tax.model, tax.badge, tax.badgeDetail, sortTouched]);
 
   // Mirror the live search into the query string. `replace` so we do not push a history
   // entry per keystroke - the entry that exists when a car is opened already carries
@@ -261,7 +263,16 @@ export default function SearchPage() {
     resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
-  const openCar = useCallback((car) => navigate(`/car/${car.id}`), [navigate]);
+  // Carry the live search in the navigation state. The detail page's own "back to
+  // results" button is not a browser Back, so without this it can only guess at "/"
+  // and the visitor lands in an unfiltered catalogue.
+  const openCar = useCallback(
+    (car) =>
+      navigate(`/car/${car.id}`, {
+        state: { from: `?${stateToParams({ filters, tax, sort, page })}` },
+      }),
+    [navigate, filters, tax, sort, page]
+  );
 
   const countLabel =
     result.total === 1

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { HeartOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { HeaderBar } from "@/components/HeaderBar";
@@ -9,6 +9,7 @@ import { getCar } from "@/lib/api";
 
 /** Saved cars, resolved from the locally stored favourite ids. */
 export default function SavedCarsPage() {
+  const navigate = useNavigate();
   const { t, lang, favourites } = useApp();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -77,9 +78,7 @@ export default function SavedCarsPage() {
           <CarGrid
             items={items}
             loading={loading}
-            onOpen={(car) => {
-              window.location.href = `/car/${car.id}`;
-            }}
+            onOpen={(car) => navigate(`/car/${car.id}`)}
             pageSize={favourites.length || 4}
           />
         )}
