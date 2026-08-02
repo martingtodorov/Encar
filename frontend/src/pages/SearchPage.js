@@ -9,7 +9,7 @@ import { TrustStrip } from "@/components/TrustStrip";
 import { TaxonomySelects } from "@/components/TaxonomySelects";
 import { FilterSidebar } from "@/components/FilterSidebar";
 import { AppliedFiltersChips } from "@/components/AppliedFiltersChips";
-import { SortControl } from "@/components/SortControl";
+import { SortControl, DEFAULT_SORT } from "@/components/SortControl";
 import { CarGrid } from "@/components/CarGrid";
 import { ResultsPagination } from "@/components/ResultsPagination";
 import { useApp } from "@/context/AppContext";
@@ -35,7 +35,8 @@ const EMPTY = {
 const EMPTY_TAX = { make: "", model: "", badge: "", badgeDetail: "" };
 
 // 10 per page keeps each request small and the grid fast, per requirement.
-const PAGE_SIZE = 10;
+// 16 ads per page on every viewport: mobile shows them as cards, desktop as rows.
+const PAGE_SIZE = 16;
 
 export default function SearchPage() {
   const { t, lang } = useApp();
@@ -43,7 +44,7 @@ export default function SearchPage() {
 
   const [filters, setFilters] = useState(EMPTY);
   const [tax, setTax] = useState(EMPTY_TAX);
-  const [sort, setSort] = useState("newest");
+  const [sort, setSort] = useState(DEFAULT_SORT);
   const [page, setPage] = useState(1);
 
   const [facets, setFacets] = useState(null);
@@ -208,6 +209,8 @@ export default function SearchPage() {
 
       <Hero totalUpstream={catalogueSize} onStart={scrollToResults} />
 
+      <TrustStrip />
+
       {/* Cascading Make -> Model -> Submodel -> Trim replaces the old search box */}
       <section className="border-b border-border bg-card">
         <div className="mx-auto max-w-[1280px] px-4 py-5 sm:px-6">
@@ -215,12 +218,10 @@ export default function SearchPage() {
         </div>
       </section>
 
-      <TrustStrip />
-
       <main ref={resultsRef} className="mx-auto max-w-[1280px] px-4 pb-12 sm:px-6">
         <div className="lg:grid lg:grid-cols-[320px_1fr] lg:gap-6">
           <aside className="hidden lg:block">
-            <div className="sticky top-[80px]">
+            <div className="sticky top-[80px] pb-4">
               <FilterSidebar
                 filters={filters}
                 setFilter={setFilter}

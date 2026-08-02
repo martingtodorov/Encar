@@ -178,8 +178,8 @@ export const FilterSidebar = ({
       )}
 
       <div
-        className={`thin-scroll flex-1 overflow-y-auto px-4 py-2 ${
-          inSheet ? "" : "max-h-[calc(100vh-190px)]"
+        className={`thin-scroll flex-1 overflow-y-auto px-4 pb-6 pt-2 ${
+          inSheet ? "" : "max-h-[calc(100vh-210px)]"
         }`}
       >
         <Accordion

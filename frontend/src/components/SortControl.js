@@ -1,33 +1,50 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ChevronDown } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 
+// Lowest price first is the default: this is an import-price comparison tool, so the
+// question a visitor arrives with is "what is the cheapest car that fits?".
+export const DEFAULT_SORT = "price_asc";
+
 export const SORT_OPTIONS = [
-  { value: "newest", key: "sortNewest" },
   { value: "price_asc", key: "sortPriceAsc" },
   { value: "price_desc", key: "sortPriceDesc" },
+  { value: "newest", key: "sortNewest" },
   { value: "mileage_asc", key: "sortMileageAsc" },
   { value: "year_desc", key: "sortYearDesc" },
 ];
 
+/**
+ * Deliberately the NATIVE <select> element, matching the Make/Model/Submodel
+ * dropdowns: mobile Safari renders Apple's own picker wheel and Android its native
+ * spinner, plus free keyboard, VoiceOver and type-ahead behaviour. Only the chrome
+ * is styled - the popup itself belongs to the OS.
+ */
 export const SortControl = ({ value, onChange }) => {
   const { t } = useApp();
   return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger
+    <div className="relative w-full sm:w-auto">
+      <label className="sr-only" htmlFor="sort-control">
+        {t("sortBy")}
+      </label>
+      <select
+        id="sort-control"
         data-testid="sort-control"
-        className="h-11 w-full min-w-[190px] border-border bg-card text-sm sm:w-auto"
+        value={value}
+        onChange={(e) => onChange?.(e.target.value)}
         aria-label={t("sortBy")}
+        className="h-11 w-full min-w-[190px] appearance-none truncate rounded-[10px] border border-input bg-card pl-3 pr-9 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 sm:w-auto"
       >
-        <SelectValue placeholder={t("sortBy")} />
-      </SelectTrigger>
-      <SelectContent className="bg-card">
         {SORT_OPTIONS.map((o) => (
-          <SelectItem key={o.value} value={o.value} data-testid={`sort-option-${o.value}`}>
+          <option key={o.value} value={o.value} data-testid={`sort-option-${o.value}`}>
             {t(o.key)}
-          </SelectItem>
+          </option>
         ))}
-      </SelectContent>
-    </Select>
+      </select>
+      <ChevronDown
+        className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+        aria-hidden="true"
+      />
+    </div>
   );
 };
 

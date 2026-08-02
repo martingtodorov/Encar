@@ -30,8 +30,9 @@ import fx as fx_mod          # noqa: E402
 import pricing               # noqa: E402
 import sync as sync_mod      # noqa: E402
 from encar import encar, image_url  # noqa: E402
-from translate import (LANGS, schedule_translation, translate_cached_only,  # noqa: E402
-                       translate_listings, translate_many, translate_one)
+from translate import (LANGS, breaker_status, schedule_translation,  # noqa: E402
+                       translate_cached_only, translate_listings,
+                       translate_many, translate_one)
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -182,6 +183,11 @@ HANGUL = re.compile(r"[\uac00-\ud7a3]")
 # per user instruction the per-vehicle dealer description stays in the original
 NO_TRANSLATE_KEYS = {"description", "description_original", "vin", "vehicle_no", "id"}
 
+# How many never-before-seen Korean phrases one detail page will translate inline
+# before deferring the rest to the background. Generous, because these phrase sets are
+# shared catalogue-wide and cached permanently, so in practice the cap is rarely hit.
+SYNC_TRANSLATE_CAP = 240
+
 
 def collect_korean(obj, out, skip=NO_TRANSLATE_KEYS):
     """Gather every Hangul-containing string in a payload, so each can be cached."""
@@ -248,6 +254,7 @@ async def health():
         "duplicate_ads_hidden": await db.listings.count_documents(
             {"active": True, "duplicate": True}),
         "translations_cached": await db.translations.count_documents({}),
+        "translation_breaker": breaker_status(),
         "sync": jsonable({k: v for k, v in state.items() if k != "_id"}),
         "encar_stats": dict(encar.stats),
     }
@@ -358,8 +365,10 @@ async def meta_filters(lang: str = "bg", refresh: bool = False):
         }
         await db.facets.update_one({"_id": "filters"}, {"$set": cached}, upsert=True)
 
-    # translate facet labels (bounded set, cached forever after first pass)
-    labels = [x["value"] for x in cached.get("makes", [])[:80]]
+    # translate facet labels (bounded set, cached forever after first pass).
+    # No slice on makes: every make must render in the user's language, not just the
+    # 80 most common ones.
+    labels = [x["value"] for x in cached.get("makes", [])]
     labels += [x["value"] for x in cached.get("fuels", [])]
     labels += [x["value"] for x in cached.get("regions", [])]
     tmap = await translate_many(db, labels, lang)
@@ -409,7 +418,12 @@ async def meta_taxonomy(
 
     Served from the precomputed `taxonomy` collection (rebuilt on each sync, and at
     most weekly on demand), so each level is one indexed lookup instead of a full
-    aggregation. Labels use cache-only translation, so this never blocks on the LLM.
+    aggregation.
+
+    Labels translate SYNCHRONOUSLY: a make/model/submodel dropdown must never show
+    Hangul. The value set per level is bounded and cached permanently (and warmed by
+    the sync), so this is a cache hit in practice. If the LLM is unreachable we fall
+    back to cache-only rather than failing the dropdown.
     """
     lang = norm_lang(lang)
     if await sync_mod.taxonomy_is_stale(db):
@@ -432,10 +446,15 @@ async def meta_taxonomy(
         .sort([("value", 1)])          # alphabetical, not by popularity
         .limit(limit)
     ]
-    tmap = await translate_cached_only(db, [r["value"] for r in rows], lang)
-    missing = [r["value"] for r in rows if r["value"] not in tmap]
-    if missing:
-        schedule_translation(db, missing, lang)
+    values = [r["value"] for r in rows]
+    try:
+        tmap = await translate_many(db, values, lang)
+    except Exception as e:
+        log.warning("taxonomy translation failed: %s", str(e)[:160])
+        tmap = await translate_cached_only(db, values, lang)
+        missing = [v for v in values if v not in tmap]
+        if missing:
+            schedule_translation(db, missing, lang)
 
     built = await db.sync_state.find_one({"_id": "taxonomy"})
     return {
@@ -552,6 +571,16 @@ async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
     if miss:
         schedule_translation(db, list(dict.fromkeys(miss)), lang)
 
+    # Make and model must NEVER render as Korean, so unlike the rest of the page they
+    # are translated synchronously on a cache miss. It is a tiny, bounded set (two
+    # strings) and it is cached forever after the first car of that model.
+    always = [v for v in (cat.get("manufacturerName"), cat.get("modelName")) if v]
+    if always:
+        try:
+            tr.update(await translate_many(db, always, lang))
+        except Exception as e:
+            log.warning("make/model translation failed: %s", str(e)[:160])
+
     def T(v):
         return tr.get((v or "").strip(), v) if v else v
 
@@ -641,6 +670,18 @@ async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
     quote = pricing.price_car(price_krw, rates["fx_krw_eur"], rates["usd_eur"],
                               sdoc.get("constants")) if price_krw else None
 
+    # Encar reports insurance claim amounts in raw KRW, which is meaningless next to
+    # the EUR prices on the rest of the page. Convert with a straight FX rate (these
+    # are historical repair payouts, NOT something to run through the landed-cost
+    # formula). fx_krw_eur is KRW per 1 EUR, so we divide.
+    if insurance:
+        krw_per_eur = rates.get("fx_krw_eur") or 0
+        for src, dst in (("own_accident_cost", "own_accident_cost_eur"),
+                         ("other_accident_cost", "other_accident_cost_eur")):
+            v = insurance.get(src) or 0
+            insurance[dst] = round(v / krw_per_eur, 2) if (v and krw_per_eur) else None
+        insurance["fx_krw_eur"] = krw_per_eur
+
     payload = {
         "id": listing_id,
         "vehicle_id": cached.get("vehicle_id"),
@@ -687,15 +728,27 @@ async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
     }
 
     # Catch every remaining Korean string anywhere in the payload (insurance,
-    # inspection, diagnosis, options, spec, category ...) and cache each one.
+    # inspection, diagnosis, equipment/options, spec, category ...).
+    #
+    # This resolves SYNCHRONOUSLY: a detail page must never show Hangul in the spec
+    # sheet, inspection report, insurance history or equipment list. These are bounded
+    # enumerations shared across the whole catalogue, so a car is only slow the first
+    # time an unseen phrase appears; afterwards it is a pure cache hit. Anything beyond
+    # the cap is still filled in the background so the next view is complete.
     leftovers = set()
     collect_korean(payload, leftovers)
     if leftovers:
-        extra = await translate_cached_only(db, list(leftovers), lang)
-        tmap = {**tr, **extra}
-        missing = [x for x in leftovers if x not in tmap]
-        if missing:
-            schedule_translation(db, missing, lang)
+        tmap = dict(tr)
+        pending = [x for x in leftovers if x not in tmap]
+        if pending:
+            head, tail = pending[:SYNC_TRANSLATE_CAP], pending[SYNC_TRANSLATE_CAP:]
+            try:
+                tmap.update(await translate_many(db, head, lang))
+            except Exception as e:
+                log.warning("detail translation failed: %s", str(e)[:160])
+                tail = pending
+            if tail:
+                schedule_translation(db, tail, lang)
         payload = apply_translations(payload, tmap)
 
     return jsonable(payload)

@@ -22,6 +22,43 @@ LANGS = {"en": "English", "bg": "Bulgarian", "ro": "Romanian"}
 CHUNK = 60
 MODEL = ("gemini", "gemini-3-flash-preview")
 
+# ── LLM circuit breaker ──────────────────────────────────────────────────────
+# Errors that cannot possibly be fixed by retrying (no credit, bad key, quota).
+FATAL_MARKERS = ("budget has been exceeded", "exceeded your current quota",
+                 "insufficient_quota", "insufficient balance", "invalid api key",
+                 "unauthorized", "authentication")
+FATAL_COOLDOWN = 900        # 15 min before we probe the provider again
+SOFT_COOLDOWN = 60          # transient failures
+_BREAKER = {"open_until": 0.0, "reason": None, "trips": 0}
+
+
+def _breaker_open():
+    return time.time() < _BREAKER["open_until"]
+
+
+def _breaker_trip(reason, cooldown):
+    _BREAKER["open_until"] = time.time() + cooldown
+    _BREAKER["reason"] = reason[:200]
+    _BREAKER["trips"] += 1
+    log.error("translation circuit breaker OPEN for %ss: %s", cooldown, reason[:200])
+
+
+def _breaker_reset():
+    if _BREAKER["open_until"] or _BREAKER["reason"]:
+        log.info("translation circuit breaker closed")
+    _BREAKER["open_until"] = 0.0
+    _BREAKER["reason"] = None
+
+
+def breaker_status():
+    """Surfaced on /api/health so an exhausted LLM budget is visible, not silent."""
+    return {
+        "open": _breaker_open(),
+        "reason": _BREAKER["reason"],
+        "trips": _BREAKER["trips"],
+        "retry_in_s": max(0, round(_BREAKER["open_until"] - time.time())),
+    }
+
 SYSTEM = (
     "You are a professional automotive translator localising South Korean used-car "
     "listing data from Encar for European car buyers. Translate Korean -> {lang}.\n"
@@ -60,6 +97,13 @@ async def _llm_translate(chunk, lang):
         log.error("EMERGENT_LLM_KEY missing - cannot translate")
         return {}
 
+    # Circuit breaker: make/model/spec translation is now SYNCHRONOUS on a cache miss,
+    # so a dead provider (exhausted budget, bad key) must never turn into 3 retries
+    # with backoff on every single request. While the breaker is open we fail instantly
+    # and the caller falls back to the Korean source.
+    if _breaker_open():
+        return {}
+
     payload = {str(i): t for i, t in enumerate(chunk)}
     chat = LlmChat(
         api_key=key,
@@ -74,13 +118,20 @@ async def _llm_translate(chunk, lang):
                      f"object using the same keys.\n\n"
                      + json.dumps(payload, ensure_ascii=False)))
             got = _extract_json(resp)
+            _breaker_reset()
             return {chunk[int(i)]: v.strip()
                     for i, v in got.items()
                     if str(i).isdigit() and int(i) < len(chunk)
                     and isinstance(v, str) and v.strip()}
         except Exception as e:
-            log.warning("translate attempt %s failed (%s): %s", attempt + 1, lang, str(e)[:160])
+            msg = str(e)
+            log.warning("translate attempt %s failed (%s): %s", attempt + 1, lang, msg[:160])
+            # Retrying a budget/credential failure cannot succeed - trip immediately.
+            if any(m in msg.lower() for m in FATAL_MARKERS):
+                _breaker_trip(msg, FATAL_COOLDOWN)
+                return {}
             await asyncio.sleep(1.2 * (attempt + 1))
+    _breaker_trip("3 consecutive failures", SOFT_COOLDOWN)
     return {}
 
 
@@ -169,6 +220,9 @@ def schedule_translation(db, texts, lang):
         pass
 
 
+ALWAYS_FIELDS = ("manufacturer", "model", "badge", "badge_detail")
+
+
 async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "badge",
                                                      "badge_detail", "fuel_type",
                                                      "region", "sell_type"),
@@ -179,6 +233,11 @@ async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "b
     schedules misses for later, so search latency stays flat regardless of how much
     Korean text is new. Untranslated values fall back to the Korean original rather
     than blanking out. The sync warms the common values, so misses are rare.
+
+    EXCEPTION: make and model (`ALWAYS_FIELDS`) must never render as Korean, so they
+    are resolved synchronously even on a cache miss. One page shows at most a handful
+    of distinct makes/models and they are cached permanently, so the blocking cost is
+    paid once per model ever, not per search.
     """
     if lang not in LANGS:
         for r in rows:
@@ -186,9 +245,19 @@ async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "b
                 r[f"{f}_t"] = r.get(f)
         return rows
 
-    texts = [r.get(f) for r in rows for f in fields if r.get(f)]
-    tmap = (await translate_cached_only(db, texts, lang) if background
-            else await translate_many(db, texts, lang))
+    lazy_fields = [f for f in fields if f not in ALWAYS_FIELDS]
+    always_fields = [f for f in fields if f in ALWAYS_FIELDS]
+
+    lazy_texts = [r.get(f) for r in rows for f in lazy_fields if r.get(f)]
+    tmap = (await translate_cached_only(db, lazy_texts, lang) if background
+            else await translate_many(db, lazy_texts, lang))
+
+    always_texts = [r.get(f) for r in rows for f in always_fields if r.get(f)]
+    if always_texts:
+        try:
+            tmap = {**tmap, **await translate_many(db, always_texts, lang)}
+        except Exception as e:
+            log.warning("make/model translation failed: %s", str(e)[:160])
 
     misses = []
     for r in rows:
@@ -200,7 +269,7 @@ async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "b
             key = v.strip()
             hit = tmap.get(key)
             r[f"{f}_t"] = hit or v
-            if not hit:
+            if not hit and f not in ALWAYS_FIELDS:
                 misses.append(key)
 
     if background and misses:
@@ -209,23 +278,30 @@ async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "b
 
 
 async def warm_translations(db, langs=None, per_field=600):
-    """Pre-translate the bounded, high-traffic label sets (makes, models, fuels,
-    regions) in every language so real searches are ~100% cache hits and instant.
+    """Pre-translate the bounded, high-traffic label sets (makes, models, submodels,
+    fuels, regions) in every language so real searches are ~100% cache hits and instant.
 
-    Distinct makes/models are only in the low thousands, so this is a handful of
-    batched calls - not per-listing work.
+    Makes/models/submodels are now translated synchronously on a cache miss (they must
+    never render as Korean), so warming them is what keeps that path from ever being
+    felt by a user. Distinct values are only in the low thousands, so this is a handful
+    of batched calls - not per-listing work.
     """
     langs = langs or list(LANGS)
     stats = {}
-    for field, limit in (("manufacturer", 200), ("model", per_field),
+    for field, limit in (("manufacturer", 0), ("model", 0),
+                         ("badge", max(per_field * 8, 4000)),
+                         ("badge_detail", max(per_field * 8, 4000)),
                          ("fuel_type", 60), ("region", 60)):
         pipe = [
             {"$match": {"active": True, field: {"$nin": [None, ""]}}},
             {"$group": {"_id": f"${field}", "n": {"$sum": 1}}},
             {"$sort": {"n": -1}},
-            {"$limit": limit},
         ]
-        values = [d["_id"] async for d in db.listings.aggregate(pipe)]
+        # limit=0 means "every distinct value" - used for makes and models, which are
+        # a small set and must be fully covered.
+        if limit:
+            pipe.append({"$limit": limit})
+        values = [d["_id"] async for d in db.listings.aggregate(pipe, allowDiskUse=True)]
         for lang in langs:
             cached = await translate_cached_only(db, values, lang)
             todo = [v for v in values if v not in cached]

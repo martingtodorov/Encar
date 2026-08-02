@@ -2,6 +2,7 @@ import { SearchX, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CarCard } from "@/components/CarCard";
+import { CarRow } from "@/components/CarRow";
 import { useApp } from "@/context/AppContext";
 
 const CarCardSkeleton = () => (
@@ -16,8 +17,25 @@ const CarCardSkeleton = () => (
   </div>
 );
 
-const GRID =
-  "grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+const CarRowSkeleton = () => (
+  <div className="flex items-stretch gap-4 rounded-[14px] border border-border bg-card p-3">
+    <Skeleton className="aspect-video w-[236px] shrink-0 rounded-[10px] bg-muted" />
+    <div className="flex flex-1 flex-col justify-center gap-2">
+      <Skeleton className="h-4 w-1/3 bg-muted" />
+      <Skeleton className="h-3 w-1/2 bg-muted" />
+      <Skeleton className="h-3 w-2/5 bg-muted" />
+    </div>
+    <div className="flex w-[200px] shrink-0 flex-col items-end justify-center gap-2 border-l border-border pl-4">
+      <Skeleton className="h-6 w-24 bg-muted" />
+      <Skeleton className="h-9 w-full bg-muted" />
+    </div>
+  </div>
+);
+
+// Mobile/tablet: cards in a grid. Desktop: one full-width row per ad, so all 16
+// listings line up on a single vertical axis and are easy to compare.
+const GRID = "grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:hidden";
+const ROWS = "hidden flex-col gap-3 lg:flex";
 
 export const CarGrid = ({ items, loading, error, onRetry, onOpen, onClearFilters, pageSize = 24 }) => {
   const { t } = useApp();
@@ -44,10 +62,17 @@ export const CarGrid = ({ items, loading, error, onRetry, onOpen, onClearFilters
 
   if (loading) {
     return (
-      <div data-testid="loading-state" className={GRID}>
-        {Array.from({ length: Math.min(pageSize, 12) }).map((_, i) => (
-          <CarCardSkeleton key={i} />
-        ))}
+      <div data-testid="loading-state">
+        <div className={GRID}>
+          {Array.from({ length: Math.min(pageSize, 6) }).map((_, i) => (
+            <CarCardSkeleton key={i} />
+          ))}
+        </div>
+        <div className={ROWS}>
+          {Array.from({ length: Math.min(pageSize, 8) }).map((_, i) => (
+            <CarRowSkeleton key={i} />
+          ))}
+        </div>
       </div>
     );
   }
@@ -76,10 +101,17 @@ export const CarGrid = ({ items, loading, error, onRetry, onOpen, onClearFilters
   }
 
   return (
-    <div data-testid="car-grid" className={GRID}>
-      {items.map((car) => (
-        <CarCard key={car.id} car={car} onOpen={onOpen} />
-      ))}
+    <div data-testid="car-grid">
+      <div className={GRID}>
+        {items.map((car) => (
+          <CarCard key={car.id} car={car} onOpen={onOpen} />
+        ))}
+      </div>
+      <div data-testid="car-rows" className={ROWS}>
+        {items.map((car) => (
+          <CarRow key={car.id} car={car} onOpen={onOpen} />
+        ))}
+      </div>
     </div>
   );
 };

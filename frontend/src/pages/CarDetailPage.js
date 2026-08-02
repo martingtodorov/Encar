@@ -329,10 +329,28 @@ export default function CarDetailPage() {
                     {car.insurance.first_registration && (
                       <Row label={t("year")} value={car.insurance.first_registration} />
                     )}
-                    {car.insurance.own_accident_cost ? (
+                    {car.insurance.own_accident_cost_eur ? (
                       <Row
-                        label={`${t("ownAccidents")} (KRW)`}
-                        value={formatNumber(car.insurance.own_accident_cost, lang)}
+                        label={t("ownClaimAmount")}
+                        value={formatMoney(
+                          car.insurance.own_accident_cost_eur,
+                          currency,
+                          lang,
+                          rates
+                        )}
+                        testId="insurance-own-claim-amount"
+                      />
+                    ) : null}
+                    {car.insurance.other_accident_cost_eur ? (
+                      <Row
+                        label={t("otherClaimAmount")}
+                        value={formatMoney(
+                          car.insurance.other_accident_cost_eur,
+                          currency,
+                          lang,
+                          rates
+                        )}
+                        testId="insurance-other-claim-amount"
                       />
                     ) : null}
                   </>
