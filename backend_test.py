@@ -9,7 +9,7 @@ import time
 import secrets
 from datetime import datetime
 
-BASE_URL = "https://multi-lang-cars.preview.emergentagent.com/api"
+BASE_URL = "https://encar-multi-lang.preview.emergentagent.com/api"
 
 class EncarAPITester:
     def __init__(self):

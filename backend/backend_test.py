@@ -6,7 +6,7 @@ import time
 from datetime import datetime
 
 # Public endpoint from frontend/.env
-BASE_URL = "https://multi-lang-cars.preview.emergentagent.com/api"
+BASE_URL = "https://encar-multi-lang.preview.emergentagent.com/api"
 
 class APITester:
     def __init__(self):
