@@ -101,6 +101,8 @@ def listing_out(doc):
         "photo_count": doc.get("photo_count") or len(photos),
         "image": image_url(photos[0] if photos else None, 640, 360),
         "image_sm": image_url(photos[0] if photos else None, 320, 180),
+        # every photo we hold, so the card can be swiped without opening the car
+        "images": [image_url(p, 640, 360) for p in photos],
         "has_inspection": bool(doc.get("has_inspection")),
         "has_record": bool(doc.get("has_record")),
         "diagnosed": bool(doc.get("diagnosed")),
@@ -276,6 +278,51 @@ async def upstream_size_cached(ttl=900):
         return n
     # upstream hiccup: prefer the last known figure over showing nothing
     return (doc or {}).get("count") or _SIZE_MEM["count"] or 0
+
+
+class ListingIdsBody(BaseModel):
+    ids: list[str] = Field(default_factory=list)
+
+
+@api.post("/listings/by-ids")
+async def listings_by_ids(body: ListingIdsBody, lang: str = "bg"):
+    """Grid rows for a known set of ids, straight from our own index.
+
+    The saved-cars page used to call /car/{id} per favourite, which fetches the detail,
+    insurance, inspection and diagnosis documents from Encar upstream - seconds of
+    waiting for data the grid never shows. Everything the grid needs already lives in
+    our listings collection.
+    """
+    ids = [str(i) for i in body.ids[:200] if i]
+    if not ids:
+        return {"items": []}
+    lang = norm_lang(lang)
+    docs = {d["_id"]: d async for d in db.listings.find({"_id": {"$in": ids}})}
+    rows = [docs[i] for i in ids if i in docs]          # keep the caller's order
+    await translate_listings(db, rows, lang)
+    return {"items": [listing_out(r) for r in rows]}
+
+
+@api.post("/car/{listing_id}/translate-description")
+async def translate_description(listing_id: str, lang: str = "bg"):
+    """Translate ONE dealer description, on demand.
+
+    These are long, unique per car and most visitors never read them, so translating
+    them on page load would burn an LLM call per car view for nothing. The visitor asks
+    for it with a button; the result is cached permanently like every other string, so
+    the second person to ask pays nothing.
+    """
+    lang = norm_lang(lang)
+    cached = await db.car_details.find_one({"_id": listing_id})
+    text = (((cached or {}).get("detail") or {}).get("contents") or {}).get("text") or ""
+    text = text.strip()
+    if not text:
+        raise HTTPException(404, "this car has no dealer description")
+    out = await translate_many(db, [text], lang)
+    translated = out.get(text)
+    if not translated or translated == text:
+        raise HTTPException(503, "translation is unavailable right now, please try again")
+    return {"text": translated, "lang": lang}
 
 
 @api.get("/catalogue/size")

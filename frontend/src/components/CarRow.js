@@ -1,7 +1,7 @@
-import { Heart, Gauge, Calendar, Fuel, MapPin, Camera } from "lucide-react";
+import { Heart, Gauge, Calendar, Fuel, MapPin } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ImageWithFallback } from "@/components/ImageWithFallback";
+import { PhotoSwiper } from "@/components/PhotoSwiper";
 import { useApp } from "@/context/AppContext";
 import {
   carSubtitle,
@@ -84,26 +84,23 @@ export const CarRow = ({ car, onOpen }) => {
         </span>
       )}
 
-      {/* thumbnail */}
+      {/* thumbnail: drag through the photos in place, click to open the car */}
       <div className="relative w-[236px] shrink-0">
-        <button
-          type="button"
+        <div
           data-testid="car-row-open"
-          onClick={() => onOpen?.(car)}
+          role="button"
+          tabIndex={0}
           aria-label={`${carTitle(car)} \u2014 ${t("viewDetails")}`}
-          className="block w-full cursor-pointer overflow-hidden rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onKeyDown={(e) => e.key === "Enter" && onOpen?.(car)}
+          className="aspect-video w-full cursor-pointer overflow-hidden rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <div className="aspect-video w-full">
-            <ImageWithFallback src={car.image} alt={carTitle(car)} testId="car-row-image" />
-          </div>
-        </button>
-
-        {car.photo_count > 1 && (
-          <span className="tnum absolute bottom-1.5 right-1.5 inline-flex items-center gap-1 rounded-full bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-[var(--shadow-sm)]">
-            <Camera className="h-3 w-3" aria-hidden="true" />
-            {car.photo_count}
-          </span>
-        )}
+          <PhotoSwiper
+            images={car.images?.length ? car.images : [car.image]}
+            alt={carTitle(car)}
+            testId="car-row-swiper"
+            onTap={() => onOpen?.(car)}
+          />
+        </div>
       </div>
 
       {/* details */}

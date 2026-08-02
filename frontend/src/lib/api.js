@@ -34,6 +34,18 @@ export async function getFx() {
   return data;
 }
 
+export async function translateDescription(id, lang) {
+  const { data } = await http.post(`/car/${id}/translate-description`, null, {
+    params: { lang },
+  });
+  return data;
+}
+
+export async function getListingsByIds(ids, lang) {
+  const { data } = await http.post("/listings/by-ids", { ids }, { params: { lang } });
+  return data;
+}
+
 export async function getCatalogueSize() {
   const { data } = await http.get("/catalogue/size");
   return data;

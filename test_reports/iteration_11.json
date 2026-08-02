@@ -1,0 +1,56 @@
+{
+  "summary": "Iteration 11 verified the new PhotoSwiper (result cards, result rows, detail main photo), the vertical-column lightbox, the manual dealer-description translation with cache, and the fast /saved page (POST /api/listings/by-ids). Backend: 6/6 pytest pass. Frontend: all core swipe/lightbox/translate/saved flows work. One real UX bug found: default site language is English, not Bulgarian as the spec claims — HTML lang='en', header shows English UI strings, and the manual translation returned English text on a fresh session (backend endpoint itself is fine — `?lang=bg` returns Cyrillic correctly).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/car/{id}/translate-description", "issue": "Returns 200 with an English translation when the caller passes `?lang=bg` from a stale/mixed cache scenario — verified separately that fresh bg calls do return Cyrillic (test_translate_description_bg passed). Non-blocking."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AppContext/i18n default", "issue": "Default UI language is English, not Bulgarian as the product spec states. HTML lang attribute is 'en', header labels 'Back to results', 'Final price', 'Send enquiry', 'Specifications' render in English on a fresh session. This also means the manual translate button translates the Korean dealer description into English by default, not Bulgarian. Spec explicitly says: 'Default UI language is Bulgarian.'", "selector": "html[lang], [data-testid=lang-switcher]", "priority": "HIGH"},
+      {"component": "CarDetailPage thumbnail strip", "issue": "React console warning: 'Encountered two children with the same key' for image URLs (e.g. 41995353_001.jpg). Some photos in the images array are duplicated and the thumbnail/lightbox map is keyed by src instead of by index. Not breaking rendering but noisy and may cause thumbnail glitches when the duplicate photo is clicked.", "selector": "detail thumbnail strip", "priority": "MEDIUM"},
+      {"component": "Detail lightbox DialogContent", "issue": "Radix DialogContent is missing a DialogTitle (a11y warning in console). Wrap a hidden DialogTitle for screen-reader compliance.", "selector": "[data-testid=detail-lightbox]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verification_details": {
+    "BACKEND_listings_by_ids": "POST /api/listings/by-ids?lang=bg with [42244072,41995353] returns 200, 2 items, order preserved. Reversed order also preserved. Empty array handled. `images` array included in listing_out. PASS.",
+    "BACKEND_translate_description": "POST /api/car/41995353/translate-description?lang=bg returns 200 with `text` field containing Cyrillic. Second identical call served from cache in <1s. Bad id returns 404/400/503. PASS.",
+    "DETAIL_swipe_horizontal": "On https://<preview>/car/41995353, incremental mouse.move drag across [data-testid=detail-main-photo] advanced counter [data-testid=detail-photo-count] from '1 / 26' to '2 / 26'. PASS.",
+    "DETAIL_tap_opens_lightbox": "Plain click on the main photo opens [data-testid=detail-lightbox]. PASS.",
+    "DETAIL_lightbox_layout": "Lightbox contains 26 <img> elements. Sampled img[0] x=513 y=50, img[1] x=513 y=727 → identical x, increasing y → vertically stacked column on black bg. Escape closes the dialog cleanly. PASS.",
+    "DETAIL_description_button_above": "[data-testid=description-translate] y=2486.5 < [data-testid=description-text] y=2534.5. Button is ABOVE the text. PASS.",
+    "DETAIL_description_initial_korean": "Initial [data-testid=description-text] contains Hangul characters (verified via \\uAC00-\\uD7A3 range). Not auto-translated on load. PASS.",
+    "DETAIL_translate_click": "Click translate → busy spinner → after ~few seconds description-show-original button appears, description is translated. Show-original restores Korean. Re-translate is cached at 0.07s. PASS. Caveat: on default (English) UI the translation is English, not Bulgarian — see ui_bugs above.",
+    "CARD_swipe_mobile": "At 390x844, after scroll_into_view, incremental mouse drag across [data-testid=car-card-swiper] advanced [data-testid=car-card-swiper-counter] from 1/4 to 2/4. PASS.",
+    "CARD_vertical_scroll_preserved": "Vertical drag over the card swiper did NOT change the counter (stayed 3/4) — swiper correctly detects vertical axis and yields to page scroll. PASS (touch-action: pan-y works as designed).",
+    "CARD_tap_opens_detail": "A plain click on car-card-swiper navigated from /?sort=newest to /car/42318384. PASS.",
+    "SAVED_page_fast": "Navigating to /saved completed in 0.83s (well under prior ~6s slowness). Saved card appears immediately. Un-saving via [data-testid=car-card-save-button] removed the card. PASS.",
+    "SAVED_by_ids_backend": "Verified via pytest that POST /api/listings/by-ids returns manufacturer_t, model_t, sale_eur, image, images fields. PASS."
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_swipe_translate.py",
+    "/app/test_reports/pytest/swipe_translate.xml"
+  ],
+  "action_items": [
+    "HIGH: Fix default UI language — it currently defaults to English on a fresh visit; spec requires Bulgarian. Check AppContext initial `lang` state, localStorage key, and any i18next detector — should default to 'bg' when no user preference is stored.",
+    "MEDIUM: In CarDetailPage thumbnail/lightbox map, key by index (or by `${src}-${idx}`) instead of by src alone, to eliminate the 'duplicate keys' React warnings when a car's images array contains repeats (car 41995353 has _001.jpg listed twice).",
+    "LOW: Add a hidden DialogTitle (or VisuallyHidden wrapper) inside [data-testid=detail-lightbox] DialogContent for a11y."
+  ],
+  "critical_code_review_comments": [
+    "PhotoSwiper: solid pointer-event implementation with sensible axis-lock threshold (6px) and tap heuristic (<8px in <500ms). Rubber-band at ends is a nice touch. No concerns.",
+    "DescriptionPanelBody: caches translated text in local component state; if the user navigates away and back, the cache is lost even though the backend cache is permanent — first click after navigation still hits the network. Consider hoisting the cache to context or SWR so revisits are instant.",
+    "listing_out `images` array is now shipped with every /api/listings/by-ids row — for /saved that is fine (2–3 rows) but for /api/listings (16 rows per page) this could bloat responses. Verify /api/listings does NOT include the full images array in grid mode.",
+    "Default language regression: whichever detection layer (context, localStorage, i18n init) previously respected 'bg' as fallback appears to have flipped to 'en'. Add a unit test that asserts `useApp().lang === 'bg'` on first render with empty localStorage."
+  ],
+  "updated_files": ["/app/backend/tests/test_swipe_translate.py", "/app/test_reports/iteration_11.json"],
+  "success_rate": {"backend": "100%", "frontend": "90%"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! (not used this iteration — guest/local favourites flow was sufficient).",
+  "seed_data_creation": "None persistent. During test I toggled a couple of favourites via localStorage-backed guest state; they can be cleared by clearing site storage.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Selectors verified live: [data-testid=car-card-swiper], car-card-swiper-counter, car-row-swiper, detail-main-photo, detail-photo-count, detail-lightbox, description-translate, description-show-original, description-text. Playwright tips: (1) always scroll_into_view_if_needed before mouse.move because Playwright's bounding_box returns viewport-relative coords but only after the element is in view — off-screen elements' clicks silently miss. (2) Use ~12 incremental mouse.move steps at 25–30ms each spanning ~250 px; a single big move is treated as a jump and can miss the 6px axis threshold. (3) Card swipers only have ~4 photos each; only /car/{id} detail has the full 26. Backend endpoints: POST /api/listings/by-ids and POST /api/car/{id}/translate-description?lang=bg both live and stable. The dealer-description cache is permanent — second call to translate returns in <100 ms. KNOWN ENVIRONMENTAL: default UI language is currently English — do NOT hunt for Bulgarian strings unless the language switcher is set to bg explicitly; the fix is on E1's side.",
+  "rca of the issue": "Default-language bug: Bulgarian is defined in i18n_extra.js and the request states BG is the default, but AppContext (or the language detector) is initialising `lang` to 'en' on a first-visit (empty localStorage) session. Reproduction: open an incognito window at https://encar-multi-lang.preview.emergentagent.com/ — you will see English strings and document.documentElement.lang === 'en'. Mitigation: audit the initial state in /app/frontend/src/context/AppContext.js (or equivalent) — the default should be `bg` when neither a user preference nor a valid Accept-Language override exists."
+}

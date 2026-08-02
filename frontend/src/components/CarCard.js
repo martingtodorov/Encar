@@ -1,7 +1,7 @@
-import { Heart, Gauge, Calendar, Fuel, MapPin, Camera } from "lucide-react";
+import { Heart, Gauge, Calendar, Fuel, MapPin } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ImageWithFallback } from "@/components/ImageWithFallback";
+import { PhotoSwiper } from "@/components/PhotoSwiper";
 import { useApp } from "@/context/AppContext";
 import {
   carSubtitle,
@@ -50,17 +50,22 @@ export const CarCard = ({ car, onOpen }) => {
       )}
 
       <div className="relative">
-        <button
-          type="button"
+        {/* swipe through the photos without leaving the list; a tap still opens the car */}
+        <div
           data-testid="car-card-open"
-          onClick={() => onOpen?.(car)}
+          role="button"
+          tabIndex={0}
           aria-label={`${carTitle(car)} \u2014 ${t("viewDetails")}`}
-          className="block w-full cursor-pointer"
+          onKeyDown={(e) => e.key === "Enter" && onOpen?.(car)}
+          className="aspect-video w-full cursor-pointer"
         >
-          <div className="aspect-video w-full">
-            <ImageWithFallback src={car.image} alt={carTitle(car)} testId="car-card-image" />
-          </div>
-        </button>
+          <PhotoSwiper
+            images={car.images?.length ? car.images : [car.image]}
+            alt={carTitle(car)}
+            testId="car-card-swiper"
+            onTap={() => onOpen?.(car)}
+          />
+        </div>
 
         <button
           type="button"
@@ -83,12 +88,6 @@ export const CarCard = ({ car, onOpen }) => {
           />
         </button>
 
-        {car.photo_count > 1 && (
-          <span className="tnum absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-[var(--shadow-sm)]">
-            <Camera className="h-3 w-3" aria-hidden="true" />
-            {car.photo_count}
-          </span>
-        )}
       </div>
 
       {/* compact body: tight spacing, no filler gaps */}

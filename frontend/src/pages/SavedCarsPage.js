@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { HeaderBar } from "@/components/HeaderBar";
 import { CarGrid } from "@/components/CarGrid";
 import { useApp } from "@/context/AppContext";
-import { getCar } from "@/lib/api";
+import { getListingsByIds } from "@/lib/api";
 
 /** Saved cars, resolved from the locally stored favourite ids. */
 export default function SavedCarsPage() {
@@ -22,30 +22,12 @@ export default function SavedCarsPage() {
       return undefined;
     }
     setLoading(true);
-    Promise.all(favourites.map((id) => getCar(id, lang).catch(() => null)))
-      .then((cars) => {
-        if (cancelled) return;
-        setItems(
-          cars.filter(Boolean).map((c) => ({
-            id: c.id,
-            manufacturer_t: c.manufacturer,
-            model_t: c.model,
-            badge_t: c.grade,
-            badge_detail_t: c.badge_detail,
-            fuel_type_t: c.spec?.fuel,
-            mileage: c.spec?.mileage,
-            year_month: Number(c.year_month),
-            form_year: c.form_year,
-            sale_eur: c.quote?.suggested_sale,
-            image: c.photos?.[0]?.full,
-            photo_count: c.photo_count,
-            under_contract: c.under_contract,
-            has_inspection: !!c.inspection,
-            has_record: !!c.insurance,
-            diagnosed: !!c.diagnosis,
-          }))
-        );
-      })
+    // One read from our own index. Resolving each favourite through /car/{id} used to
+    // pull the detail, insurance, inspection and diagnosis documents from Encar per
+    // car - seconds of waiting for data this grid never shows.
+    getListingsByIds(favourites, lang)
+      .then((d) => !cancelled && setItems(d.items || []))
+      .catch(() => !cancelled && setItems([]))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;

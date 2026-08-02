@@ -17,8 +17,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { HeaderBar } from "@/components/HeaderBar";
 import { ImageWithFallback } from "@/components/ImageWithFallback";
+import { PhotoSwiper } from "@/components/PhotoSwiper";
 import { useApp } from "@/context/AppContext";
 import { EnquiryDialog } from "@/components/EnquiryDialog";
+import { DescriptionPanelBody } from "@/components/DescriptionPanelBody";
 import { getCar } from "@/lib/api";
 import { formatMileage, formatMoney, formatNumber, formatYearMonth } from "@/lib/format";
 
@@ -232,14 +234,15 @@ export default function CarDetailPage() {
 
             {/* ── gallery: every photo Encar has, loaded from their CDN ── */}
             <div className="mt-5">
-              <div
-                className="aspect-[16/9] w-full cursor-zoom-in overflow-hidden rounded-[16px] border border-border"
-                onClick={() => photos.length && setLightbox(true)}
-              >
-                <ImageWithFallback
-                  src={photos[active]?.full}
+              <div className="aspect-[16/9] w-full cursor-zoom-in overflow-hidden rounded-[16px] border border-border">
+                <PhotoSwiper
+                  images={photos.map((p) => p.full)}
                   alt={car.title}
                   testId="detail-main-photo"
+                  index={active}
+                  onIndexChange={setActive}
+                  onTap={() => photos.length && setLightbox(true)}
+                  showCount={false}
                 />
               </div>
 
@@ -538,9 +541,7 @@ export default function CarDetailPage() {
                   testId="detail-description"
                   tone="info"
                 >
-                  <p className="whitespace-pre-line text-[13px] leading-relaxed text-foreground">
-                    {car.description}
-                  </p>
+                  <DescriptionPanelBody carId={id} original={car.description} />
                 </Panel>
               </div>
             )}
@@ -549,14 +550,24 @@ export default function CarDetailPage() {
         )}
       </div>
 
+      {/* Tapping the main photo opens every photo as one vertical column, separated by
+          thin black bars - closer to how a phone gallery reads than a one-at-a-time
+          lightbox. */}
       <Dialog open={lightbox} onOpenChange={setLightbox}>
-        <DialogContent className="max-w-5xl border-border bg-card p-2">
-          <div className="aspect-[16/10] w-full overflow-hidden rounded-[12px]">
-            <ImageWithFallback
-              src={photos[active]?.full}
-              alt={car?.title || ""}
-              testId="detail-lightbox-photo"
-            />
+        <DialogContent
+          data-testid="detail-lightbox"
+          className="max-h-[92vh] max-w-4xl overflow-y-auto border-border bg-black p-0"
+        >
+          <div className="flex flex-col gap-1.5 bg-black py-1.5">
+            {photos.map((p, i) => (
+              <div key={p.full || i} className="aspect-[4/3] w-full bg-black">
+                <ImageWithFallback
+                  src={p.full}
+                  alt={car?.title || ""}
+                  testId={i === 0 ? "detail-lightbox-photo" : undefined}
+                />
+              </div>
+            ))}
           </div>
         </DialogContent>
       </Dialog>
