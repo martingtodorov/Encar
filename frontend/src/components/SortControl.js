@@ -1,9 +1,13 @@
 import { ChevronDown } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 
-// Lowest price first is the default: this is an import-price comparison tool, so the
-// question a visitor arrives with is "what is the cheapest car that fits?".
-export const DEFAULT_SORT = "price_asc";
+// Sorting default depends on intent:
+//  * browsing with no make/model chosen -> "newest", because a freshly-arrived car is
+//    the interesting thing when you have not said what you are looking for
+//  * once a make or model is chosen -> "price_asc", because the question becomes
+//    "what is the cheapest one of THESE?"
+export const DEFAULT_SORT_BROWSE = "newest";
+export const DEFAULT_SORT_FILTERED = "price_asc";
 
 export const SORT_OPTIONS = [
   { value: "price_asc", key: "sortPriceAsc" },

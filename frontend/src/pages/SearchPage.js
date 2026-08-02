@@ -9,7 +9,7 @@ import { TrustStrip } from "@/components/TrustStrip";
 import { TaxonomySelects } from "@/components/TaxonomySelects";
 import { FilterSidebar } from "@/components/FilterSidebar";
 import { AppliedFiltersChips } from "@/components/AppliedFiltersChips";
-import { SortControl, DEFAULT_SORT } from "@/components/SortControl";
+import { SortControl, DEFAULT_SORT_BROWSE, DEFAULT_SORT_FILTERED } from "@/components/SortControl";
 import { CarGrid } from "@/components/CarGrid";
 import { ResultsPagination } from "@/components/ResultsPagination";
 import { useApp } from "@/context/AppContext";
@@ -46,7 +46,9 @@ export default function SearchPage() {
   // Translated labels for the current taxonomy selection, published by TaxonomySelects
   // so the applied-filter chips never show raw Korean values.
   const [taxLabels, setTaxLabels] = useState(EMPTY_TAX);
-  const [sort, setSort] = useState(DEFAULT_SORT);
+  const [sort, setSort] = useState(DEFAULT_SORT_BROWSE);
+  // Once the visitor picks a sort themselves we stop overriding it.
+  const [sortTouched, setSortTouched] = useState(false);
   const [page, setPage] = useState(1);
 
   const [facets, setFacets] = useState(null);
@@ -139,6 +141,21 @@ export default function SearchPage() {
     setPage(1);
   }, []);
 
+  // Newest first while browsing; lowest price first once a make or model narrows the
+  // list. Skipped entirely once the visitor has chosen a sort themselves.
+  useEffect(() => {
+    if (sortTouched) return;
+    const auto = tax.make || tax.model ? DEFAULT_SORT_FILTERED : DEFAULT_SORT_BROWSE;
+    setSort(auto);
+    setPage(1);
+  }, [tax.make, tax.model, sortTouched]);
+
+  const changeSort = useCallback((v) => {
+    setSort(v);
+    setSortTouched(true);
+    setPage(1);
+  }, []);
+
   const removeChip = useCallback(
     (key) => {
       if (["make", "model", "badge", "badgeDetail"].includes(key)) {
@@ -170,7 +187,8 @@ export default function SearchPage() {
     setFilters(EMPTY);
     setTax(EMPTY_TAX);
     setPage(1);
-    setSort("newest");
+    setSort(DEFAULT_SORT_BROWSE);
+    setSortTouched(false);
   }, []);
 
   const scrollToResults = useCallback(() => {
@@ -298,13 +316,7 @@ export default function SearchPage() {
               </div>
 
               <div className="ml-auto">
-                <SortControl
-                  value={sort}
-                  onChange={(v) => {
-                    setSort(v);
-                    setPage(1);
-                  }}
-                />
+                <SortControl value={sort} onChange={changeSort} />
               </div>
             </div>
 
