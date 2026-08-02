@@ -8,6 +8,8 @@ import {
   LogOut,
   Gauge,
   ShieldCheck,
+  Sun,
+  Moon,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -20,7 +22,7 @@ import { useAuth } from "@/context/AuthContext";
 import { LANGS, CURRENCIES } from "@/i18n";
 
 export const NavDrawer = () => {
-  const { t, favourites, lang, setLang, currency, setCurrency } = useApp();
+  const { t, favourites, lang, setLang, currency, setCurrency, theme, toggleTheme } = useApp();
   const { user, logout } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -137,6 +139,36 @@ export const NavDrawer = () => {
                     }`}
                   >
                     {c.code}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("appearance")}
+              </span>
+              <div className="inline-flex rounded-[10px] border border-border bg-muted p-0.5">
+                {[
+                  { key: "light", icon: Sun, label: t("lightMode") },
+                  { key: "dark", icon: Moon, label: t("darkMode") },
+                ].map(({ key, icon: Icon, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    data-testid={key === "dark" ? "theme-toggle" : `theme-option-${key}`}
+                    onClick={() => {
+                      if (theme !== key) toggleTheme();
+                    }}
+                    aria-pressed={theme === key}
+                    aria-label={label}
+                    className={`inline-flex h-8 w-10 items-center justify-center rounded-[8px] transition-colors ${
+                      theme === key
+                        ? "bg-card text-[hsl(var(--primary))] shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" aria-hidden="true" />
                   </button>
                 ))}
               </div>

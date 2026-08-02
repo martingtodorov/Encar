@@ -12,6 +12,53 @@ import { ImageWithFallback } from "@/components/ImageWithFallback";
  * `touch-action: pan-y` keeps vertical page scrolling working: only horizontal intent
  * is captured, which matters because these sit inside a long scrolling result list.
  */
+const DOT = 6;      // dot diameter in px
+const GAP = 6;      // gap between dots in px
+const WINDOW = 5;   // most dots ever shown at once
+
+/**
+ * Instagram-style dot rail: never more than five dots on screen. Longer galleries slide
+ * the rail so the active dot stays centred, which animates as you swipe.
+ */
+const DotRail = ({ count, active }) => {
+  const pitch = DOT + GAP;
+  const shown = Math.min(WINDOW, count);
+  const maxOffset = Math.max(0, count - WINDOW);
+  const offset = Math.min(maxOffset, Math.max(0, active - Math.floor(WINDOW / 2)));
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center"
+      aria-hidden="true"
+    >
+      <div className="overflow-hidden" style={{ width: shown * pitch - GAP }}>
+        <div
+          className="flex"
+          style={{
+            gap: GAP,
+            transform: `translate3d(${-offset * pitch}px, 0, 0)`,
+            transition: "transform 320ms cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
+        >
+          {Array.from({ length: count }).map((_, n) => (
+            <span
+              key={n}
+              className="shrink-0 rounded-full bg-white transition-all duration-300"
+              style={{
+                width: DOT,
+                height: DOT,
+                boxShadow: "0 1px 3px rgba(0,0,0,.45)",
+                opacity: n === active ? 1 : 0.5,
+                transform: n === active ? "scale(1)" : "scale(0.72)",
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const PhotoSwiper = ({
   images = [],
   alt = "",
@@ -33,7 +80,7 @@ export const PhotoSwiper = ({
 
   const box = useRef(null);
   const drag = useRef(null);
-  const wheel = useRef({ acc: 0, until: 0 });
+  const wheel = useRef({ acc: 0, last: 0, locked: false });
   const [dx, setDx] = useState(0);
   const [dragging, setDragging] = useState(false);
 
@@ -61,13 +108,24 @@ export const PhotoSwiper = ({
     const onWheel = (e) => {
       if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;   // vertical: let the page scroll
       e.preventDefault();
+      const w = wheel.current;
       const now = Date.now();
-      if (now < wheel.current.until) return;
-      wheel.current.acc += e.deltaX;
-      if (Math.abs(wheel.current.acc) < 45) return;
-      const step = wheel.current.acc > 0 ? 1 : -1;
-      wheel.current.acc = 0;
-      wheel.current.until = now + 320;
+      // A quiet gap means fingers left the pad and came back: a brand new gesture.
+      const fresh = now - w.last > 140;
+      w.last = now;
+      if (fresh) {
+        w.acc = 0;
+        w.locked = false;
+      } else if (w.locked) {
+        return;   // still riding the momentum tail of a gesture we already handled
+      }
+      // A deliberate direction reversal also starts over.
+      if (w.acc !== 0 && Math.sign(e.deltaX) !== Math.sign(w.acc)) w.acc = 0;
+      w.acc += e.deltaX;
+      if (Math.abs(w.acc) < 45) return;
+      const step = w.acc > 0 ? 1 : -1;
+      w.acc = 0;
+      w.locked = true;
       setActiveRef.current(
         Math.min(slides.length - 1, Math.max(0, activeRef.current + step))
       );
@@ -197,20 +255,7 @@ export const PhotoSwiper = ({
 
       {slides.length > 1 && (
         <>
-          <div
-            className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center gap-1.5"
-            aria-hidden="true"
-          >
-            {slides.map((_, n) => (
-              <span
-                key={n}
-                className={`h-1.5 rounded-full transition-all duration-200 ${
-                  n === active ? "w-4 bg-white" : "w-1.5 bg-white/55"
-                }`}
-                style={{ boxShadow: "0 1px 3px rgba(0,0,0,.45)" }}
-              />
-            ))}
-          </div>
+          <DotRail count={slides.length} active={active} />
           {showCount && (
             <span
               data-testid={`${testId}-counter`}

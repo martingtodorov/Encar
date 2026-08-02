@@ -62,9 +62,14 @@ export function AppProvider({ children }) {
     localStorage.setItem(LS_THEME, theme);
   }, [theme]);
 
+  // Switching language switches the market, so it switches the currency with it:
+  // Romanian buyers price in RON, everyone else in EUR.
   const setLang = useCallback((l) => {
     setLangState(l);
     localStorage.setItem(LS_LANG, l);
+    const cur = l === "ro" ? "RON" : "EUR";
+    setCurrencyState(cur);
+    localStorage.setItem(LS_CUR, cur);
   }, []);
 
   const setCurrency = useCallback((c) => {

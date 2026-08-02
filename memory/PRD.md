@@ -110,6 +110,13 @@ owner:** `ADMIN_NOTIFY_EMAIL` (no notifications are sent until it is set) and a 
 sending domain — the shared `onboarding@resend.dev` sender only delivers to the address
 that owns the Resend account.
 
+## Recent (2026-06, latest session)
+- Photo swiper: one macOS trackpad flick now advances exactly one photo (momentum stream is
+  treated as a single gesture), and the dot rail is capped at five sliding, animated dots.
+- Mobile header: centred logo, hamburger on the right, theme toggle moved into the drawer.
+- Language switch now switches currency (RO -> RON, BG/EN -> EUR) on every switch, not just
+  on first load.
+
 ## Backlog
 ### P1
 - **Language URL prefixes** — the owner asked for `/en`, `/ro`, `/bg` on the apex domain.

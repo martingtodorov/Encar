@@ -147,3 +147,25 @@ Verified (iteration_9): 100% both.
   Gemini's free tier had been rejecting.
 - Established that Encar's ~217k headline is ADS, not cars: ~5k lease/rental are excluded
   and ~61k are re-registered duplicates of the same physical vehicle.
+
+## 2026-06 — Trackpad swipe and dot rail
+- **One flick = one photo.** The wheel handler used a fixed 320ms cooldown, but macOS keeps
+  emitting momentum wheel events for ~1s after the fingers lift, so a single flick fired
+  again after every cooldown (three photos per swipe). Replaced the cooldown with
+  gesture-stream detection: after advancing, all further wheel events are ignored until the
+  stream goes quiet (no event for 140ms). A quiet gap starts a fresh gesture and resets the
+  accumulator; a direction reversal also resets it. Touch drag and arrows untouched.
+  Verified with synthetic 14-event momentum bursts: 1/4 -> 2/4 -> 3/4 -> 2/4 on reverse.
+- **Dot rail capped at five dots** (`DotRail` in `PhotoSwiper.js`). Longer galleries slide
+  the rail so the active dot stays centred, animating on each swipe; inactive dots sit at
+  0.72 scale / 50% opacity. Verified on a 30-photo detail gallery.
+
+## 2026-06 — Mobile header and market currency
+- **Mobile header rebuilt**: logo is now optically centred (empty 40px left cell balances
+  the menu button), the hamburger sits at the right edge, and the theme toggle moved out of
+  the header into the drawer as a THEME row (icon-only sun/dark segmented control, keeps
+  `data-testid="theme-toggle"`). Desktop header untouched.
+- **Language now switches the market currency**: `setLang()` sets RON for Romanian and EUR
+  for BG/EN and persists it, so the desktop RO button repricing the page is no longer
+  limited to first load. Verified: EN 15,199 EUR -> RO 79,745 RON -> BG 15,199 EUR, with
+  the price-filter unit following along.
