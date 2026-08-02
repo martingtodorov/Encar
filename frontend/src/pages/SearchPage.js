@@ -38,6 +38,11 @@ import { describeSearch } from "@/lib/describeSearch";
 // 16 ads per page on every viewport: mobile shows them as cards, desktop as rows.
 const PAGE_SIZE = 16;
 
+// Make alone is still browsing, so newest first. Once a model (or a trim below it) narrows
+// the list the visitor is comparing like with like, so cheapest first.
+const autoSort = (tax) =>
+  tax.model || tax.badge || tax.badgeDetail ? DEFAULT_SORT_FILTERED : DEFAULT_SORT_BROWSE;
+
 export default function SearchPage() {
   const { t, lang, currency, rates, saveSearch, isSearchSaved } = useApp();
   const { go } = useLangNav();
@@ -54,7 +59,13 @@ export default function SearchPage() {
   const [sort, setSort] = useState(initial.sort || DEFAULT_SORT_BROWSE);
   // Once the visitor picks a sort themselves we stop overriding it. A sort in the URL
   // counts as a deliberate choice, so returning via Back keeps it.
-  const [sortTouched, setSortTouched] = useState(!!initial.sort);
+  // A sort in the URL only counts as a deliberate choice if it differs from the one the
+  // rule above would have picked. Otherwise coming back from a car (or switching
+  // language) would freeze the sort, and clearing back to a make-only search would keep
+  // showing cheapest first instead of newest.
+  const [sortTouched, setSortTouched] = useState(
+    !!initial.sort && initial.sort !== autoSort(initial.tax)
+  );
   const [page, setPage] = useState(initial.page);
 
   const [facets, setFacets] = useState(null);
@@ -132,10 +143,7 @@ export default function SearchPage() {
   // or trim narrows the list. Skipped entirely once the visitor has chosen a sort.
   useEffect(() => {
     if (sortTouched) return;
-    // Make alone is still browsing, so newest first. Once a model (or a trim below it)
-    // narrows the list the visitor is comparing like with like, so cheapest first.
-    const narrowed = !!(tax.model || tax.badge || tax.badgeDetail);
-    setSort(narrowed ? DEFAULT_SORT_FILTERED : DEFAULT_SORT_BROWSE);
+    setSort(autoSort(tax));
     setPage(1);
   }, [tax.model, tax.badge, tax.badgeDetail, sortTouched]);
 

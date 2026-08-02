@@ -197,3 +197,13 @@ Verified (iteration_9): 100% both.
 - Verified end to end by the testing agent (iteration_17): 16/16 backend cases, redirects,
   SEO tags, save/rename/delete, the "new" badge, merge-on-sign-in, account round-trip after
   clearing localStorage, mobile drawer entry and scroll-to-top all pass.
+
+## 2026-06 — Make-only searches sort newest first again
+- The rule (newest while browsing, cheapest once a model narrows the list) was right, but
+  `sortTouched` was set from the mere PRESENCE of `sort` in the URL. Since the page writes
+  the sort into the URL itself, returning from a car, switching language or opening a saved
+  search all counted as "the visitor chose this sort" and froze it — so clearing back to a
+  make-only search kept showing cheapest first. A URL sort now only counts as deliberate
+  when it DIFFERS from the sort the rule would have picked (`autoSort(tax)`).
+- Verified: make only -> newest, + model -> cheapest, model cleared -> newest again, and an
+  explicit `sort=mileage_asc` still survives a reload.
