@@ -2,6 +2,37 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-06 — Faster description translation + UI consistency
+- **Dealer-description translation felt like a 10-20s hang; now first words appear in
+  ~0.7s.** Measured the cause rather than guessing: a 657-char Korean description
+  generates ~750 output tokens, and Sonnet took 16.9-20.7s, so output length was the
+  floor — no amount of prompt tuning would fix it. Two changes: the task moved to the fast
+  model (`ANTHROPIC_FAST_MODEL`, `claude-haiku-4-5-20251001`), and the translation is now
+  **streamed** over SSE (`GET /api/car/{id}/translate-description/stream`) so text appears
+  as it is generated. Verified (iteration_13): first text 0.6-0.9s, 99+ SSE frames, cached
+  hits 0.15s, cache survives reload. Total completion is still 21-23s on the longest
+  descriptions — that is generation-bound, but it is no longer dead time.
+  - `X-Accel-Buffering: no` was required or the proxy held the whole stream back.
+  - The frontend SSE parser keeps partial frames in a buffer, so a chunk split across TCP
+    reads is never lost or double-appended.
+  - Uses plain prose rather than the batch JSON envelope, so there is nothing to parse
+    before text can be shown. Falls back to the non-streaming POST if the stream fails.
+- **Shadows had been painting nothing app-wide.** The testing agent found (iteration_13)
+  that `shadow-[var(--shadow-sm)]` makes Tailwind read the `var()` as a *colour* and emit
+  an EMPTY `box-shadow`, so the class was silently invisible — 25 usages across 16 files,
+  not just the controls being styled. Fixed at the source: the design tokens are now
+  registered as the Tailwind shadow scale (`boxShadow.sm/md` → `var(--shadow-sm/md)`) and
+  every broken usage replaced with plain `shadow-sm`/`shadow-md`, so the broken form cannot
+  come back. Verified (iteration_14): 100%, the token now paints on every control, card,
+  admin panel and dialog. **Never reintroduce `shadow-[var(--shadow-*)]`.**
+- Make/Model/Submodel dropdowns, the Filters button and the sort dropdown now share
+  `rounded-[10px]`, `border border-input` and `shadow-sm`.
+- On mobile the Filters button moved into the taxonomy grid, in the same row and to the
+  right of Submodel, instead of sitting down in the results header. Implemented as a
+  `trailing` prop on `TaxonomySelects` so the button joins the same grid flow; hidden on
+  desktop where the sidebar is used.
+- Added an sr-only `SheetDescription` to the filter sheet, clearing a Radix a11y warning.
+
 ## 2026-06 — Exchange buffer + a price-consistency bug it exposed
 - **Exchange buffer applied to EUR/KRW.** `fx.HAIRCUT = 0.995319` (0.4681% held back).
   Market rate 1,653.545 → published 1,645.805. `fx_krw_eur_market` is kept alongside

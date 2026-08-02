@@ -1,0 +1,24 @@
+{
+  "summary": "Frontend-only regression for desktop-header inline nav, detail-page 16:9 gallery, right-side bigger thumbnails, arrow navigation and sticky detail bar. Ran 46 UI assertions across 1600x900, 1920x900, 1280x800 and 390x844. All critical requirements pass: inline header nav visible on desktop with all 3 links, language pills, theme toggle, login+register (logged-out) and Saved count badge appearing after save; hamburger visible and inline nav hidden on mobile. Detail main image is a true 16:9 (ratio 1.781, 1004x563) at all three desktop widths and its <img> box matches the container exactly (proving no object-cover crop). Thumb strip is to the RIGHT of the main image, height matches (565 vs 563), thumbs are 214x120 (up from 96x64), strip scrolls internally (scrollHeight 3330 > client 566) and internal scroll does not grow the page. Clicking thumb #4 changes counter 1/26 -> 4/26. Arrow prev/next both work (verified via JS click, initial Playwright synthetic mouse click had a hover-race artifact). Sticky bar is data-visible=false at top, gap between header-bar and back-to-results is only 8px (well under the 20px target vs the prior 73px), becomes data-visible=true after scroll 800, sticky-title font-size = 16px, sticky-price = 20px, sticky price matches detail price (€38,799), and sticky save button toggles the heart fill on both the sticky and the detail save button (their inner SVG changes in lock-step). Mobile gallery is stacked (thumb strip y > main bottom).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "PhotoSwiper arrow buttons: verified stopPropagation is in place so clicks do not bubble to the tap-to-open-lightbox handler; behaviour is correct.",
+    "Note for future testers: sticky/detail save buttons do NOT expose aria-pressed; toggle state must be checked via inner SVG (Heart fill) or the /saved count badge, not via aria-pressed.",
+    "Note for future testers: Playwright's real-mouse .click(force=True) on the desktop next/prev arrows can occasionally miss on the second consecutive click if the mouse never re-enters the main image bounds (hover-only opacity). Using page.evaluate('...next.click()') or explicit page.mouse.move over the main image before each click is more reliable."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100%"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! (not needed this round, logged-out flow tested per spec).",
+  "seed_data_creation": "None (used existing car 41995353, 26 photos).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iteration_15 covered the desktop-header-inline-menu + gallery-16:9 + right-side-bigger-thumbs + sticky-detail-bar cut. All pass. Prior test-report links from iteration_1..14 are still valid. When re-testing gallery arrows, prefer JS-dispatched clicks or explicit mouse.move before .click() because the arrows are opacity-0 until hover and Playwright's second synthetic click can land while the arrow is briefly non-hovered.",
+  "rca of the issue": "n/a - no functional issues found."
+}

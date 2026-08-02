@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { HeaderBar } from "@/components/HeaderBar";
+import { DetailStickyBar } from "@/components/DetailStickyBar";
 import { ImageWithFallback } from "@/components/ImageWithFallback";
 import { PhotoSwiper } from "@/components/PhotoSwiper";
 import { useApp } from "@/context/AppContext";
@@ -136,13 +137,19 @@ export default function CarDetailPage() {
   return (
     <div className="min-h-screen bg-background">
       <HeaderBar />
+      <DetailStickyBar
+        car={car}
+        price={money(q?.suggested_sale ?? 0)}
+        saved={saved}
+        onToggleSave={() => toggleFavourite(id)}
+      />
 
-      <div className="mx-auto max-w-[1280px] px-4 py-5 sm:px-6">
+      <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-2 sm:px-6">
         <Button
           data-testid="back-to-results"
           variant="ghost"
           onClick={goBack}
-          className="mb-4 h-9 gap-1.5 px-2 text-sm text-muted-foreground hover:bg-muted"
+          className="mb-1 h-9 gap-1.5 px-2 text-sm text-muted-foreground hover:bg-muted"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           {t("backToResults")}
@@ -232,34 +239,33 @@ export default function CarDetailPage() {
               </div>
             </div>
 
-            {/* ── gallery: every photo Encar has, loaded from their CDN ── */}
-            <div className="mt-5">
-              <div className="aspect-[16/9] w-full cursor-zoom-in overflow-hidden rounded-[16px] border border-border">
-                <PhotoSwiper
-                  images={photos.map((p) => p.full)}
-                  alt={car.title}
-                  testId="detail-main-photo"
-                  index={active}
-                  onIndexChange={setActive}
-                  onTap={() => photos.length && setLightbox(true)}
-                  showCount={false}
-                />
-              </div>
+            {/* ── gallery: every photo Encar has, loaded from their CDN ──
+                Desktop puts the thumbnails in a scrollable column beside a smaller main
+                image, so more of the car is visible without scrolling the page. Mobile
+                keeps the stacked layout with a horizontal strip. */}
+            <div className="mt-4">
+              {/* The main image keeps a true 16:9 - its height then defines the row, and
+                  the thumbnail column is pinned to that height so it scrolls internally
+                  instead of stretching the layout or cropping the photo. */}
+              <div className="relative flex flex-col gap-2 lg:block">
+                <div className="aspect-[16/9] w-full cursor-zoom-in overflow-hidden rounded-[16px] border border-border lg:w-[calc(100%-226px)]">
+                  <PhotoSwiper
+                    images={photos.map((p) => p.full)}
+                    alt={car.title}
+                    testId="detail-main-photo"
+                    index={active}
+                    onIndexChange={setActive}
+                    onTap={() => photos.length && setLightbox(true)}
+                    showCount={false}
+                    arrows
+                  />
+                </div>
 
-              {photos.length > 1 && (
-                <>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[12px] font-medium text-muted-foreground">
-                      {t("allPhotos")}
-                    </span>
-                    <span
-                      data-testid="detail-photo-count"
-                      className="tnum text-[12px] text-muted-foreground"
-                    >
-                      {formatNumber(active + 1, lang)} / {formatNumber(photos.length, lang)}
-                    </span>
-                  </div>
-                  <div className="thin-scroll mt-2 flex gap-2 overflow-x-auto pb-2">
+                {photos.length > 1 && (
+                  <div
+                    data-testid="detail-thumb-strip"
+                    className="thin-scroll flex gap-2 overflow-x-auto pb-2 lg:absolute lg:inset-y-0 lg:right-0 lg:w-[218px] lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 lg:pr-1"
+                  >
                     {photos.map((p, i) => (
                       <button
                         key={i}
@@ -267,7 +273,8 @@ export default function CarDetailPage() {
                         data-testid="detail-photo-thumb"
                         onClick={() => setActive(i)}
                         aria-label={`${t("allPhotos")} ${i + 1}`}
-                        className={`h-16 w-24 shrink-0 overflow-hidden rounded-[8px] border-2 transition-colors ${
+                        aria-current={i === active ? "true" : undefined}
+                        className={`h-16 w-24 shrink-0 overflow-hidden rounded-[8px] border-2 transition-colors lg:aspect-video lg:h-auto lg:w-full ${
                           i === active ? "border-[hsl(var(--primary))]" : "border-border"
                         }`}
                       >
@@ -275,7 +282,21 @@ export default function CarDetailPage() {
                       </button>
                     ))}
                   </div>
-                </>
+                )}
+              </div>
+
+              {photos.length > 1 && (
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-[12px] font-medium text-muted-foreground">
+                    {t("allPhotos")}
+                  </span>
+                  <span
+                    data-testid="detail-photo-count"
+                    className="tnum text-[12px] text-muted-foreground"
+                  >
+                    {formatNumber(active + 1, lang)} / {formatNumber(photos.length, lang)}
+                  </span>
+                </div>
               )}
             </div>
 

@@ -89,7 +89,12 @@ values and 3,356 sub-trim paths collapse to 525 — count DISTINCT values, never
 Check with `python warm_status.py`; top up with `python warm.py`.
 
 Dealer descriptions are deliberately NOT auto-translated (long, unique per car, rarely
-read). The visitor asks via a button; one Claude call, cached permanently.
+read). The visitor asks via a button; cached permanently. Because output length is the
+bottleneck (~750 tokens for a 657-char description), this task uses the FAST model
+(`ANTHROPIC_FAST_MODEL`, `claude-haiku-4-5-20251001`) and is **streamed** over SSE
+(`GET /api/car/{id}/translate-description/stream`) so the first words land in ~0.7s
+instead of after a 10-20s spinner. The non-streaming POST route remains as a fallback.
+The SSE response must keep `X-Accel-Buffering: no` or the proxy buffers the whole stream.
 
 ## Admin (`/admin`, admin-only)
 Guarded by `_require_admin` — admin session OR `x-admin-token` header (`ADMIN_TOKEN`,

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight } from "lucide-react";
 import { ImageWithFallback } from "@/components/ImageWithFallback";
 
 /**
@@ -20,6 +20,7 @@ export const PhotoSwiper = ({
   onIndexChange,
   onTap,
   showCount = true,
+  arrows = false,
   className = "",
 }) => {
   const slides = images.filter(Boolean);
@@ -122,6 +123,37 @@ export const PhotoSwiper = ({
           </div>
         ))}
       </div>
+
+      {slides.length > 1 && arrows && (
+        <>
+          <button
+            type="button"
+            data-testid={`${testId}-prev`}
+            aria-label="Previous photo"
+            disabled={active === 0}
+            onClick={(e) => {
+              e.stopPropagation();
+              setActive(Math.max(0, active - 1));
+            }}
+            className="absolute left-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-opacity hover:bg-black/65 disabled:opacity-0 lg:flex"
+          >
+            <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            data-testid={`${testId}-next`}
+            aria-label="Next photo"
+            disabled={active === slides.length - 1}
+            onClick={(e) => {
+              e.stopPropagation();
+              setActive(Math.min(slides.length - 1, active + 1));
+            }}
+            className="absolute right-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-opacity hover:bg-black/65 disabled:opacity-0 lg:flex"
+          >
+            <ChevronRight className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </>
+      )}
 
       {slides.length > 1 && (
         <>
