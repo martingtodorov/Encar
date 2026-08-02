@@ -125,7 +125,7 @@ export default function SearchPage() {
 
   useEffect(() => {
     getCatalogueSize()
-      .then((d) => setCatalogueSize(d?.upstream || d?.unique_cars || null))
+      .then((d) => setCatalogueSize(d?.unique_cars || null))
       .catch(() => {});
   }, []);
 

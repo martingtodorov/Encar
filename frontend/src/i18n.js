@@ -98,7 +98,7 @@ const STRINGS = {
     close: "\u0417\u0430\u0442\u0432\u043e\u0440\u0438",
     photos: "\u0441\u043d\u0438\u043c\u043a\u0438",
     quickView: "\u0411\u044a\u0440\u0437 \u043f\u0440\u0435\u0433\u043b\u0435\u0434",
-    indexNote: "\u043e\u0442 {total} \u043e\u0431\u044f\u0432\u0438 \u0432 Encar",
+    indexNote: "{total} \u043a\u043e\u043b\u0438 \u0432 \u043a\u0430\u0442\u0430\u043b\u043e\u0433\u0430",
   },
   ro: {
     brand: "KoreaAuto",
@@ -182,7 +182,7 @@ const STRINGS = {
     close: "\u00cenchide",
     photos: "fotografii",
     quickView: "Vizualizare rapid\u0103",
-    indexNote: "din {total} anun\u021buri Encar",
+    indexNote: "{total} ma\u0219ini \u00een catalog",
   },
   en: {
     brand: "KoreaAuto",
@@ -266,7 +266,7 @@ const STRINGS = {
     close: "Close",
     photos: "photos",
     quickView: "Quick view",
-    indexNote: "of {total} Encar listings",
+    indexNote: "{total} cars in the catalogue",
   },
 };
 

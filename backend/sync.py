@@ -13,6 +13,7 @@ backoff on 429/5xx. No IP rotation of any kind.
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timezone
 
 from pymongo import UpdateOne
@@ -462,7 +463,10 @@ async def dedupe_pass(db):
         return {"error": str(e)}
 
 
-TAXONOMY_TTL_DAYS = 7
+# The catalogue is continuously re-crawled, so dropdown counts drift within hours.
+# A weekly TTL froze them at whatever the first build of the week saw.
+TAXONOMY_TTL_HOURS = float(os.environ.get("TAXONOMY_TTL_HOURS", "6"))
+_TAX_BUILDING = {"on": False}
 
 
 async def build_taxonomy(db):
@@ -532,7 +536,34 @@ async def taxonomy_is_stale(db):
     if not doc or not doc.get("built_at"):
         return True
     age = datetime.now(timezone.utc) - doc["built_at"].replace(tzinfo=timezone.utc)
-    return age.days >= TAXONOMY_TTL_DAYS
+    return age.total_seconds() >= TAXONOMY_TTL_HOURS * 3600
+
+
+async def refresh_taxonomy_if_stale(db):
+    """Keep dropdown counts fresh without ever making a user wait for the rebuild.
+
+    A rebuild is a full aggregation over ~212k listings, so it runs in the background
+    and the (slightly older) tree keeps serving meanwhile. Only a completely missing
+    taxonomy is built inline, because there is nothing to serve otherwise.
+    """
+    if not await taxonomy_is_stale(db):
+        return
+    if await db.taxonomy.estimated_document_count() == 0:
+        await build_taxonomy(db)
+        return
+    if _TAX_BUILDING["on"]:
+        return
+
+    async def _job():
+        _TAX_BUILDING["on"] = True
+        try:
+            await build_taxonomy(db)
+        except Exception as e:
+            log.warning("background taxonomy rebuild failed: %s", e)
+        finally:
+            _TAX_BUILDING["on"] = False
+
+    asyncio.get_running_loop().create_task(_job())
 
 
 async def reprice_all(db, batch=5000):

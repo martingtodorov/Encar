@@ -472,11 +472,10 @@ async def meta_taxonomy(
     back to cache-only rather than failing the dropdown.
     """
     lang = norm_lang(lang)
-    if await sync_mod.taxonomy_is_stale(db):
-        try:
-            await sync_mod.build_taxonomy(db)
-        except Exception as e:
-            log.warning("taxonomy rebuild failed: %s", e)
+    try:
+        await sync_mod.refresh_taxonomy_if_stale(db)
+    except Exception as e:
+        log.warning("taxonomy refresh failed: %s", e)
 
     q = {"level": level}
     if level >= 2:

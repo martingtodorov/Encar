@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { HeaderBar } from "@/components/HeaderBar";
@@ -267,35 +266,10 @@ export default function CarDetailPage() {
                 {car.spec?.vin && <Row label={t("vin")} value={car.spec.vin} />}
               </Panel>
 
-              {/* enquiry: the primary call to action, above the price detail */}
+              {/* enquiry: the primary call to action */}
               <div className="mb-5">
                 <EnquiryDialog car={car} title={car.title} />
               </div>
-
-              {/* landed price breakdown */}
-              <Panel
-                title={t("priceBreakdown")}
-                icon={FileCheck2}
-                testId="detail-price-breakdown"
-                tone="success"
-              >
-                {q ? (
-                  <>
-                    <Row label={t("encarPrice")} value={money(q.encar_eur)} />
-                    <Row label={t("exportFee")} value={money(q.autowini_fee_eur)} />
-                    <Row label={t("customsDuty")} value={money(q.duty)} />
-                    {q.vat > 0 && <Row label={t("vat")} value={money(q.vat)} />}
-                    <Row label={t("domestic")} value={money(q.domestic_total)} />
-                    <Separator className="my-1.5" />
-                    <Row label={t("finalPrice")} value={money(q.suggested_sale)} strong />
-                    <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-                      {t("trust1Body")}
-                    </p>
-                  </>
-                ) : (
-                  <p className="py-2 text-[13px] text-muted-foreground">{t("docNotAvailable")}</p>
-                )}
-              </Panel>
 
               {/* insurance history */}
               <Panel

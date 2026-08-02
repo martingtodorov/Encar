@@ -146,6 +146,45 @@ async def _gemini_call(chunk, lang):
     return "".join(p["text"] for p in parts if isinstance(p.get("text"), str))
 
 
+_ANTHROPIC = None
+
+
+def _anthropic_client():
+    global _ANTHROPIC
+    if _ANTHROPIC is None:
+        from anthropic import AsyncAnthropic
+        # max_retries=0: this module owns the retry/backoff policy (see _llm_translate),
+        # so letting the SDK also retry would double every wait.
+        _ANTHROPIC = AsyncAnthropic(api_key=os.environ["ANTHROPIC_API_KEY"],
+                                    max_retries=0, timeout=180.0)
+    return _ANTHROPIC
+
+
+async def _anthropic_call(chunk, lang):
+    """Primary translator: Anthropic Claude with the project's own API key."""
+    import anthropic
+
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
+    try:
+        resp = await _anthropic_client().messages.create(
+            model=model,
+            max_tokens=8000,
+            system=SYSTEM.format(lang=LANGS[lang]),
+            messages=[{"role": "user", "content": _user_prompt(chunk, lang)}],
+        )
+    except anthropic.RateLimitError as e:
+        # Anthropic tells us exactly how long to wait; respect it instead of guessing.
+        wait = 25.0
+        r = getattr(e, "response", None)
+        try:
+            if r is not None:
+                wait = max(wait, float(r.headers.get("retry-after")) + 2)
+        except (TypeError, ValueError):
+            pass
+        raise RuntimeError(f"{RATE_LIMIT_PREFIX}:{wait:.0f}: anthropic 429")
+    return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+
+
 async def _emergent_call(chunk, lang):
     """Fallback: Emergent universal key via the emergentintegrations wrapper."""
     from emergentintegrations.llm.chat import LlmChat, UserMessage
@@ -161,15 +200,18 @@ async def _emergent_call(chunk, lang):
 async def _llm_translate(chunk, lang):
     """Translate a list of strings in one call. Returns {source: translation}.
 
-    Prefers the project's own Gemini API key when present, because the shared
-    Emergent universal key is subject to a small shared budget.
+    Provider order: the project's own Anthropic key first (paid, generous limits),
+    then Gemini, then the shared Emergent universal key (small shared budget).
     """
-    if os.environ.get("GEMINI_API_KEY"):
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        call, provider = _anthropic_call, "anthropic"
+    elif os.environ.get("GEMINI_API_KEY"):
         call, provider = _gemini_call, "gemini"
     elif os.environ.get("EMERGENT_LLM_KEY"):
         call, provider = _emergent_call, "emergent"
     else:
-        log.error("no translation API key configured (GEMINI_API_KEY/EMERGENT_LLM_KEY)")
+        log.error("no translation API key configured "
+                  "(ANTHROPIC_API_KEY/GEMINI_API_KEY/EMERGENT_LLM_KEY)")
         return {}
 
     # Circuit breaker: make/model/spec translation is SYNCHRONOUS on a cache miss, so a
@@ -385,8 +427,7 @@ async def warm_translations(db, langs=None, per_field=600):
     langs = langs or list(LANGS)
     stats = {}
     for field, limit in (("manufacturer", 0), ("model", 0),
-                         ("badge", max(per_field * 8, 4000)),
-                         ("badge_detail", max(per_field * 8, 4000)),
+                         ("badge", 0), ("badge_detail", 0),
                          ("fuel_type", 60), ("region", 60)):
         pipe = [
             {"$match": {"active": True, field: {"$nin": [None, ""]}}},

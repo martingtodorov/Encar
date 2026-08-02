@@ -49,7 +49,7 @@ export const Hero = ({ totalUpstream, onStart }) => {
             </Button>
             {totalUpstream ? (
               <span data-testid="hero-catalogue-size" className="tnum text-sm text-muted-foreground">
-                {formatNumber(totalUpstream, lang)} {t("indexNote", { total: "" }).trim()}
+                {t("indexNote", { total: formatNumber(totalUpstream, lang) })}
               </span>
             ) : null}
           </div>
