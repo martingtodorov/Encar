@@ -15,6 +15,7 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
+import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -864,6 +865,46 @@ class TranslateBody(BaseModel):
 @api.post("/translate")
 async def translate_endpoint(body: TranslateBody):
     return await translate_many(db, body.texts[:400], norm_lang(body.lang))
+
+
+class EnquiryBody(BaseModel):
+    listing_id: str = ""
+    car_title: str = ""
+    name: str = ""
+    email: str = ""
+    phone: str = ""
+    message: str = ""
+    lang: str = "bg"
+
+
+@api.post("/enquiry")
+async def create_enquiry(body: EnquiryBody, request: Request):
+    """Buyer enquiry about one car. Works for GUESTS as well as signed-in users - the
+    account only pre-fills the contact details, it is never required to make contact."""
+    user = await auth.optional_user(request)
+    email = (body.email or (user or {}).get("email") or "").strip().lower()
+    phone = body.phone.strip()
+    if not email and not phone:
+        raise HTTPException(400, "please leave an email address or a phone number")
+
+    doc = {
+        "_id": str(uuid.uuid4()),
+        "listing_id": body.listing_id,
+        "car_title": body.car_title[:200],
+        "name": (body.name or (user or {}).get("name") or "").strip()[:120],
+        "email": email[:200],
+        "phone": phone[:60],
+        "message": body.message.strip()[:4000],
+        "lang": norm_lang(body.lang),
+        "user_id": (user or {}).get("_id"),
+        "is_guest": user is None,
+        "status": "new",
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.enquiries.insert_one(doc)
+    log.info("enquiry %s for listing %s (guest=%s)", doc["_id"], doc["listing_id"],
+             doc["is_guest"])
+    return {"ok": True, "id": doc["_id"]}
 
 
 auth.set_db(db)

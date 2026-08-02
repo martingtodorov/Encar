@@ -362,6 +362,128 @@ def main():
     tester.test("Meta filters endpoint returns facets", test_meta_filters)
 
     # ─────────────────────────────────────────────────────────────────────────
+    # TEST 9: Enquiry endpoint - guest with email
+    # ─────────────────────────────────────────────────────────────────────────
+    def test_enquiry_guest_with_email():
+        """Test that a guest can submit an enquiry with just an email."""
+        resp = requests.post(f"{BASE_URL}/enquiry", json={
+            "listing_id": "test-listing-123",
+            "car_title": "Test Car 2020",
+            "name": "Test Guest",
+            "email": "guest@example.com",
+            "phone": "",
+            "message": "I'm interested in this car",
+            "lang": "en"
+        }, timeout=10)
+        
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        data = resp.json()
+        
+        print(f"   Response: {data}")
+        assert data.get('ok') is True, "Expected ok=True"
+        assert 'id' in data, "Missing enquiry id in response"
+        print(f"   ✓ Enquiry created with id: {data.get('id')}")
+
+    tester.test("Guest enquiry with email succeeds", test_enquiry_guest_with_email)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # TEST 10: Enquiry endpoint - guest with phone only
+    # ─────────────────────────────────────────────────────────────────────────
+    def test_enquiry_guest_with_phone_only():
+        """Test that a guest can submit an enquiry with just a phone number."""
+        resp = requests.post(f"{BASE_URL}/enquiry", json={
+            "listing_id": "test-listing-456",
+            "car_title": "Test Car 2021",
+            "name": "Test Guest Phone",
+            "email": "",
+            "phone": "+359888123456",
+            "message": "Please call me about this car",
+            "lang": "bg"
+        }, timeout=10)
+        
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        data = resp.json()
+        
+        print(f"   Response: {data}")
+        assert data.get('ok') is True, "Expected ok=True"
+        assert 'id' in data, "Missing enquiry id in response"
+        print(f"   ✓ Enquiry with phone only created with id: {data.get('id')}")
+
+    tester.test("Guest enquiry with phone only succeeds", test_enquiry_guest_with_phone_only)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # TEST 11: Enquiry endpoint - validation (no email and no phone)
+    # ─────────────────────────────────────────────────────────────────────────
+    def test_enquiry_validation_no_contact():
+        """Test that enquiry without email or phone returns 400."""
+        resp = requests.post(f"{BASE_URL}/enquiry", json={
+            "listing_id": "test-listing-789",
+            "car_title": "Test Car 2022",
+            "name": "Test No Contact",
+            "email": "",
+            "phone": "",
+            "message": "I want to buy this car",
+            "lang": "en"
+        }, timeout=10)
+        
+        print(f"   Status code: {resp.status_code}")
+        assert resp.status_code == 400, f"Expected 400, got {resp.status_code}"
+        
+        data = resp.json()
+        print(f"   Error response: {data}")
+        
+        detail = data.get('detail', '').lower()
+        assert 'email' in detail or 'phone' in detail, \
+            f"Error message should mention email or phone: {detail}"
+        print(f"   ✓ Validation error returned: {data.get('detail')}")
+
+    tester.test("Enquiry validation rejects empty email and phone", test_enquiry_validation_no_contact)
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # TEST 12: Enquiry endpoint - signed-in user
+    # ─────────────────────────────────────────────────────────────────────────
+    def test_enquiry_signed_in_user():
+        """Test that a signed-in user can submit an enquiry."""
+        # First, login with existing account
+        login_resp = requests.post(f"{BASE_URL}/auth/login", json={
+            "email": "owner@example.com",
+            "password": "hunter2pass"
+        }, timeout=10)
+        
+        if login_resp.status_code != 200:
+            print(f"   ⚠️  Login failed with {login_resp.status_code}, skipping signed-in test")
+            return
+        
+        # Extract session cookie
+        session_cookie = login_resp.cookies.get('encar_session')
+        if not session_cookie:
+            print(f"   ⚠️  No session cookie returned, skipping signed-in test")
+            return
+        
+        print(f"   ✓ Logged in as owner@example.com")
+        
+        # Submit enquiry with session cookie
+        resp = requests.post(f"{BASE_URL}/enquiry", json={
+            "listing_id": "test-listing-signed",
+            "car_title": "Test Car Signed In",
+            "name": "",  # Should use user's name
+            "email": "",  # Should use user's email
+            "phone": "+359888999888",
+            "message": "I'm a signed-in user interested in this car",
+            "lang": "en"
+        }, cookies={'encar_session': session_cookie}, timeout=10)
+        
+        assert resp.status_code == 200, f"Expected 200, got {resp.status_code}"
+        data = resp.json()
+        
+        print(f"   Response: {data}")
+        assert data.get('ok') is True, "Expected ok=True"
+        assert 'id' in data, "Missing enquiry id in response"
+        print(f"   ✓ Signed-in user enquiry created with id: {data.get('id')}")
+
+    tester.test("Signed-in user enquiry succeeds", test_enquiry_signed_in_user)
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Print summary and exit
     # ─────────────────────────────────────────────────────────────────────────
     return tester.summary()

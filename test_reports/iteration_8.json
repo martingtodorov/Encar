@@ -1,0 +1,63 @@
+{
+  "summary": "Completed comprehensive testing of the new enquiry feature and regression testing. All enquiry flows work correctly: guest enquiries with email, phone-only enquiries, validation, and signed-in user enquiries with pre-filled email. Language switching to Bulgarian confirmed. All detail page sections present. Back button and search functionality working.",
+  
+  "backend_issues": {
+    "critical_bugs": [],
+    "flaky_endpoints": []
+  },
+  
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "component": "Language switcher",
+        "issue": "Romanian language option (RO) is present in menu but clicking it does not switch the language to Romanian. After clicking RO, the page remains in Bulgarian.",
+        "affected_selectors": ["text=RO"],
+        "fix_priority": "MEDIUM",
+        "note": "BG and EN language switching works correctly. Only RO has this issue."
+      }
+    ]
+  },
+  
+  "passed_tests": [
+    "Backend: POST /api/enquiry - guest with email (200 OK)",
+    "Backend: POST /api/enquiry - guest with phone only (200 OK)",
+    "Backend: POST /api/enquiry - validation rejects empty email and phone (400)",
+    "Backend: POST /api/enquiry - signed-in user (200 OK)",
+    "Backend: Enquiries stored in MongoDB with correct is_guest flag",
+    "Frontend: Enquiry dialog opens with all form fields present",
+    "Frontend: Validation prevents submission with empty email and phone",
+    "Frontend: Guest enquiry with email succeeds",
+    "Frontend: Guest enquiry with phone only succeeds",
+    "Frontend: Signed-in user enquiry - email pre-filled correctly with 'owner@example.com'",
+    "Frontend: Signed-in user enquiry submission succeeds",
+    "Frontend: Language switching to Bulgarian works - button shows 'Прати запитване'",
+    "Frontend: Car detail page shows all sections (photos, specs, price breakdown, insurance, inspection)",
+    "Frontend: Back button returns to search results",
+    "Backend: All previous API tests still passing (health, search, filters, car detail, insurance EUR conversion)"
+  ],
+  
+  "test_report_links": [
+    "/app/backend/backend_test.py",
+    "/app/.screenshots/enquiry-dialog.png",
+    "/app/.screenshots/enquiry-prefilled.png",
+    "/app/.screenshots/bulgarian-language.png"
+  ],
+  
+  "action_item_for_main_agent": "Fix Romanian language switching: The RO language option is visible in the menu but clicking it does not change the language from Bulgarian to Romanian. The enquiry button should show 'Trimite o solicitare' when RO is selected, but it remains as 'Прати запитване' (Bulgarian).",
+  
+  "updated_files": [
+    "/app/backend/backend_test.py"
+  ],
+  
+  "success_percentage": {
+    "backend": "100% (12/12 tests passed)",
+    "frontend_enquiry": "100% (8/8 core enquiry tests passed)",
+    "frontend_language": "67% (2/3 languages working - BG and EN work, RO does not switch)",
+    "frontend_regression": "100% (detail page sections, back button, search all working)"
+  },
+  
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_test_itself": true
+}

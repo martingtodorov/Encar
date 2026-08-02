@@ -19,6 +19,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { HeaderBar } from "@/components/HeaderBar";
 import { ImageWithFallback } from "@/components/ImageWithFallback";
 import { useApp } from "@/context/AppContext";
+import { EnquiryDialog } from "@/components/EnquiryDialog";
 import { getCar } from "@/lib/api";
 import { formatMileage, formatMoney, formatNumber, formatYearMonth } from "@/lib/format";
 
@@ -265,6 +266,11 @@ export default function CarDetailPage() {
                 {car.spec?.seats ? <Row label={t("seats")} value={car.spec.seats} /> : null}
                 {car.spec?.vin && <Row label={t("vin")} value={car.spec.vin} />}
               </Panel>
+
+              {/* enquiry: the primary call to action, above the price detail */}
+              <div className="mb-5">
+                <EnquiryDialog car={car} title={car.title} />
+              </div>
 
               {/* landed price breakdown */}
               <Panel
