@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { HeaderBar } from "@/components/HeaderBar";
 import { ImageWithFallback } from "@/components/ImageWithFallback";
 import { PhotoSwiper } from "@/components/PhotoSwiper";
@@ -262,7 +262,7 @@ export default function CarDetailPage() {
                   <div className="thin-scroll mt-2 flex gap-2 overflow-x-auto pb-2">
                     {photos.map((p, i) => (
                       <button
-                        key={p.thumb || i}
+                        key={i}
                         type="button"
                         data-testid="detail-photo-thumb"
                         onClick={() => setActive(i)}
@@ -558,9 +558,13 @@ export default function CarDetailPage() {
           data-testid="detail-lightbox"
           className="max-h-[92vh] max-w-4xl overflow-y-auto border-border bg-black p-0"
         >
+          <DialogTitle className="sr-only">{car?.title || t("allPhotos")}</DialogTitle>
+          <DialogDescription className="sr-only">
+            {t("allPhotos")} — {photos.length}
+          </DialogDescription>
           <div className="flex flex-col gap-1.5 bg-black py-1.5">
             {photos.map((p, i) => (
-              <div key={p.full || i} className="aspect-[4/3] w-full bg-black">
+              <div key={i} className="aspect-[4/3] w-full bg-black">
                 <ImageWithFallback
                   src={p.full}
                   alt={car?.title || ""}

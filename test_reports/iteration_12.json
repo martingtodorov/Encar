@@ -1,0 +1,52 @@
+{
+  "summary": "Iteration 12 verified the FX 0.4681% exchange-buffer (HAIRCUT=0.995319). Backend math is correct end-to-end for /api/fx and /api/car/{id}: market 1653.5453, published 1645.8049, arithmetic exact. Reference car 41995353 matches expected chain exactly (encar_eur 32,142.33 -> car_eur 34,661.02 -> customs_base 6,238.98 -> duty 623.90 -> vat 1,372.58 -> landed 38,257.49 -> suggested_sale €38,799). Manual override end-to-end via PUT /api/settings works: setting fx_overrides.fx_krw_eur=1700 -> /api/fx returns fx_krw_eur exactly 1700 and fx_haircut 1.0; clearing it -> rate returns to market*HAIRCUT. Regressions (dup-key warning, Radix DialogTitle/Description) are GONE - console clean on /car/41995353 with the lightbox open, 26 imgs stacked vertically. CRITICAL BUG FOUND: list-row prices do NOT match detail-page prices — every row is exactly €100 (one charm bucket) below the detail price because the listings DB was last repriced with the un-buffered market rate. All 3 sampled cars mismatch: 42318384 list €15,099 vs detail €15,199; 42212840 €15,699 vs €15,799; 42147316 €20,699 vs €20,799. GET /api/settings shows last_repriced_at:null and last_repriced_count:null.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/search vs GET /api/car/{id}", "issue": "sale_eur in list rows is priced from the un-buffered market rate; suggested_sale in the detail quote is priced from the buffered rate (market * 0.995319). Delta is ~€45 landed which shifts the charm-rounded sale by exactly one €100 bucket for all 3 sampled cars. The listings collection needs a full reprice against the current buffered rate. Root cause: sync/reprice_all was never run after HAIRCUT was introduced (last_repriced_at is null). Fix: run sync_mod.reprice_all once (or PUT /api/settings with reprice:true and the current constants) so every listing row is re-persisted with the buffered fx_krw_eur.", "priority": "CRITICAL"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Home grid rows vs Car detail page", "issue": "UI mirrors the backend inconsistency: [data-testid=car-row-price] shows €15,099 but the same car's [data-testid=detail-price] shows €15,199. This is the customer-facing symptom of the reprice-not-run bug above; a buyer will see a jumping price when they click a card.", "selector": "[data-testid=car-row-price] vs [data-testid=detail-price]", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verification_details": {
+    "FX_ARITHMETIC": "GET /api/fx -> fx_krw_eur_market 1653.5451, fx_haircut 0.995319, fx_krw_eur 1645.8049. |published - market*HAIRCUT| < 0.01. PASS.",
+    "FX_ENDPOINT_FIELDS": "Response contains fx_krw_eur_market, fx_krw_eur, fx_haircut, usd_eur, eur_ron, eur_bgn, manual_overrides, fetched_at, source. PASS.",
+    "SETTINGS_CONSTANTS": "GET /api/settings.constants: IMPORT_DUTY_RATE 0.1, VAT_RATE 0.2, CUSTOMS_BASE_FRACTION 0.18, AUTOWINI_FEE_USD 2900, DOMESTIC_TOTAL 1600, MARGIN_PCT 0.014, MARGIN_MIN_EUR 500. All exact. PASS.",
+    "CAR_41995353_QUOTE": "quote.fx_krw_eur 1645.8049 (buffered, not 1653.5451). encar_eur 32142.33 = 52,900,000/1645.8049. car_eur 34661.02 = encar_eur + 2900*usd_eur. customs_base 6238.98 = car_eur*0.18. duty 623.90 = 6238.98*0.10. vat 1372.58 = (6238.98+623.90)*0.20. landed 38257.49 = car_eur + duty + vat + 1600. suggested_sale 38799 = charm-up(landed + max(landed*0.014, 500)). Every line matches the spec. PASS.",
+    "PRICE_CONSISTENCY_LIST_VS_DETAIL": "3/3 sampled cars MISMATCH by exactly €100. FAIL — see critical bug above.",
+    "MANUAL_OVERRIDE_PATH": "PUT /api/settings with x-admin-token=encar-admin and fx_overrides.fx_krw_eur=1700 (reprice:false to keep the test cheap) -> GET /api/fx?refresh=1 returns fx_krw_eur=1700.0 exactly, fx_haircut=1.0, manual_overrides:['fx_krw_eur']. Clearing the override -> fx_haircut back to 0.995319 and fx_krw_eur=market*0.995319. PASS.",
+    "REGRESSION_DUP_KEY": "https://<preview>/car/41995353 console after load + after opening [data-testid=detail-lightbox]: 0 'Encountered two children with the same key' warnings. PASS.",
+    "REGRESSION_RADIX_A11Y": "0 DialogTitle/Description/aria-describedby warnings. Lightbox opens with 26 imgs, Escape closes. PASS.",
+    "DETAIL_PAGE_RENDERS": "/car/41995353 renders [data-testid=detail-price] €38,799, main photo swiper, 26-image vertical lightbox, no console errors. PASS."
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fx_haircut.py",
+    "/app/test_reports/pytest/iter12_fx.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Reprice the entire listings catalogue against the current buffered fx_krw_eur so search rows stop being €100 below detail prices. One line for the operator: `curl -X PUT -H 'x-admin-token: encar-admin' -H 'content-type: application/json' -d '{\"constants\":{},\"fx_overrides\":{},\"reprice\":true}' <BASE>/api/settings` (or call sync_mod.reprice_all(db) directly). Verify by re-running backend/tests/test_fx_haircut.py::test_list_vs_detail_price_match — it should go green with no code changes.",
+    "OPTIONAL: Wire the FX bundle refresh path so that whenever a fresh live fetch changes fx_krw_eur by more than a small threshold, reprice_all runs automatically — otherwise this drift will re-appear the next time the KRW rate moves and the listings will lag detail again."
+  ],
+  "critical_code_review_comments": [
+    "fx.py _apply_haircut correctly guards against double-discounting when a manual override is present (verified end-to-end).",
+    "fx.py stores the raw live rate in Mongo and applies the haircut in-memory on every read — good: the audit trail keeps the market rate, and changing HAIRCUT does not require re-fetching.",
+    "sync.py reprice_all uses rates['fx_krw_eur'] which is the buffered value, so a single reprice pass will fix the current mismatch. The bug is purely that this reprice hasn't been triggered since the haircut shipped (last_repriced_at is null).",
+    "pricing.charm() rounds UP as spec requires, which is why the mismatch shows up as an exact €100 delta (adjacent charm buckets) rather than a €45 landed-cost delta."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_fx_haircut.py",
+    "/app/test_reports/iteration_12.json"
+  ],
+  "success_rate": {"backend": "80% (4/5 tests pass; the failing one is the reported P0 bug)", "frontend": "95% (regressions fixed; only the price-mismatch UI symptom fails)"},
+  "test_credentials": "Admin header token `x-admin-token: encar-admin` — verified working against PUT /api/settings. Did not need admin@encarskin.com login for this iteration.",
+  "seed_data_creation": "None persistent. During the manual-override test I set fx_overrides.fx_krw_eur=1700 and cleared it back to {} in the finally block — verified via a follow-up GET /api/fx that the override is gone. reprice:false on both writes so no catalogue side-effects.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "The single failing test test_list_vs_detail_price_match is the whole point of this iteration and will go green as soon as the operator triggers a full reprice — no code change needed. After the reprice, re-run: `python -m pytest /app/backend/tests/test_fx_haircut.py -v -o addopts=''`. All 5 tests must pass. The test uses REACT_APP_BACKEND_URL read from /app/frontend/.env (do NOT rely on the env var being exported in the shell — pytest doesn't inherit it here). Admin PUT /api/settings pattern: `{\"constants\":{...}, \"fx_overrides\":{\"fx_krw_eur\":1700}, \"reprice\":false}` with header `x-admin-token: encar-admin`. Reference car 41995353 (BMW M2, 52,900,000 KRW) is a good fixture — its full landed chain is asserted line-by-line in test_car_quote_uses_buffered_rate.",
+  "rca of the issue": "RCA — list vs detail price mismatch: (1) fx.get_rates now returns a buffered fx_krw_eur (market * 0.995319) via _apply_haircut, correctly. (2) server.py GET /api/car/{id} uses this buffered rate at request time, so detail prices reflect the buffer. (3) But listings rows carry a precomputed sale_eur that was stored by sync_mod when the previous rate bundle did NOT include the haircut. GET /api/settings confirms last_repriced_at is null — reprice_all has never run against the buffered rate. Result: every row is priced from ~1653.5 KRW/EUR instead of ~1645.8, giving a landed cost ~€45 lower, which crosses one charm bucket and shows up as an exact €100 lower sale. Reproduction: POST /api/search, take any item, compare sale_eur to GET /api/car/{id}.quote.suggested_sale — 3/3 mismatch by €100. Mitigation: one-off `PUT /api/settings` with reprice:true (or `await sync_mod.reprice_all(db)`), then verify pytest goes green. Long-term: hook reprice_all into fx.get_rates whenever the fetched rate diverges from doc['fx_krw_eur'] by more than a configurable epsilon."
+}

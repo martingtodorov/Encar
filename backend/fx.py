@@ -5,9 +5,18 @@ usd_eur    = EUR per 1 USD (multiplies the USD fees)
 eur_bgn    = fixed by the Bulgarian currency board peg
 eur_ron    = live
 
-Live from open.er-api.com (free, no key). Cached in Mongo with a TTL and
-overridable by hand from the admin panel, because the user's spec pulls these
-from a Google Sheet in production.
+A 0.4681% haircut is held back on EUR/KRW as an exchange buffer (see HAIRCUT).
+
+On the source: Google Finance was tried and rejected. It has no API, and its quote page
+carries no stable hook for the rate - no data-last-price, no data-source/data-target, no
+aria-label. The only marker available (jsname="Pdsbrc") repeats for ~40 unrelated
+currency pairs on the same page, so picking a match by position returned 1,070.98 for
+EUR/KRW instead of ~1,650: a 54% mis-price across the whole catalogue, from a page that
+can be reordered by Google at any time without notice. Rates are taken from a feed with
+an actual contract instead, and the market-vs-published rate is kept side by side on
+every quote so the buffer is always auditable.
+
+Cached in Mongo with a TTL and overridable by hand from the admin panel.
 """
 
 import logging
@@ -19,6 +28,11 @@ log = logging.getLogger("fx")
 
 TTL_SECONDS = 6 * 3600
 EUR_BGN_PEG = 1.95583  # Bulgarian lev is pegged to the euro
+
+# We buy KRW at a worse rate than the mid-market quote, so part of the rate is held back
+# as a buffer. A LOWER KRW-per-EUR means each car costs slightly more euros, which is
+# what protects the margin when the rate moves between quoting and paying.
+HAIRCUT = 0.995319
 
 FALLBACK = {"fx_krw_eur": 1664.0, "usd_eur": 0.867, "eur_ron": 4.977, "eur_bgn": EUR_BGN_PEG}
 
@@ -56,6 +70,22 @@ def _apply_overrides(rates, overrides):
     return rates
 
 
+def _apply_haircut(rates):
+    """Publish the buffered rate, keeping the market rate alongside for auditing.
+
+    Skipped when the rate was set by hand: a manual override is already the rate the
+    operator wants used, and quietly shaving another 1% off it would be surprising.
+    """
+    market = rates.get("fx_krw_eur")
+    rates["fx_krw_eur_market"] = market
+    if market and "fx_krw_eur" not in (rates.get("manual_overrides") or []):
+        rates["fx_krw_eur"] = market * HAIRCUT
+        rates["fx_haircut"] = HAIRCUT
+    else:
+        rates["fx_haircut"] = 1.0
+    return rates
+
+
 async def get_rates(db, force=False):
     """Returns the rate bundle, refreshing from the live feed when stale."""
     now = datetime.now(timezone.utc)
@@ -71,7 +101,7 @@ async def get_rates(db, force=False):
     if fresh:
         rates = {k: doc[k] for k in ("fx_krw_eur", "usd_eur", "eur_ron") if k in doc}
         rates.setdefault("eur_ron", FALLBACK["eur_ron"])
-        out = _apply_overrides(rates, overrides)
+        out = _apply_haircut(_apply_overrides(rates, overrides))
         out["fetched_at"] = doc["fetched_at"]
         out["source"] = doc.get("source", "cache")
         return out
@@ -102,7 +132,7 @@ async def get_rates(db, force=False):
         upsert=True,
     )
 
-    out = _apply_overrides(base, overrides)
+    out = _apply_haircut(_apply_overrides(base, overrides))
     out["fetched_at"] = now
     out["source"] = source
     return out
