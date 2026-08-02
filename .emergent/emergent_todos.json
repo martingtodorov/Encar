@@ -1,34 +1,50 @@
 [
   {
-    "content": "Switch translation layer to user's direct Gemini API key (gemini-2.5-flash) and run full warm-up for BG/RO/EN",
-    "status": "in_progress"
+    "content": "Switch translation layer to user's direct Gemini API key (gemini-2.5-flash)",
+    "status": "completed"
   },
   {
-    "content": "Auth backend: users/sessions/credentials collections, argon2 password hashing (min 8), httpOnly session cookie, /api/auth/* routes",
+    "content": "Auth backend: users/sessions/credentials, Argon2id passwords (min 8), HttpOnly session cookie, /api/auth/* routes",
+    "status": "completed"
+  },
+  {
+    "content": "Passkeys: one-tap discoverable registration + authentication, RP ID derived from request host",
+    "status": "completed"
+  },
+  {
+    "content": "Login/Register page + Account page + auth context",
+    "status": "completed"
+  },
+  {
+    "content": "Gate admin settings behind admin login; favourites synced/merged to the account",
+    "status": "completed"
+  },
+  {
+    "content": "Mobile header: hamburger right; drawer slides down from top; login/register (or email+logout) at bottom",
+    "status": "completed"
+  },
+  {
+    "content": "Compact language/currency toggles; BGN removed; body-type row removed; chassis-condition label",
+    "status": "completed"
+  },
+  {
+    "content": "Fix Back button losing all filters (search state now mirrored in the URL)",
+    "status": "completed"
+  },
+  {
+    "content": "Fix search hanging: rate-limit waits no longer block web requests (only the offline warm-up is patient)",
+    "status": "completed"
+  },
+  {
+    "content": "Full translation warm-up - BLOCKED: Gemini key is heavily rate limited, only ~2,985 of ~8,600 phrases cached",
     "status": "pending"
   },
   {
-    "content": "Passkeys: discoverable (one-tap, no email) registration + authentication ceremonies with RP ID derived from origin",
+    "content": "Send enquiry (Прати запитване) on car detail page with guest + logged-in options - NOT STARTED",
     "status": "pending"
   },
   {
-    "content": "Login/Register page UI with password + passkey, and auth context in frontend",
-    "status": "pending"
-  },
-  {
-    "content": "Gate admin settings page behind login; sync favourites to the account",
-    "status": "pending"
-  },
-  {
-    "content": "Mobile header: hamburger to the right; drawer slides down from top; login/register or email+logout at bottom",
-    "status": "pending"
-  },
-  {
-    "content": "Send enquiry (Прати запитване) on car detail page with guest + logged-in options",
-    "status": "pending"
-  },
-  {
-    "content": "Track my vehicle (Maersk container tracking + MarineTraffic vessel) - needs API credentials from user",
+    "content": "Track my vehicle (Maersk + MarineTraffic) - NOT STARTED, needs API credentials from user",
     "status": "pending"
   }
 ]
