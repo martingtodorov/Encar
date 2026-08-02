@@ -47,6 +47,23 @@ from the photo path's underlying vehicleId and shows no false collisions. There 
 crawl gap.
 
 ## Implemented
+- 2026-06: **Four detail-page / search fixes** (all verified by the testing agent,
+  `/app/test_reports/iteration_9.json`, 100% pass):
+  1. *Back to results lost every filter.* `CarDetailPage` had a hardcoded
+     `<Link to="/">`, so the in-page back button dropped the whole query string and the
+     remounted search page wrote its own `?sort=newest`. `openCar` in `SearchPage` now
+     passes the live search string in navigation state (`{ state: { from } }`) and the
+     detail page's `goBack()` uses it, falling back to `navigate(-1)` and then `/` for
+     cold/shared links. `SavedCarsPage` switched from `window.location.href` to
+     `navigate` so Back works from there too. Browser Back already worked (URL-bound
+     state) and was regression-checked.
+  2. *Raw enum codes in the diagnosis panel.* New `_panel_label()` in `server.py`
+     turns `FRONT_DOOR_LEFT` into `Front door left` (underscores out, first letter only).
+  3. *Save button placement.* Moved from the bottom of the detail page to inline with
+     the price, on the right-hand side and to the RIGHT of the price.
+  4. *Auto-sort rules.* Now: nothing or make-only selected → `newest`; model or
+     trim/submodel selected → `price_asc`. A manually chosen sort is never overridden
+     (`sortTouched`), and `resetAll` clears that flag.
 - 2026-06: **Lease and rental vehicles excluded entirely.** Lease (리스) was already
   dropped by the partitioned crawler, but rental (렌트) was not, and the legacy
   sequential sync filtered neither — 2,404 rental cars were live in search. Added
@@ -94,8 +111,18 @@ badge/badge_detail × 3 languages, running in the background with zero 429s.
 - Track my vehicle (Maersk container + MarineTraffic vessel) — BLOCKED on API keys
 - Optional hero/footer line explaining ads vs unique cars
 
+### P0 — next up (requested, NOT started)
+- **Admin sync dashboard** — live crawl progress, total count, coverage per brand.
+  Groundwork already established this turn: Encar's search API accepts a
+  `SellType.일반.` facet, so an exact per-brand exportable upstream count is one cheap
+  request per make (~62 requests, needs a cached `sync_state.brand_coverage` doc plus a
+  background refresh job). Admin auth already exists via `_require_admin` (admin session
+  or `x-admin-token` header, `ADMIN_TOKEN` env, default `encar-admin`).
+- **Admin enquiry inbox** — list every `enquiries` doc with car title, listing id,
+  contact details, message, language, guest/user flag and status (`new` by default).
+  Needs `GET /api/admin/enquiries` (+ status PATCH) and an `/admin` route with a
+  NavDrawer entry shown only when `user.is_admin`.
+
 ### P2
-- Admin sync dashboard (live crawl progress, coverage per brand)
-- Admin enquiry dashboard
 - Price-drop email alerts for saved cars
 - Row comparison tool on the desktop list view
