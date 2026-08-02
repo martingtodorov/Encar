@@ -13,7 +13,7 @@ import { SortControl, DEFAULT_SORT_BROWSE, DEFAULT_SORT_FILTERED } from "@/compo
 import { CarGrid } from "@/components/CarGrid";
 import { ResultsPagination } from "@/components/ResultsPagination";
 import { useApp } from "@/context/AppContext";
-import { getFilters, getHealth, searchCars } from "@/lib/api";
+import { getCatalogueSize, getFilters, searchCars } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { useScrollDirection } from "@/hooks/useScrollDirection";
 
@@ -124,8 +124,8 @@ export default function SearchPage() {
   }, [lang]);
 
   useEffect(() => {
-    getHealth()
-      .then((h) => setCatalogueSize(h?.sync?.listings_upstream || h?.unique_cars || null))
+    getCatalogueSize()
+      .then((d) => setCatalogueSize(d?.upstream || d?.unique_cars || null))
       .catch(() => {});
   }, []);
 

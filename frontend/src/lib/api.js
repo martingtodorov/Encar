@@ -34,6 +34,11 @@ export async function getFx() {
   return data;
 }
 
+export async function getCatalogueSize() {
+  const { data } = await http.get("/catalogue/size");
+  return data;
+}
+
 export async function getHealth() {
   const { data } = await http.get("/health");
   return data;

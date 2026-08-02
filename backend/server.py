@@ -244,6 +244,50 @@ async def option_dicts_cached(ttl=86400):
     return data
 
 
+_SIZE_MEM = {"at": 0.0, "count": 0}
+
+
+async def upstream_size_cached(ttl=900):
+    """Live number of ads currently listed on Encar.
+
+    One cheap upstream request (count-only search, limit=1), cached in memory and in
+    Mongo, so the hero figure tracks Encar in near-real-time instead of freezing at
+    whatever the last full catalogue crawl happened to see.
+    """
+    now = datetime.now(timezone.utc).timestamp()
+    if _SIZE_MEM["count"] and now - _SIZE_MEM["at"] < ttl:
+        return _SIZE_MEM["count"]
+
+    doc = await db.settings.find_one({"_id": "upstream_size"})
+    if doc and (now - doc.get("at", 0)) < ttl:
+        _SIZE_MEM.update(at=doc["at"], count=doc["count"])
+        return doc["count"]
+
+    try:
+        n = int(await encar.count() or 0)
+    except Exception as e:
+        log.warning("live upstream count failed: %s", str(e)[:160])
+        n = 0
+    if n:
+        await db.settings.update_one({"_id": "upstream_size"},
+                                     {"$set": {"count": n, "at": now}}, upsert=True)
+        _SIZE_MEM.update(at=now, count=n)
+        return n
+    # upstream hiccup: prefer the last known figure over showing nothing
+    return (doc or {}).get("count") or _SIZE_MEM["count"] or 0
+
+
+@api.get("/catalogue/size")
+async def catalogue_size():
+    """Powers the hero counter. `upstream` = ads live on Encar right now,
+    `unique_cars` = distinct physical cars we show after hiding re-registered ads."""
+    return {
+        "upstream": await upstream_size_cached(),
+        "unique_cars": await db.listings.count_documents(
+            {"active": True, "duplicate": {"$ne": True}}),
+    }
+
+
 @api.get("/health")
 async def health():
     state = await sync_mod.get_state(db)
