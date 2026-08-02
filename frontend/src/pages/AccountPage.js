@@ -7,12 +7,15 @@ import { HeaderBar } from "@/components/HeaderBar";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
+import { useSeo } from "@/lib/seo";
 import http from "@/lib/api";
 
 export default function AccountPage() {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const { user, loading, logout, addPasskey, passkeySupported, errorMessage } = useAuth();
   const { go } = useLangNav();
+
+  useSeo({ lang, title: `${t("myAccount")} \u00b7 Encar` });
 
   const [passkeys, setPasskeys] = useState([]);
   const [busy, setBusy] = useState(false);

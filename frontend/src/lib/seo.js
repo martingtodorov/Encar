@@ -48,11 +48,13 @@ function link(rel, hreflang, href) {
   el.setAttribute("href", href);
 }
 
-/** Strip the language prefix so the same page can be addressed in every language. */
+/** Strip the language prefix so the same page can be addressed in every language.
+ *  A two-letter first segment that is not one of ours (e.g. /xx/saved) is a mistyped
+ *  language, not a page, so it is dropped rather than carried into the redirect. */
 export function stripLang(pathname) {
   const codes = LANGS.map((l) => l.code);
   const parts = pathname.split("/").filter(Boolean);
-  if (parts.length && codes.includes(parts[0])) parts.shift();
+  if (parts.length && (codes.includes(parts[0]) || /^[a-z]{2}$/i.test(parts[0]))) parts.shift();
   return parts.length ? `/${parts.join("/")}` : "";
 }
 

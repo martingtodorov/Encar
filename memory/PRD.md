@@ -116,14 +116,30 @@ that owns the Resend account.
 - Mobile header: centred logo, hamburger on the right, theme toggle moved into the drawer.
 - Language switch now switches currency (RO -> RON, BG/EN -> EUR) on every switch, not just
   on first load.
+- Saved searches: `/searches` page (live match count, "N new since saved" badge, thumbnail
+  of the newest match, rename/delete), reachable from both the desktop nav and the mobile
+  drawer, stored locally for guests and synced to the account. Each record already carries
+  an `alerts` flag for "email me when a new car matches this search".
+- Language URL prefixes: every page lives under `/bg`, `/ro` or `/en`; bare and legacy URLs
+  redirect to the detected language keeping path and query; per-page title, description,
+  canonical and hreflang tags; generated `robots.txt` + `sitemap.xml`
+  (`frontend/scripts/gen-seo.js` — re-run with the real domain at go-live).
+- Car detail pages now open scrolled to the top.
 
 ## Backlog
+### P0 (blocked on the owner)
+- **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY
+  drop in the final landed price of a car saved to their account, batched into one message
+  per user. Still needed before it can ship: the owner's email address for testing
+  (`ADMIN_NOTIFY_EMAIL`) and, for real buyers, a domain verified in Resend — the shared
+  `onboarding@resend.dev` sender only delivers to the Resend account owner.
+- **New-match alerts for saved searches** — owner said yes; the data already has the flag.
+
 ### P1
-- **Language URL prefixes** — the owner asked for `/en`, `/ro`, `/bg` on the apex domain.
-  Needs a `/:lang` route wrapper, language derived from the path, a redirect from `/` to
-  the detected language, and `hreflang` tags. NOT started; this is an SEO-shaped change and
-  wants its own pass. Note `detectLang()` currently follows the browser (ro→Romanian,
-  en→English, else Bulgarian) — that is intentional, not a bug.
+- **Language URL prefixes** — DONE (2026-06): `/bg`, `/ro`, `/en` on every route, redirects
+  for bare and legacy URLs, canonical + hreflang tags, generated robots.txt and sitemap.xml.
+  Remaining: re-run `frontend/scripts/gen-seo.js` with the real domain, and consider
+  server-rendered pages if listing-level SEO ever matters.
 - **Track my vehicle** — Maersk container + MarineTraffic vessel. BLOCKED on API keys.
 - FX policy options offered to the owner but not yet chosen: pin the rate daily instead of
   live, and/or change charm rounding (off, or nearest €50/€100 instead of x99).

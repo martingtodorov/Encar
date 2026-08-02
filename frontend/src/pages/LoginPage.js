@@ -9,13 +9,16 @@ import { HeaderBar } from "@/components/HeaderBar";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
+import { useSeo } from "@/lib/seo";
 
 const MIN_PASSWORD = 8;
 
 export default function LoginPage() {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const { user, login, register, passkeyLogin, passkeySupported, errorMessage } = useAuth();
   const { path, go } = useLangNav();
+
+  useSeo({ lang, title: `${t("login")} \u00b7 Encar` });
   const [params] = useSearchParams();
 
   const [mode, setMode] = useState(params.get("mode") === "register" ? "register" : "login");

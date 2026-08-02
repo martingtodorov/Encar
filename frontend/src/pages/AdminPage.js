@@ -4,6 +4,8 @@ import { Activity, Inbox, PieChart } from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
+import { useApp } from "@/context/AppContext";
+import { useSeo } from "@/lib/seo";
 import { Spinner } from "@/components/admin/AdminBits";
 import { AdminOverview } from "@/components/admin/AdminOverview";
 import { AdminCoverage } from "@/components/admin/AdminCoverage";
@@ -17,7 +19,10 @@ const TABS = [
 
 export default function AdminPage() {
   const { user, loading } = useAuth();
+  const { lang } = useApp();
   const { go } = useLangNav();
+
+  useSeo({ lang, title: "Operations \u00b7 Encar" });
   const [params, setParams] = useSearchParams();
   const [tab, setTab] = useState(params.get("tab") || "overview");
 
