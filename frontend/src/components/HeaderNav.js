@@ -1,4 +1,4 @@
-import { Heart, HelpCircle, Moon, Search, Sun, Gauge, Bookmark } from "lucide-react";
+import { Heart, HelpCircle, Moon, Search, Ship, Sun, Gauge, Bookmark } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/context/AppContext";
@@ -22,6 +22,7 @@ export const HeaderNav = () => {
     { to: "/", label: t("navSearch"), icon: Search },
     { to: "/saved", label: t("savedCars"), icon: Heart, count: favourites.length },
     { to: "/searches", label: t("savedSearches"), icon: Bookmark, count: searches.length },
+    { to: "/track", label: t("navTrack"), icon: Ship },
     { to: "/how-it-works", label: t("navHowItWorks"), icon: HelpCircle },
   ];
 

@@ -11,6 +11,7 @@ import {
   Bookmark,
   Sun,
   Moon,
+  Ship,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -34,6 +35,7 @@ export const NavDrawer = () => {
     { to: "/", label: t("navSearch"), icon: Search },
     { to: "/saved", label: t("savedCars"), icon: Heart, count: favourites.length },
     { to: "/searches", label: t("savedSearches"), icon: Bookmark, count: searches.length },
+    { to: "/track", label: t("navTrack"), icon: Ship },
     { to: "/how-it-works", label: t("navHowItWorks"), icon: HelpCircle },
   ];
 

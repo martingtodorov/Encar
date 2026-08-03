@@ -248,3 +248,24 @@ export async function apiPasskeyLoginVerify(body) {
 }
 
 export default http;
+
+// ── shipment tracking ---------------------------------------------------------
+export async function trackShipment(ref, by = "container") {
+  const { data } = await http.get("/tracking", { params: { ref, by } });
+  return data;
+}
+
+export async function getTrackedShipments() {
+  const { data } = await http.get("/tracking/saved");
+  return data.items || [];
+}
+
+export async function saveTrackedShipment(body) {
+  const { data } = await http.post("/tracking/saved", body);
+  return data.items || [];
+}
+
+export async function removeTrackedShipment(ref) {
+  const { data } = await http.delete(`/tracking/saved/${encodeURIComponent(ref)}`);
+  return data.items || [];
+}

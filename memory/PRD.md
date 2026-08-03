@@ -289,6 +289,35 @@ its own scoped task with the testing agent, not folded into a feature.
   Verified: seen 5151 → clean shutdown → "resuming crawl 20260803190948: 22 slices already
   indexed (5565 cars), 38 counts cached" → seen 6854, moving forward, API 200 throughout.
 
+## Track my vehicle (2026-06)
+Shipment tracking page shipped, wired for real data, nothing mocked.
+- `backend/tracking.py`: Maersk Track & Trace Plus client per the integration playbook —
+  client-credentials token cached in-process, `Consumer-Key` retained on every call,
+  `GET /track-and-trace-private/events` by `equipmentReference` (container) or
+  `transportDocumentReference` (B/L). Every response is cached in `tracking_cache`
+  (15 min; AIS 30 min) because the quota is per consumer key (~120/min, 5,000/hour) and a
+  buyer refreshing must never cost a call. DCSA events are normalised to
+  `{code, when, estimated, location, vessel, voyage}`; ETA prefers the forecast `ARRI` at
+  the destination port over the trailing gate-out. Vessel position comes from
+  MarineTraffic/Kpler when a key is present and is never fatal when it is not.
+- Endpoints: `GET /api/tracking?ref=&by=container|bol`, and per-account saved shipments
+  (`GET/POST /api/tracking/saved`, `DELETE /api/tracking/saved/{ref}`, max 20, stored on
+  `users.tracked_shipments`).
+- `frontend/src/pages/TrackPage.js` at `/:lang/track`, in the header and drawer nav:
+  container/B/L toggle, status, ETA, last event, vessel card with an IMO link, milestone
+  timeline (dashed markers for forecasts) and saved-reference chips for signed-in users.
+  Shipping event copy lives in the page (`EVENTS` per language), not in i18n.
+- WAITING ON CREDENTIALS. Without them `/api/tracking` returns `{"configured": false}` and
+  the page shows an honest "tracking is not connected yet" card — no fake data anywhere.
+  Needed in `backend/.env`: `MAERSK_CONSUMER_KEY`, `MAERSK_CONSUMER_SECRET` (and
+  `MAERSK_BASE_URL`/`MAERSK_TOKEN_URL` pointing at `api-stage.maersk.com` while testing),
+  plus `MARINETRAFFIC_API_KEY` (and `MARINETRAFFIC_URL` if the Kpler endpoint differs from
+  the classic `exportvessel` one).
+- Verified: honest not-connected state, validation (`by` must be container|bol), and a
+  render test with a real DCSA-shaped payload seeded into the cache — 9 milestones, status
+  in_transit, ETA ARRI Piraeus, vessel MAERSK SELETAR IMO 9525338, zero console errors.
+  The seeded doc and the placeholder key were removed afterwards.
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY

@@ -20,7 +20,8 @@ import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI, Header, HTTPException, Query, Request
+from fastapi import (APIRouter, Depends, FastAPI, Header, HTTPException, Query,
+                     Request)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -35,6 +36,7 @@ import mailer                # noqa: E402
 import pricing               # noqa: E402
 import slugs as slugs_mod    # noqa: E402
 import syncjob as syncjob_mod  # noqa: E402
+import tracking             # noqa: E402
 import sync as sync_mod      # noqa: E402
 from encar import encar, image_url  # noqa: E402
 from translate import (LANGS, breaker_status, schedule_translation,  # noqa: E402
@@ -1311,6 +1313,52 @@ async def create_enquiry(body: EnquiryBody, request: Request):
 
 
 auth.set_db(db)
+# ── shipment tracking ---------------------------------------------------------
+class TrackBody(BaseModel):
+    ref: str
+    by: str = "container"
+    label: str = ""
+
+
+@api.get("/tracking")
+async def tracking_lookup(ref: str, by: str = "container"):
+    if by not in ("container", "bol"):
+        raise HTTPException(400, "by must be container or bol")
+    try:
+        return await tracking.track(db, ref, by)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+
+
+@api.get("/tracking/saved")
+async def tracking_saved(user=Depends(auth.current_user)):
+    return {"items": user.get("tracked_shipments") or []}
+
+
+@api.post("/tracking/saved")
+async def tracking_save(body: TrackBody, user=Depends(auth.current_user)):
+    ref = body.ref.strip().upper()
+    if not ref:
+        raise HTTPException(400, "a reference is required")
+    items = [x for x in (user.get("tracked_shipments") or []) if x.get("ref") != ref]
+    items.insert(0, {"ref": ref, "by": body.by, "label": body.label.strip()[:80],
+                     "added_at": datetime.now(timezone.utc).isoformat()})
+    await db.users.update_one({"_id": user["_id"]},
+                             {"$set": {"tracked_shipments": items[:20]}})
+    return {"items": items[:20]}
+
+
+@api.delete("/tracking/saved/{ref}")
+async def tracking_unsave(ref: str, user=Depends(auth.current_user)):
+    items = [x for x in (user.get("tracked_shipments") or [])
+             if x.get("ref") != ref.strip().upper()]
+    await db.users.update_one({"_id": user["_id"]},
+                             {"$set": {"tracked_shipments": items}})
+    return {"items": items}
+
+
 api.include_router(auth.router)
 app.include_router(api)
 

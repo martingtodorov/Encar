@@ -10,6 +10,7 @@ import CarDetailPage from "@/pages/CarDetailPage";
 import SavedCarsPage from "@/pages/SavedCarsPage";
 import SavedSearchesPage from "@/pages/SavedSearchesPage";
 import HowItWorksPage from "@/pages/HowItWorksPage";
+import TrackPage from "@/pages/TrackPage";
 import LoginPage from "@/pages/LoginPage";
 import AccountPage from "@/pages/AccountPage";
 import AdminPage from "@/pages/AdminPage";
@@ -27,6 +28,7 @@ function App() {
               <Route path="saved" element={<SavedCarsPage />} />
               <Route path="searches" element={<SavedSearchesPage />} />
               <Route path="how-it-works" element={<HowItWorksPage />} />
+              <Route path="track" element={<TrackPage />} />
               <Route path="login" element={<LoginPage />} />
               <Route path="account" element={<AccountPage />} />
               <Route path="admin" element={<AdminPage />} />
