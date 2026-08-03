@@ -269,3 +269,24 @@ export async function removeTrackedShipment(ref) {
   const { data } = await http.delete(`/tracking/saved/${encodeURIComponent(ref)}`);
   return data.items || [];
 }
+
+export async function getAdminShipments() {
+  const { data } = await http.get("/admin/shipments");
+  return data.items || [];
+}
+
+export async function assignShipment(body) {
+  const { data } = await http.post("/admin/shipments", body);
+  return data;
+}
+
+export async function refreshShipment(ref, by = "container") {
+  const { data } = await http.post(
+    `/admin/shipments/${encodeURIComponent(ref)}/refresh`, null, { params: { by } });
+  return data;
+}
+
+export async function deleteShipment(ref) {
+  const { data } = await http.delete(`/admin/shipments/${encodeURIComponent(ref)}`);
+  return data;
+}

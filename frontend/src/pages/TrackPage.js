@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   Anchor,
@@ -97,7 +97,9 @@ const Row = ({ m, lang, last }) => (
     />
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className="text-sm font-semibold text-foreground">{label(lang, m.code)}</span>
+        <span className="text-sm font-semibold text-foreground">
+          {label(lang, m.code) || m.text}
+        </span>
         {m.estimated && (
           <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
             est.
@@ -137,6 +139,7 @@ export default function TrackPage() {
   const [error, setError] = useState("");
   const [saved, setSaved] = useState([]);
   const [cars, setCars] = useState([]);
+  const polls = useRef(0);
 
   useSeo({ lang, title: `${t("trackTitle")} · Encar`, description: t("seoTrackDesc") });
 
@@ -162,19 +165,38 @@ export default function TrackPage() {
   }, [favourites, saved, lang]);
 
   const lookup = useCallback(
-    (value, mode) => {
+    (value, mode, silent = false) => {
       const r = (value ?? "").trim();
       if (!r) return;
-      setBusy(true);
-      setError("");
-      setData(null);
+      if (!silent) {
+        polls.current = 0;
+        setBusy(true);
+        setError("");
+        setData(null);
+      }
       trackShipment(r, mode)
         .then(setData)
-        .catch((e) => setError(e?.response?.data?.detail || e.message))
-        .finally(() => setBusy(false));
+        .catch((e) => {
+          if (!silent) setError(e?.response?.data?.detail || e.message);
+        })
+        .finally(() => {
+          if (!silent) setBusy(false);
+        });
     },
     []
   );
+
+  // The first lookup for a reference schedules a read of the carrier's public page in the
+  // background (a real browser, ~30s), so the answer comes back marked "checking". Pick the
+  // milestones up when they land, a bounded number of times.
+  useEffect(() => {
+    if (!data?.checking || polls.current >= 3) return;
+    const id = setTimeout(() => {
+      polls.current += 1;
+      lookup(data.reference, data.by, true);
+    }, 12000);
+    return () => clearTimeout(id);
+  }, [data, lookup]);
 
   const openSaved = (item) => {
     setRef(item.ref);
@@ -300,7 +322,7 @@ export default function TrackPage() {
 
         {data?.configured && !data.found && (
           <p data-testid="track-not-found" className="mt-6 text-sm text-muted-foreground">
-            {t("trackNotFound")}
+            {data.checking ? t("trackChecking") : t("trackNotFound")}
           </p>
         )}
 
@@ -317,6 +339,15 @@ export default function TrackPage() {
                     {data.reference}
                   </div>
                   <div className="mt-1 text-sm font-medium text-primary">{status}</div>
+                  {data.checking && (
+                    <div
+                      data-testid="track-checking"
+                      className="mt-1 inline-flex items-center gap-1.5 text-[12px] text-muted-foreground"
+                    >
+                      <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                      {t("trackChecking")}
+                    </div>
+                  )}
                 </div>
                 {user && (
                   <Button
@@ -341,7 +372,7 @@ export default function TrackPage() {
                       {when(data.eta.when, lang)}
                     </div>
                     <div className="text-[12px] text-muted-foreground">
-                      {label(lang, data.eta.code)}
+                      {label(lang, data.eta.code) || data.eta.text}
                       {data.eta.location ? ` · ${data.eta.location}` : ""}
                     </div>
                   </div>
@@ -352,7 +383,7 @@ export default function TrackPage() {
                       {t("trackLastSeen")}
                     </div>
                     <div className="mt-0.5 text-sm font-semibold text-foreground">
-                      {label(lang, data.last.code)}
+                      {label(lang, data.last.code) || data.last.text}
                     </div>
                     <div className="text-[12px] text-muted-foreground">
                       {when(data.last.when, lang)}

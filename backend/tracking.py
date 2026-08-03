@@ -8,6 +8,7 @@ alongside the normalised view.
 Credentials live in backend/.env and are read lazily, so the app boots and the page
 renders a clear "not connected" state instead of crashing when they are absent.
 """
+import asyncio
 import hashlib
 import logging
 import os
@@ -17,12 +18,14 @@ from datetime import datetime, timezone
 import httpx
 
 import edi
+import maersk_public
 import ports
 
 log = logging.getLogger("tracking")
 
 CACHE_TTL = int(os.environ.get("TRACKING_CACHE_TTL", "900"))
 VESSEL_TTL = int(os.environ.get("VESSEL_CACHE_TTL", "1800"))
+PUBLIC_TTL = int(os.environ.get("PUBLIC_TRACK_TTL", "1800"))
 
 # DCSA event codes Maersk returns, in the order a container actually moves.
 # Codes that mean the container has reached the customer, in both vocabularies:
@@ -45,10 +48,9 @@ def config():
         "key": os.environ.get("MAERSK_CONSUMER_KEY", ""),
         "secret": os.environ.get("MAERSK_CONSUMER_SECRET", ""),
         "ais_key": os.environ.get("MARINETRAFFIC_API_KEY", ""),
-        "ais_url": os.environ.get(
-            "MARINETRAFFIC_URL",
-            "https://services.marinetraffic.com/api/exportvessel/v:5/{key}"
-            "/timespan:60/imo:{imo}/protocol:jsono"),
+        "ais_base": os.environ.get("MARINETRAFFIC_BASE_URL",
+                                   "https://services.marinetraffic.com/api"),
+        "ais_version": os.environ.get("MARINETRAFFIC_EXPORTVESSEL_VERSION", "5"),
     }
 
 
@@ -141,38 +143,68 @@ def _milestone(e):
     }
 
 
-async def vessel_position(db, imo):
-    """Live AIS position, only if an AIS key is configured. Never fatal."""
+def _num(v, divisor=1):
+    try:
+        return float(v) / divisor if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _rows(payload):
+    """MarineTraffic's `jsono` answers with an array of rows; some services wrap it."""
+    if isinstance(payload, list):
+        return [r for r in payload if isinstance(r, dict)]
+    if isinstance(payload, dict):
+        data = payload.get("DATA")
+        if isinstance(data, list):
+            return [r for r in data if isinstance(r, dict)]
+        return [payload]
+    return []
+
+
+async def vessel_position(db, imo, mmsi=""):
+    """Live AIS position from MarineTraffic (Kpler), only when a key is configured.
+
+    Single Vessel Positions: the key is a PATH segment, the response is metered per call,
+    and SPEED comes back in tenths of a knot. Redirects must be followed. Never fatal — the
+    vessel card simply says the position is not available.
+    """
     c = config()
-    if not imo or not c["ais_key"]:
+    ident = ("imo", str(imo)) if imo else ("mmsi", str(mmsi)) if mmsi else None
+    if not ident or not c["ais_key"]:
         return None
 
     async def load():
-        url = c["ais_url"].format(key=c["ais_key"], imo=imo)
-        async with httpx.AsyncClient(timeout=25) as x:
-            r = await x.get(url)
+        params = {"v": c["ais_version"], ident[0]: ident[1], "timespan": 1440,
+                  "msgtype": "extended", "protocol": "jsono"}
+        async with httpx.AsyncClient(timeout=25, follow_redirects=True) as x:
+            r = await x.get(f"{c['ais_base']}/exportvessel/{c['ais_key']}", params=params)
         if r.is_error:
-            log.warning("ais lookup %s -> %s %s", imo, r.status_code, r.text[:160])
+            log.warning("ais lookup %s -> %s %s", ident[1], r.status_code, r.text[:200])
             return None
-        rows = r.json()
-        row = rows[0] if isinstance(rows, list) and rows else rows
-        if not isinstance(row, dict):
+        rows = _rows(r.json())
+        if not rows:
+            return None                       # no AIS report inside the timespan
+        row = rows[0]
+        lat, lon = _num(row.get("LAT")), _num(row.get("LON"))
+        if lat is None or lon is None:
             return None
         return {
-            "lat": float(row.get("LAT") or row.get("lat") or 0) or None,
-            "lon": float(row.get("LON") or row.get("lon") or 0) or None,
-            "speed": row.get("SPEED") or row.get("speed"),
-            "course": row.get("COURSE") or row.get("course"),
-            "destination": row.get("DESTINATION") or row.get("destination") or "",
-            "eta": row.get("ETA") or row.get("eta") or "",
-            "at": row.get("TIMESTAMP") or row.get("timestamp") or "",
+            "lat": lat, "lon": lon,
+            "speed": _num(row.get("SPEED"), 10),
+            "course": _num(row.get("COURSE")),
+            "name": row.get("SHIPNAME") or "",
+            "destination": row.get("DESTINATION") or "",
+            "eta": row.get("ETA") or "",
+            "last_port": row.get("LAST_PORT") or "",
+            "at": row.get("TIMESTAMP") or "",
         }
 
     try:
-        payload, _ = await _cached(db, f"ais:{imo}", VESSEL_TTL, load)
+        payload, _ = await _cached(db, f"ais:{ident[0]}:{ident[1]}", VESSEL_TTL, load)
         return payload
     except Exception as e:
-        log.warning("ais failed for %s: %s", imo, str(e)[:160])
+        log.warning("ais failed for %s: %s", ident[1], str(e)[:160])
         return None
 
 
@@ -209,18 +241,92 @@ def _view(ref, by, stones, source, cached=False, vessel=None):
     }
 
 
-async def track(db, ref, by="container"):
+_inflight = set()
+
+
+async def _public_read(db, ref):
+    """Read Maersk's public page and cache the result. Runs detached for buyer lookups."""
+    key = f"pub:{ref}"
+    try:
+        raw = await maersk_public.read(ref)
+    except Exception as e:
+        log.warning("public track %s failed: %s", ref, str(e)[:200])
+        return None
+    finally:
+        _inflight.discard(ref)
+    if raw is None:
+        return None
+    payload = {"empty": raw["empty"],
+               "events": [] if raw["empty"] else maersk_public.to_events(raw["json"])}
+    await db.tracking_cache.replace_one(
+        {"_id": key}, {"_id": key, "stored_at": _now(), "payload": payload,
+                       "raw": raw["json"]}, upsert=True)
+    return payload
+
+
+async def _public(db, ref, refresh=False):
+    """Milestones read off Maersk's public track page.
+
+    A read costs a browser page and ~30 seconds, so a buyer never waits for one: a cached
+    payload is served when it is fresh, and otherwise the read is scheduled in the
+    background and the answer says so. Only the operator's refresh runs it inline.
+    """
+    if not maersk_public.enabled():
+        return None
+    key = f"pub:{ref}"
+    if not refresh:
+        doc = await db.tracking_cache.find_one({"_id": key})
+        if doc and (_now() - doc["stored_at"].replace(tzinfo=timezone.utc)
+                    ).total_seconds() < PUBLIC_TTL:
+            return doc["payload"]
+        if ref not in _inflight:
+            _inflight.add(ref)
+            asyncio.create_task(_public_read(db, ref))
+        return {"pending": True, "empty": False, "events": []}
+    _inflight.discard(ref)
+    return await _public_read(db, ref)
+
+
+async def track(db, ref, by="container", refresh=False):
     """Normalised tracking view for one container or bill of lading.
 
-    The EDI feed is authoritative: Maersk pushes status messages to us, so if anything has
-    arrived for this reference it is used and nothing upstream is called. The REST client is
-    the fallback for references the feed has not covered.
+    Sources, in order of authority: the EDI feed Maersk pushes to us, then Maersk's own
+    public track page read with a real browser, then the private REST API when a consumer
+    key is configured. Whatever the admin assigned by hand (customer, car, ship) is merged
+    on top so the buyer always sees the vessel we told them about.
     """
     ref = (ref or "").strip().upper()
     if not ref or len(ref) > 40:
         raise ValueError("that reference does not look right")
 
+    # What the admin assigned: customer, car, ship. The EDI feed (when it arrives) is merged
+    # on top of it rather than replacing it.
+    manual = await db.shipments.find_one({"ref": ref}, {"_id": 0, "user_id": 0})
+
     stones = await edi.events_for(db, ref, by)
+    source = "edi"
+    asked_carrier, checking = False, False
+    if not stones:
+        pub = await _public(db, ref, refresh)
+        checking = bool(pub and pub.get("pending"))
+        asked_carrier = pub is not None and not checking
+        if pub and pub["events"]:
+            stones, source = pub["events"], "public"
+
+    if not stones and manual:
+        vessel = None
+        if manual.get("vessel_name") or manual.get("vessel_imo") or manual.get("vessel_mmsi"):
+            vessel = {"imo": manual.get("vessel_imo") or "", "name": manual.get("vessel_name") or "",
+                      "mmsi": manual.get("vessel_mmsi") or "", "voyage": "",
+                      "position": await vessel_position(db, manual.get("vessel_imo"),
+                                                        manual.get("vessel_mmsi"))}
+        return {"configured": True, "found": True, "source": "assigned", "cached": False,
+                "reference": ref, "by": by, "status": "in_transit", "last": None,
+                "eta": {"code": "VA", "when": manual.get("eta") or None, "estimated": True,
+                        "location": "", "country": ""} if manual.get("eta") else None,
+                "vessel": vessel, "note": manual.get("note") or "", "milestones": [],
+                "checking": checking, "updated_at": _now().isoformat()}
+
     if stones:
         sailing = next((m for m in reversed(stones) if m.get("vessel_name")), None)
         vessel = None
@@ -228,9 +334,26 @@ async def track(db, ref, by="container"):
             vessel = {"imo": sailing.get("vessel_imo") or "", "name": sailing["vessel_name"],
                       "voyage": sailing.get("voyage") or "",
                       "position": await vessel_position(db, sailing.get("vessel_imo"))}
-        return _view(ref, by, stones, "edi", vessel=vessel)
+        if manual:
+            vessel = vessel or {"imo": "", "name": "", "voyage": "", "position": None}
+            vessel["name"] = manual.get("vessel_name") or vessel["name"]
+            vessel["imo"] = manual.get("vessel_imo") or vessel["imo"]
+            vessel["mmsi"] = manual.get("vessel_mmsi") or ""
+            if not vessel["position"]:
+                vessel["position"] = await vessel_position(db, vessel["imo"],
+                                                           vessel.get("mmsi", ""))
+        view = _view(ref, by, stones, source, vessel=vessel)
+        if manual:
+            view["note"] = manual.get("note") or ""
+        return view
 
     if not is_configured():
+        # The carrier answered "nothing public for this reference" — that is an answer, not
+        # a missing integration, so the page says "not found" rather than "not connected".
+        if asked_carrier or checking:
+            return {"configured": True, "reference": ref, "by": by, "found": False,
+                    "source": "public", "cached": False, "checking": checking,
+                    "milestones": []}
         return {"configured": False, "reference": ref, "by": by}
 
     field = "equipmentReference" if by == "container" else "transportDocumentReference"

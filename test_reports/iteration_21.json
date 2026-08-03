@@ -1,0 +1,25 @@
+{
+  "summary": "Full backend + frontend testing of the new Admin -> Shipments tab, Maersk PUBLIC track reader wiring, seeded MSKU5285725 payload, background-checking behaviour for unknown refs, and BG/RO localisation of the new 'checking with the carrier' copy. All 13 review checks pass. 6/6 pytest cases green. No functional regressions observed on the other admin tabs (Overview, Brand coverage, Enquiries, Catalogue sync) or on catalogue search (149,379 cars, home renders 192 cards).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_shipments_tracking.py",
+    "/app/test_reports/pytest/iter21.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py + tracking.py: /api/tracking correctly returns {found:false, configured:true, checking:true} within <200ms for a fresh ref while the Playwright/Chromium read runs as an asyncio background task, and stores an honest empty result once the browser page reports 'No results'. No fake milestones were observed in any code path — verified for MSKU5285725 (seeded), MSKU9999999 (no-result cached after real read), and 271191199 (Maersk itself has nothing).",
+    "AdminShipments.js: the Assign button is properly disabled when either email or ref is empty (verified: disabled attribute present when empty, absent when both filled). 404 for unknown email surfaces as an error toast ('no account for ...'). Delete removes the row from the list AND from the customer's saved shipments (implicitly verified through GET refresh).",
+    "TrackPage.js: the bounded background re-poll works — the seeded MSKU5285725 renders status 'In transit', ETA '20 Jul 2026, 06:00' Piraeus, last event 'Vessel arrived' 02 Jul 2026 Singapore, exactly 6 [data-testid=track-milestone] rows, Leaflet map with Busan->Singapore solid + Singapore->Piraeus dashed leg, vessel card MAERSK SELETAR with an honest 'no AIS position' notice.",
+    "Localisation: BG '/bg/track' shows 'Проверяваме при превозвача…' and RO '/ro/track' shows 'Verificăm la transportator…' for fresh refs — the new copy is fully translated, no English leaks through.",
+    "Regression: importing Playwright at the backend has not broken anything else — /api/admin/overview, /api/admin/coverage etc all still respond, admin tabs render without pageerror, and the catalogue home + car cards still load."
+  ],
+  "updated_files": ["/app/backend/tests/test_shipments_tracking.py", "/app/test_reports/iteration_21.json"],
+  "success_rate": {"backend": "100% (6/6 pytest)", "frontend": "100% (all 13 review items verified)"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! (used); x-admin-token: encar-admin (used for pytest)",
+  "seed_data_creation": "None persisted. Test created and then deleted TESTU1112223. Left the pre-existing seeded MSKU5285725 and MSKU1234567 rows in place as instructed. Cached read-results for MSKU9999999 / MSKU8888888 / NEWREFTEST123 / MSKU9999998 / MSKU9999997 will naturally expire from tracking_cache in 30 min.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend URL from REACT_APP_BACKEND_URL. Admin token header 'x-admin-token: encar-admin' bypasses login for admin APIs. Seeded synthetic Maersk payload lives at tracking_cache key pub:MSKU5285725 — do not delete. Fresh /api/tracking?ref=X for an unseen X returns in <200ms with checking:true and schedules a real Chromium read; hitting the same X again ~30-45s later returns checking:false with the real result (usually found:false). Do NOT hammer /api/tracking with many distinct refs (rate cap MAERSK_PUBLIC_MAX_PER_MIN=10). Frontend testids to remember: admin-tab-shipments, admin-shipments, shipment-email, shipment-ref, shipment-assign, shipment-list, shipment-row-<REF>, shipment-check-<REF>, shipment-delete-<REF>, track-input, track-summary, track-milestone, track-not-found, track-checking.",
+  "rca of the issue": "n/a — no bugs found."
+}

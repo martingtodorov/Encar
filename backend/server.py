@@ -37,6 +37,7 @@ import pricing               # noqa: E402
 import slugs as slugs_mod    # noqa: E402
 import syncjob as syncjob_mod  # noqa: E402
 import edi                  # noqa: E402
+import maersk_public        # noqa: E402
 import tracking             # noqa: E402
 import sync as sync_mod      # noqa: E402
 from encar import encar, image_url  # noqa: E402
@@ -1382,6 +1383,91 @@ async def tracking_edi(request: Request, x_edi_token: str = Header(default="")):
         raise HTTPException(400, str(e))
 
 
+class ShipmentBody(BaseModel):
+    email: str
+    ref: str
+    by: str = "container"
+    car_id: str = ""
+    vessel_name: str = ""
+    vessel_imo: str = ""
+    vessel_mmsi: str = ""
+    eta: str = ""
+    note: str = ""
+
+
+@api.get("/admin/shipments")
+async def admin_shipments(request: Request, x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
+    rows = await db.shipments.find({}, {"_id": 0}).sort("updated_at", -1).to_list(200)
+    return {"items": rows}
+
+
+@api.post("/admin/shipments")
+async def admin_shipment_assign(body: ShipmentBody, request: Request,
+                                x_admin_token: str = Header(default="")):
+    """Assign a carrier reference to a customer account.
+
+    Public track cannot be read server-side for every reference, so the admin owns the
+    facts: which customer, which car, which ship. Whatever the EDI feed later delivers for
+    the same reference is merged on top of this automatically.
+    """
+    admin = await _require_admin(request, x_admin_token)
+    ref = body.ref.strip().upper()
+    email = body.email.strip().lower()
+    if not ref or not email:
+        raise HTTPException(400, "a customer email and a tracking reference are required")
+    user = await db.users.find_one({"email": email})
+    if not user:
+        raise HTTPException(404, f"no account for {email}")
+
+    doc = {"ref": ref, "by": body.by, "email": email, "user_id": user["_id"],
+           "car_id": body.car_id.strip(), "vessel_name": body.vessel_name.strip(),
+           "vessel_imo": body.vessel_imo.strip(), "vessel_mmsi": body.vessel_mmsi.strip(),
+           "eta": body.eta.strip(), "note": body.note.strip()[:400],
+           "updated_at": datetime.now(timezone.utc),
+           "updated_by": (admin or {}).get("email") or "admin token"}
+    await db.shipments.update_one({"ref": ref}, {"$set": doc}, upsert=True)
+
+    items = [x for x in (user.get("tracked_shipments") or []) if x.get("ref") != ref]
+    items.insert(0, {"ref": ref, "by": body.by, "label": "", "car_id": body.car_id.strip(),
+                     "assigned": True,
+                     "added_at": datetime.now(timezone.utc).isoformat()})
+    await db.users.update_one({"_id": user["_id"]},
+                             {"$set": {"tracked_shipments": items[:20]}})
+    return {"saved": True, "ref": ref, "email": email}
+
+
+@api.post("/admin/shipments/{ref}/refresh")
+async def admin_shipment_refresh(ref: str, request: Request, by: str = "container",
+                                 x_admin_token: str = Header(default="")):
+    """Force a fresh read of Maersk's public track page for one reference.
+
+    The buyer-facing lookup is cached so a page refresh never spends a browser; this is the
+    operator's way to pull the latest milestones on demand.
+    """
+    await _require_admin(request, x_admin_token)
+    try:
+        return await tracking.track(db, ref, by if by in ("container", "bol") else "container",
+                                    refresh=True)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+
+
+@api.delete("/admin/shipments/{ref}")
+async def admin_shipment_remove(ref: str, request: Request,
+                                x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
+    ref = ref.strip().upper()
+    doc = await db.shipments.find_one_and_delete({"ref": ref})
+    if doc:
+        await db.users.update_one(
+            {"_id": doc["user_id"]},
+            {"$pull": {"tracked_shipments": {"ref": ref}}})
+    return {"removed": bool(doc)}
+
+
 api.include_router(auth.router)
 app.include_router(api)
 
@@ -1434,5 +1520,6 @@ async def on_shutdown():
     # Order matters: let a running sync be cancelled and record itself while Mongo is
     # still open, otherwise it dies mid-write and leaves the job stuck on "running".
     await syncjob_mod.stop(db)
+    await maersk_public.close()
     await encar.close()
     client.close()

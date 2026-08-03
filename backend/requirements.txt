@@ -40,6 +40,7 @@ google-auth-httplib2==0.4.0
 google-genai==2.15.0
 google-generativeai==0.8.6
 googleapis-common-protos==1.75.0
+greenlet==3.5.4
 grpcio==1.83.0
 grpcio-status==1.71.2
 h11==0.16.0
@@ -77,6 +78,7 @@ passlib==1.7.4
 pathspec==1.1.1
 pillow==12.3.0
 platformdirs==4.11.0
+playwright==1.62.0
 pluggy==1.6.0
 propcache==0.5.2
 proto-plus==1.28.2
@@ -88,6 +90,7 @@ pycodestyle==2.14.0
 pycparser==3.0
 pydantic==2.13.4
 pydantic_core==2.46.4
+pyee==13.0.1
 pyflakes==3.4.0
 Pygments==2.20.0
 PyJWT==2.13.0
