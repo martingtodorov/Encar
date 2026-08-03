@@ -131,6 +131,7 @@ export default function CarDetailPage() {
   }, [id, lang]);
 
   const money = (v) => formatMoney(v, currency, lang, rates);
+  const pct = (f) => `${Math.round((f || 0) * 100)}%`;
   const saved = isFavourite(id);
   const photos = car?.photos || [];
   const q = car?.quote;
@@ -348,34 +349,63 @@ export default function CarDetailPage() {
                   />
                   <Row label="Car cost (Encar)" value={money(car.admin.encar_eur)} />
                   <Row label="Autowini fee" value={money(car.admin.autowini_fee_eur)} />
-                  <Row
-                    label={`Duty + VAT (${Math.round(
-                      (car.admin.customs_fraction_high || 0) * 100
-                    )}% customs base)`}
-                    value={money((car.admin.duty || 0) + (car.admin.vat || 0))}
-                  />
                   <Row label="Inland + buffer" value={money(car.admin.domestic_total)} />
                   <Row
-                    label="Landed cost"
+                    label={`Duty + VAT \u2014 ${pct(car.admin.customs_fraction_low)} base`}
+                    value={money(car.admin.taxes_low)}
+                    testId="admin-taxes-low"
+                  />
+                  <Row
+                    label={`Duty + VAT \u2014 ${pct(car.admin.customs_fraction_high)} base`}
+                    value={money(car.admin.taxes_high)}
+                    testId="admin-taxes-high"
+                  />
+                  <Row
+                    label={`Landed cost \u2014 ${pct(car.admin.customs_fraction_low)} base`}
                     strong
-                    testId="admin-landed-cost"
-                    value={
-                      car.admin.landed_low === car.admin.landed_high
-                        ? money(car.admin.landed_high)
-                        : `${money(car.admin.landed_low)} \u2013 ${money(car.admin.landed_high)}`
-                    }
+                    testId="admin-landed-low"
+                    value={money(car.admin.landed_at_low)}
+                  />
+                  <Row
+                    label={`Landed cost \u2014 ${pct(car.admin.customs_fraction_high)} base`}
+                    strong
+                    testId="admin-landed-high"
+                    value={money(car.admin.landed_at_high)}
                   />
                   <Row label="Sale price" strong value={money(car.admin.sale_eur)} />
                   <Row
-                    label="Margin"
+                    label={`Margin \u2014 ${pct(car.admin.customs_fraction_low)} base`}
                     strong
-                    testId="admin-margin"
-                    value={
-                      car.admin.profit_min === car.admin.profit_max
-                        ? money(car.admin.profit_min)
-                        : `${money(car.admin.profit_min)} \u2013 ${money(car.admin.profit_max)}`
-                    }
+                    testId="admin-margin-low"
+                    value={money(car.admin.margin_at_low)}
                   />
+                  <Row
+                    label={`Margin \u2014 ${pct(car.admin.customs_fraction_high)} base`}
+                    strong
+                    testId="admin-margin-high"
+                    value={money(car.admin.margin_at_high)}
+                  />
+                  {car.admin.floored_low && car.admin.floored_high && (
+                    <p
+                      data-testid="admin-customs-floor-note"
+                      className="pt-2 text-[12px] leading-relaxed text-muted-foreground"
+                    >
+                      Both scenarios are identical here: {pct(car.admin.customs_fraction_low)} and{" "}
+                      {pct(car.admin.customs_fraction_high)} of the car cost are both below the
+                      USD 3,000 minimum customs value, so duty and VAT are charged on that floor
+                      ({money(car.admin.customs_base_low)}) either way.
+                    </p>
+                  )}
+                  {car.admin.floored_low && !car.admin.floored_high && (
+                    <p
+                      data-testid="admin-customs-floor-note"
+                      className="pt-2 text-[12px] leading-relaxed text-muted-foreground"
+                    >
+                      The {pct(car.admin.customs_fraction_low)} scenario hits the USD 3,000 minimum
+                      customs value, so its base is {money(car.admin.customs_base_low)} rather than
+                      the percentage.
+                    </p>
+                  )}
                 </Panel>
               )}
 

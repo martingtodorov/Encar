@@ -115,6 +115,29 @@ def listing_out(doc):
     }
 
 
+async def publish_prices(items):
+    """Make the list price and the car-page price agree, keeping the HIGHER one.
+
+    Rows carry a `sale_eur` precomputed at the last reprice, while the car page quotes
+    live FX. Between the two the rate drifts, and after charm rounding that shows up as a
+    price that changes by ~EUR 100 when the buyer clicks the ad. Owner's rule: publish the
+    higher figure, so an advertised price is never undercut by the page behind it.
+    """
+    rates = await fx_mod.get_rates(db)
+    sdoc = await db.settings.find_one({"_id": "pricing"}) or {}
+    S = pricing.merge_settings(sdoc.get("constants"))
+    for it in items:
+        krw = it.get("price_krw")
+        if not krw:
+            continue
+        landed, live = pricing.quick_sale_eur(krw, rates["fx_krw_eur"], rates["usd_eur"], S)
+        if live > (it.get("sale_eur") or 0):
+            it["sale_eur"] = live
+            if it.get("landed_eur") is not None:
+                it["landed_eur"] = round(landed, 2)
+    return rates, sdoc
+
+
 def build_query(p):
     """Translate request filters into a Mongo query."""
     # duplicate ads for the same physical car are hidden (see sync.dedupe_pass)
@@ -305,7 +328,9 @@ async def listings_by_ids(body: ListingIdsBody, lang: str = "bg"):
     docs = {d["_id"]: d async for d in db.listings.find({"_id": {"$in": ids}})}
     rows = [docs[i] for i in ids if i in docs]          # keep the caller's order
     await translate_listings(db, rows, lang)
-    return {"items": [listing_out(r) for r in rows]}
+    items = [listing_out(r) for r in rows]
+    await publish_prices(items)
+    return {"items": items}
 
 
 @api.post("/car/{listing_id}/translate-description")
@@ -445,6 +470,7 @@ async def search(body: SearchBody, request: Request):
 
     await translate_listings(db, rows, lang)
     items = [listing_out(d) for d in rows]
+    await publish_prices(items)
 
     # Landed cost is business data: stripped for everyone, then handed back to signed-in
     # admins as the two-scenario range they want to see on every ad.
@@ -457,6 +483,7 @@ async def search(body: SearchBody, request: Request):
                 continue
             q = pricing.price_car(krw, rates["fx_krw_eur"], rates["usd_eur"],
                                   sdoc.get("constants"))
+            q["suggested_sale"] = max(q["suggested_sale"], it.get("sale_eur") or 0)
             it["admin"] = pricing.admin_range(q)
     else:
         for it in items:
@@ -880,6 +907,15 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     sdoc = await db.settings.find_one({"_id": "pricing"}) or {}
     quote = pricing.price_car(price_krw, rates["fx_krw_eur"], rates["usd_eur"],
                               sdoc.get("constants")) if price_krw else None
+    # The row the buyer clicked carries a stored price; keep whichever is higher so the
+    # price never changes between the ad and the car page (see publish_prices).
+    if quote:
+        stored = (listing or {}).get("sale_eur") or 0
+        if stored > quote["suggested_sale"]:
+            quote["suggested_sale"] = stored
+            quote["profit_min"] = stored - quote["landed"]
+            quote["profit_max"] = stored - quote["landed_secondary"]
+            quote["realized_margin"] = stored - quote["landed"]
 
     # Encar reports insurance claim amounts in raw KRW, which is meaningless next to
     # the EUR prices on the rest of the page. Convert with a straight FX rate (these

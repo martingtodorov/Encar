@@ -150,8 +150,17 @@ that owns the Resend account.
   KRW, car cost, Autowini fee, duty+VAT, inland+buffer, landed cost (range when the two
   customs scenarios differ), sale price and margin. `pricing.admin_range` was extended with
   `price_krw / encar_eur / car_eur / autowini_fee_eur / duty / vat / domestic_total`.
-  Note: for cheap cars the USD 3,000 customs-value floor makes both scenarios equal, so the
-  landed cost and margin show as a single figure, not a range — that is correct, not a bug.
+  The panel now lists BOTH customs scenarios explicitly, per owner request: duty+VAT,
+  landed cost and margin each on a 10% base row and an 18% base row. `admin_range` gained
+  `taxes_low/high`, `landed_at_low/high`, `margin_at_low/high`, `floored_low/high`, and
+  `price_car` now returns the full `secondary` scenario dict.
+  Note: on cheap cars the USD 3,000 customs-value floor replaces BOTH percentage bases, so
+  the two rows show the same number and a note explains why — that is correct, not a bug.
+- **List price vs car-page price disagreed by ~EUR 100.** Rows serve the `sale_eur` stored
+  at the last reprice while the car page quotes live FX; drift plus charm rounding moved the
+  figure by one 100-step. `server.publish_prices()` now recomputes live in the same request
+  and publishes the HIGHER of stored vs live on search, `/listings/by-ids` and the car page
+  (owner's rule: never undercut the advertised price). Verified: 12/12 sampled cars match.
 - **Dark-mode control backgrounds**: make/model/submodel/trim selects, the band they sit in,
   the sort select, the mobile filters/sort buttons and the filter panel + its inputs moved
   from `bg-card` (12% L, lighter) to `bg-background` (8% L) so they match the page. No change

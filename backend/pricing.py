@@ -112,6 +112,7 @@ def price_car(price_krw, fx_krw_eur, usd_eur, settings=None):
         "customs_base_fraction": S["CUSTOMS_BASE_FRACTION"],
         "landed_secondary": secondary["landed"],
         "customs_base_secondary": secondary["customs_base"],
+        "secondary": secondary,
         "profit_min": sale - primary["landed"],
         "profit_max": sale - secondary["landed"],
     }
@@ -130,7 +131,21 @@ def admin_range(quote):
     if low is None or high is None:
         return None
     lo, hi = (low, high) if low <= high else (high, low)
+    sec = quote.get("secondary") or {}
+    sale = quote.get("suggested_sale") or 0
     return {
+        # Per-scenario figures, keyed by the customs base fraction, so the panel can show
+        # BOTH landed costs and BOTH margins instead of one collapsed number.
+        "taxes_low": round((sec.get("duty") or 0) + (sec.get("vat") or 0), 2),
+        "taxes_high": round((quote.get("duty") or 0) + (quote.get("vat") or 0), 2),
+        "landed_at_low": round(sec.get("landed") or 0, 2),
+        "landed_at_high": round(quote.get("landed") or 0, 2),
+        "margin_at_low": round(sale - (sec.get("landed") or 0), 2),
+        "margin_at_high": round(sale - (quote.get("landed") or 0), 2),
+        # True when the USD 3,000 customs-value floor replaced the percentage base, which
+        # is why the two scenarios can land on exactly the same number.
+        "floored_low": bool(sec.get("customs_base_floored")),
+        "floored_high": bool(quote.get("customs_base_floored")),
         "price_krw": quote.get("price_krw"),
         "encar_eur": round(quote.get("encar_eur") or 0, 2),
         "car_eur": round(quote.get("car_eur") or 0, 2),
