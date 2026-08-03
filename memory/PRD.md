@@ -417,9 +417,46 @@ to a customer.
   rendering 6 milestones with a Busan→Singapore solid leg and a dashed leg to Piraeus, and
   BG/RO copy. Test assignments and cached test refs were deleted afterwards;
   `backend/seed_track_test.py` re-seeds a synthetic payload for UI work (`--clear` removes).
-- STILL NEEDED FROM THE OWNER: a reference Maersk actually publishes (the one supplied,
-  `271191199`, returns "No results found" on Maersk's OWN page, so it is not on public
-  track — a booking number rather than a B/L, or too old), and the MarineTraffic API key.
+### Reading Maersk's public track from this server is NOT POSSIBLE — measured, do not retry
+`MAERSK_PUBLIC_TRACK` is therefore **0 (off)** in `backend/.env`. The reader stays in the
+tree because it works instantly if the app is ever hosted behind an egress IP Akamai
+accepts, but it must not be switched on here: every attempt costs ~30s and a Chromium and
+always ends in "no results".
+What was tried, in order, and what happened:
+1. `curl`/httpx to `api.maersk.com/synergy/tracking/<ref>?operator=MAEU` → **403 Access
+   Denied** (Akamai edge), with and without browser-like headers.
+2. Headless Chromium loading `maersk.com/tracking/<ref>` → the PAGE loads 200, but its own
+   data call dies with `ERR_HTTP2_PROTOCOL_ERROR` and the app prints "No results found".
+3. The tracking bundle (`/tracking/assets/track-*.js`) shows why: the ocean call is sent
+   with `Consumer-Key`, an `Authorization` constant AND
+   `Akamai-BM-Telemetry: window.bmak.get_telemetry()`. Without valid telemetry the edge
+   refuses it. Forging that header is not something we will build.
+4. A GENUINE, HEADED Chrome build (full `chromium-1234`, real X display via Xvfb, real
+   locale/timezone/viewport) → the page renders fully and STILL gets a plain **403 Access
+   Denied** on the data call. So this is the datacenter IP being refused, not
+   headless detection and not a bad reference.
+Conclusion: `271191199` showing "No results found" is our request being blocked, NOT proof
+that the reference is wrong. Live carrier milestones need one of: the EDI 315/IFTSTA feed
+Maersk pushes (already built and idempotent — ask the Maersk rep or their EDI provider to
+forward to `POST /api/tracking/edi`), or a paid aggregator with a real carrier contract
+(Vizion, Terminal49, ShipsGo, Safecube…), or Maersk's own Track & Trace Plus key. Until one
+exists, the admin assignment IS the data and the page shows it honestly.
+
+### Customer shipments on the account page (2026-06)
+- `frontend/src/components/AccountShipments.js`, rendered by `AccountPage`: every reference
+  attached to the account with its status, ETA, vessel, the linked car (title links to the
+  ad) and a Track button. Empty state explains that a number appears once the car sails.
+  New copy `accountShipments`, `accountNoShipments` (BG/RO/EN).
+- `TrackPage` now accepts a deep link `/{lang}/track?ref=…&by=container|bol` and looks it up
+  on mount, which is what the account button uses.
+- The Journey card is hidden when a shipment has no milestones yet (an assignment-only
+  shipment used to render an empty card), the operator's note is shown to the buyer
+  (`data-testid="track-note"`), and a date-only ETA no longer pretends to be 00:00.
+- STILL NEEDED FROM THE OWNER: a live milestone source (see above) and the MarineTraffic API
+  key for the vessel position.
+- NOTE: `271191199` is currently assigned to the TEST admin account
+  (admin@encarskin.com) as a demo row — delete it in Admin → Shipments when it is no longer
+  wanted.
 
 ## Backlog
 ### P0 (blocked on the owner)

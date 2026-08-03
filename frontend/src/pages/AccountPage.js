@@ -8,6 +8,7 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
 import { useSeo } from "@/lib/seo";
+import { AccountShipments } from "@/components/AccountShipments";
 import http from "@/lib/api";
 
 export default function AccountPage() {
@@ -164,6 +165,8 @@ export default function AccountPage() {
             )}
           </ul>
         </section>
+
+        <AccountShipments />
 
         <Button
           data-testid="account-logout-button"

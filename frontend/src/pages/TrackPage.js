@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Anchor,
   Container,
@@ -78,8 +78,11 @@ const when = (iso, lang) => {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
+  const opts = { day: "2-digit", month: "short", year: "numeric" };
+  // A date-only value (an operator's ETA) must not pretend to be midnight.
+  if (!/\d{2}:\d{2}/.test(iso)) return d.toLocaleDateString(lang === "en" ? "en-GB" : lang, opts);
   return d.toLocaleString(lang === "en" ? "en-GB" : lang, {
-    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+    ...opts, hour: "2-digit", minute: "2-digit",
   });
 };
 
@@ -140,6 +143,7 @@ export default function TrackPage() {
   const [saved, setSaved] = useState([]);
   const [cars, setCars] = useState([]);
   const polls = useRef(0);
+  const [params] = useSearchParams();
 
   useSeo({ lang, title: `${t("trackTitle")} · Encar`, description: t("seoTrackDesc") });
 
@@ -197,6 +201,17 @@ export default function TrackPage() {
     }, 12000);
     return () => clearTimeout(id);
   }, [data, lookup]);
+
+  // Deep link from the account page: /track?ref=MSKU1234567&by=container
+  useEffect(() => {
+    const r = params.get("ref");
+    if (!r) return;
+    const mode = params.get("by") === "bol" ? "bol" : "container";
+    setRef(r.toUpperCase());
+    setBy(mode);
+    lookup(r, mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openSaved = (item) => {
     setRef(item.ref);
@@ -518,19 +533,30 @@ export default function TrackPage() {
               </div>
             )}
 
-            <div className="rounded-[14px] border border-border bg-card p-5">
-              <h2 className="text-base font-semibold text-foreground">{t("trackJourney")}</h2>
-              <ol className="mt-4">
-                {data.milestones.map((m, i) => (
-                  <Row
-                    key={`${m.code}-${m.when}-${i}`}
-                    m={m}
-                    lang={lang}
-                    last={i === data.milestones.length - 1}
-                  />
-                ))}
-              </ol>
-            </div>
+            {data.note && (
+              <div
+                data-testid="track-note"
+                className="rounded-[14px] border border-border bg-card p-5 text-sm leading-relaxed text-muted-foreground"
+              >
+                {data.note}
+              </div>
+            )}
+
+            {data.milestones.length > 0 && (
+              <div className="rounded-[14px] border border-border bg-card p-5">
+                <h2 className="text-base font-semibold text-foreground">{t("trackJourney")}</h2>
+                <ol className="mt-4">
+                  {data.milestones.map((m, i) => (
+                    <Row
+                      key={`${m.code}-${m.when}-${i}`}
+                      m={m}
+                      lang={lang}
+                      last={i === data.milestones.length - 1}
+                    />
+                  ))}
+                </ol>
+              </div>
+            )}
           </div>
         )}
       </main>
