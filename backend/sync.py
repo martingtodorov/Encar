@@ -249,14 +249,23 @@ def _fresh_dims():
     return [(n, DIM_BOUNDS[n][0], DIM_BOUNDS[n][1]) for n in DIM_ORDER]
 
 
-async def _crawl_node(base, dims, count, sink, st):
-    """Recursively bisect until the node fits in one request, then fetch it."""
+async def _crawl_node(base, dims, count, sink, st, ctx=None):
+    """Recursively bisect until the node fits in one request, then fetch it.
+
+    `ctx` makes the walk resumable: `done` holds the slices already indexed in this run
+    (skipped outright) and `plan` caches the bisection counts, so a resumed crawl does not
+    re-probe upstream to rediscover the same tree.
+    """
     if count <= 0:
         return
     clauses = base + _dim_clauses(dims)
+    key = _q(clauses)
 
     if count <= LEAF_MAX:
-        data = await encar.search(offset=0, limit=LEAF_MAX, q=_q(clauses))
+        if ctx and key in ctx["done"]:
+            st["skipped_leaves"] += 1
+            return
+        data = await encar.search(offset=0, limit=LEAF_MAX, q=key)
         rows = (data or {}).get("SearchResults") or []
         st["leaves"] += 1
         st["rows"] += len(rows)
@@ -265,6 +274,11 @@ async def _crawl_node(base, dims, count, sink, st):
             # upstream shrank/grew between the count probe and the fetch - benign
             st["short_leaves"] += 1
         await sink(rows)
+        if ctx:
+            # Only after the rows are written, so a slice is never marked done twice or
+            # skipped without having landed in the index.
+            ctx["done"].add(key)
+            await ctx["flush"]()
         return
 
     # too big: bisect the first dimension that still has room
@@ -275,11 +289,16 @@ async def _crawl_node(base, dims, count, sink, st):
         left = dims[:i] + [(name, lo, mid)] + dims[i + 1:]
         right = dims[:i] + [(name, mid + 1, hi)] + dims[i + 1:]
 
-        lcount = await encar.count(_q(base + _dim_clauses(left)))
+        lkey = _q(base + _dim_clauses(left))
+        lcount = ctx["plan"].get(lkey) if ctx else None
+        if lcount is None:
+            lcount = await encar.count(lkey)
+            st["probes"] += 1
+            if ctx:
+                ctx["plan"][lkey] = lcount
         rcount = max(count - lcount, 0)   # exact: siblings partition the parent
-        st["probes"] += 1
-        await _crawl_node(base, left, lcount, sink, st)
-        await _crawl_node(base, right, rcount, sink, st)
+        await _crawl_node(base, left, lcount, sink, st, ctx)
+        await _crawl_node(base, right, rcount, sink, st, ctx)
         return
 
     # every dimension collapsed and still over a page: unsplittable bucket.
@@ -296,7 +315,7 @@ async def _crawl_node(base, dims, count, sink, st):
 
 
 async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
-                            progress_key="catalogue_partition"):
+                            progress_key="catalogue_partition", resume=False):
     """Index a scope (whole catalogue, or a list of manufacturers) exactly.
 
     Lease cars are dropped. Listings that exist in our index for the crawled scope
@@ -309,8 +328,28 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
     S = pricing.merge_settings(sdoc.get("constants"))
 
     st = {"leaves": 0, "probes": 0, "rows": 0, "expected": 0, "short_leaves": 0,
-          "unsplittable": 0, "excluded_skipped": 0, "written": 0}
+          "unsplittable": 0, "excluded_skipped": 0, "written": 0, "skipped_leaves": 0}
     seen = set()
+
+    # Resume state, keyed by run_id. `done` is the slices already written, `plan` the
+    # bisection counts already probed. Dots are illegal in Mongo field names and every key
+    # here is a query string full of them, so both go in as pair arrays.
+    resume_id = f"{progress_key}_resume"
+    plan, done = {}, set()
+    # Cars indexed by the interrupted process. `seen` is per-process, so without this the
+    # progress bar would jump backwards on a resume.
+    already = 0
+    if resume:
+        rdoc = await db.sync_state.find_one({"_id": resume_id}) or {}
+        if rdoc.get("run_id") == run_id:
+            plan = {k: v for k, v in (rdoc.get("plan") or [])}
+            done = set(rdoc.get("done") or [])
+            already = await db.listings.count_documents({"last_crawl": run_id})
+            log.info("resuming crawl %s: %s slices already indexed (%s cars), %s counts "
+                     "cached", run_id, len(done), already, len(plan))
+        else:
+            log.info("no resume state for run %s; crawling from the start", run_id)
+    rstate = {"last": 0.0}
 
     # Live progress for the admin panel. Written at most every few seconds: a crawl does
     # thousands of batches and one write each would cost more than the crawl.
@@ -325,7 +364,8 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
         await db.sync_state.update_one(
             {"_id": live_id},
             {"$set": {"phase": phase, "run_id": run_id, "upstream": live["upstream"],
-                      "seen": len(seen), "written": st["written"], "leaves": st["leaves"],
+                      "seen": already + len(seen), "written": already + st["written"],
+                      "leaves": st["leaves"],
                       "probes": st["probes"], "excluded": st["excluded_skipped"],
                       "updated_at": datetime.now(timezone.utc)}},
             upsert=True)
@@ -359,13 +399,31 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
             st["written"] += len(ops)
         await publish("crawl")
 
+    async def flush_resume(force=False):
+        now = time.monotonic()
+        if not force and now - rstate["last"] < 3:
+            return
+        rstate["last"] = now
+        await db.sync_state.update_one(
+            {"_id": resume_id},
+            {"$set": {"run_id": run_id, "updated_at": datetime.now(timezone.utc),
+                      "plan": [[k, v] for k, v in plan.items()],
+                      "done": sorted(done)}},
+            upsert=True)
+
+    ctx = {"plan": plan, "done": done, "flush": flush_resume}
+
     scope = list(manufacturers) if manufacturers else [None]
     per_make = {}
     started = datetime.now(timezone.utc)
 
     for mfr in scope:
         base = [f"Manufacturer.{mfr}"] if mfr else []
-        total = await encar.count(_q(base))
+        scope_key = _q(base)
+        total = plan.get(scope_key)
+        if total is None:
+            total = await encar.count(scope_key)
+            plan[scope_key] = total
         live["upstream"] += total
         await publish("crawl", force=True)
         before = len(seen)
@@ -373,7 +431,7 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
         await _set(db, **{f"{progress_key}_current": mfr or "ALL"})
         log.info("partition crawl start: %s upstream=%s", mfr or "ALL", total)
 
-        await _crawl_node(base, _fresh_dims(), total, sink, st)
+        await _crawl_node(base, _fresh_dims(), total, sink, st, ctx)
 
         got = len(seen) - before
         excluded = st["excluded_skipped"] - before_excluded
@@ -385,13 +443,18 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
             "distinct_kept": got,
             "coverage": round(got / reachable, 4) if reachable else 0,
         }
-        log.info("partition crawl done: %s upstream=%s excluded=%s distinct=%s leaves=%s",
-                 mfr or "ALL", total, excluded, got, st["leaves"])
+        log.info("partition crawl done: %s upstream=%s excluded=%s distinct=%s leaves=%s "
+                 "skipped=%s", mfr or "ALL", total, excluded, got, st["leaves"],
+                 st["skipped_leaves"])
+        await flush_resume(force=True)
         await db.sync_state.update_one(
             {"_id": progress_key},
             {"$set": {"run_id": run_id, "stats": st, "per_make": per_make,
                       "updated_at": datetime.now(timezone.utc)}},
             upsert=True)
+
+    # The crawl finished, so there is nothing left to resume from.
+    await db.sync_state.delete_one({"_id": resume_id})
 
     retired = 0
     if retire:

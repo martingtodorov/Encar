@@ -274,6 +274,21 @@ its own scoped task with the testing agent, not folded into a feature.
   Note: `/api/admin/sync/status` is the LEGACY endpoint (old `run_full_sync` doc) and can
   report a stale "running"; the panel uses `/api/admin/catalogue-sync`.
 
+- **The crawl resumes from the last completed slice.** `crawl_partitioned` now keeps resume
+  state per run in `sync_state.catalogue_partition_resume`: `done` (slice query strings
+  already written to the index, recorded only AFTER their rows land) and `plan` (bisection
+  counts already probed). Both are stored as pair arrays because every key is a query string
+  full of dots, which Mongo forbids in field names. On resume the walk skips done slices and
+  reuses the cached counts, so it neither re-fetches nor re-probes the completed portion, and
+  the doc is deleted when the crawl finishes.
+  CRITICAL: a resumed run keeps the ORIGINAL `run_id`. The retire pass deactivates anything
+  whose `last_crawl != run_id`, so a fresh id would retire everything the interrupted crawl
+  had already indexed. If the interruption happened after the crawl (phase past "crawl"),
+  the resume skips straight to the post-crawl passes. Progress adds the interrupted
+  process's cars (`already`) to the in-process `seen`, so the bar does not jump backwards.
+  Verified: seen 5151 → clean shutdown → "resuming crawl 20260803190948: 22 slices already
+  indexed (5565 cars), 38 counts cached" → seen 6854, moving forward, API 200 throughout.
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY

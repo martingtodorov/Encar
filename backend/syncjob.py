@@ -165,8 +165,10 @@ async def resume_if_interrupted(db):
             started = started.replace(tzinfo=timezone.utc)
         if (_now() - started).total_seconds() > RESUME_WINDOW_S:
             return False
-    log.info("resuming the catalogue sync the restart interrupted")
-    await start(db, trigger="resume")
+    live = await db.sync_state.find_one({"_id": LIVE_ID}) or {}
+    run_id = live.get("run_id")
+    log.info("resuming the catalogue sync the restart interrupted (run %s)", run_id)
+    await start(db, trigger="resume", resume_run_id=run_id)
     return True
 
 
@@ -180,16 +182,16 @@ async def clear_stale(db):
                       "error": "the server restarted while this sync was running"}})
 
 
-async def start(db, trigger="manual"):
+async def start(db, trigger="manual", resume_run_id=None):
     """Kick off the crawl detached. Returns immediately."""
     global _task
     if is_running():
         return {"started": False, "reason": "a catalogue sync is already running"}
-    _task = asyncio.get_running_loop().create_task(_run(db, trigger))
-    return {"started": True, "trigger": trigger}
+    _task = asyncio.get_running_loop().create_task(_run(db, trigger, resume_run_id))
+    return {"started": True, "trigger": trigger, "resumed_run": resume_run_id}
 
 
-async def _run(db, trigger):
+async def _run(db, trigger, resume_run_id=None):
     started = _now()
     await db.sync_state.update_one(
         {"_id": JOB_ID},
@@ -201,7 +203,20 @@ async def _run(db, trigger):
         await db.sync_state.update_one(
             {"_id": JOB_ID}, {"$set": {"resumed": trigger == "resume"}})
         await sync_mod.ensure_indexes(db)
-        result = await sync_mod.crawl_partitioned(db, manufacturers=None, retire=True)
+        # A resumed run keeps the ORIGINAL run_id. The retire pass deactivates anything
+        # whose last_crawl is not this run, so a fresh id would retire everything the
+        # interrupted crawl had already indexed.
+        live = await db.sync_state.find_one({"_id": LIVE_ID}) or {}
+        crawl_done = (resume_run_id and live.get("run_id") == resume_run_id
+                      and live.get("phase") not in (None, "crawl"))
+        if crawl_done:
+            log.info("resume: the crawl had already finished, picking up at the post-crawl "
+                     "passes")
+            result["crawl"] = "already complete"
+        else:
+            result = await sync_mod.crawl_partitioned(
+                db, manufacturers=None, retire=True, run_id=resume_run_id,
+                resume=bool(resume_run_id))
         await _phase(db, "manual")
         result["manual_tagged"] = await sync_mod.tag_transmission(db)
         await _phase(db, "dedupe")
