@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 24 review: verified cold-start relevance (popular_ids fallback), warm-taste ranking, recommendations spread/interleave (<=2 per make+model, no adjacents), customs+delivery ETA offsets (+3d/+7d) on 271191199, provider metering (quota unchanged over two lookups), /car/{id}/view persists to car_views. Frontend: sort label is exactly 'Relevant' with data-testid='sort-select' and NO 'to me'; no 'Because you looked at' anywhere; header-nav has gap-5 with language+theme beside menu and account cluster on ml-auto; favourites dropdown opens on hover; price slider exposes TWO role=slider thumbs and dragging each updates From/To inputs and re-runs the search (verified 1,166 cars after lower-bound drag to €115k); nav clicks scroll to 0. 8/8 pytest passed. ONE regression found: on 'back-to-results-button' click the results page does NOT restore prior scrollY — state.restoreScroll is being dropped and scroll returns to 0.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Back-to-results scroll restore (exception to ScrollToTop)",
+        "issue": "After opening a car (scrollY=2400 -> detail scrollY=0 OK) and clicking data-testid='back-to-results-button', SearchPage lands with window.scrollY=0 instead of restoring ~2400. window.history.state.usr is null on the results page, and injected scrollTo() logging shows only scroll-to-0 calls fire — no scrollTo(0,2400) restore call is ever emitted. Root cause is almost certainly the URL rewriter in /app/frontend/src/pages/SearchPage.js line ~299 (setSearchParams(..., { replace: true }) inside a useEffect) clobbering location.state before the restore effect at line 105-125 can consume it. The module-level `pendingRestore` guard captures at line 103 only if location.state?.restoreScroll is still present at that render. In practice history.state.usr becomes null before restore fires.",
+        "affected_selectors": ["[data-testid='back-to-results-button']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter24.py",
+    "/app/test_reports/pytest/iter24.xml"
+  ],
+  "action_items": [
+    "Fix scroll-restore regression in /app/frontend/src/pages/SearchPage.js: ensure the URL-mirror useEffect (setSearchParams(..., { replace: true })) does NOT overwrite navigation state carrying restoreScroll. Options: (a) capture pendingRestore synchronously at module scope on very first import via a useLayoutEffect / render read that always runs before the mirror effect; (b) call setSearchParams with an explicit { replace: true, state: location.state } to preserve state; (c) use useLayoutEffect for the restore before the mirror runs; (d) key the restore effect on location.pathname+location.state so a replaceState that nulls state doesn't cancel it.",
+    "Optionally also handle location.key stability: after a replace, key does not change, so the restore effect currently only has one chance to run on mount."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py sort='relevant': cold-start branch (no makes/models) now calls popular_ids() from car_views (14-day aggregation, 5-min cache) and tops up with newest when short — verified empty pool still returns items (149,720). Not an error path. Good.",
+    "backend/server.py POST /car/{id}/view: doc id = f'{listing_id}:{day}', $inc n, $set car_id+day, upsert=True. car_views collection populated (verified 2 docs after test run).",
+    "backend/server.py recommendations: _spread(per_model=2) + _interleave() by manufacturer|model — verified against real recs (no key >2, no adjacents).",
+    "backend/tracking.py _last_leg: CU at +3d, DLV at +7d from last carrier milestone, both estimated=True. For 271191199 last carrier ms = 2026-08-09T00:00 -> customs 2026-08-12T00:00 (port carried in .location), delivery 2026-08-16T00:00 (city from billing).",
+    "backend/jsoncargo.py TTL_CONTAINER=86400: two back-to-back /api/tracking calls for 271191199 kept /api/admin/tracking-quota.used unchanged. Provider metering intact.",
+    "frontend HeaderNav has gap-5, language+theme in-line with menu, ml-auto only on the account cluster. No icons among the four menu items. Favourites hover-menu opens.",
+    "frontend ui/slider.jsx correctly renders one Thumb per value; both thumbs have role=slider. Dragging updates from/to inputs and refetches (verified From=115000, then To=161000, chip 'Price: €115,000-' appeared, results shrank to 1,166).",
+    "frontend Recommended.js: no 'Because you looked at ...' subtitle rendered on cards (was previously an issue). CarCard.js has no reference to why_label.",
+    "frontend ScrollToTop.js: correctly resets to 0 on route change and skips when state.restoreScroll is set. Verified scrollY=0 after clicking header-nav-link-how-it-works.",
+    "REGRESSION: back-to-results scroll restore broken as detailed above."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter24.py",
+    "/app/test_reports/iteration_24.json"
+  ],
+  "success_rate": {"backend": "100% (8/8 pytest)", "frontend": "90% (1 regression: back-to-results scroll restore)"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! ; x-admin-token: encar-admin",
+  "seed_data_creation": "None (test used existing listings and 271191199 tracking cache). car_views collection now has 2 documents from POST /api/car/{id}/view smoke.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend URL from REACT_APP_BACKEND_URL. Backend tests: /app/backend/tests/test_iter24.py (8 tests all pass). Recommendations spread and interleave verified. Provider metering verified via /api/admin/tracking-quota. Only outstanding item: SearchPage.js scroll restore state loss due to setSearchParams({replace:true}) in the URL-mirror effect. Car cards navigate via <button data-testid='car-card-details-button'> onClick handlers (NOT anchors) — use JS .click() or ensure hover before clicking in Playwright. Sort dropdown is now data-testid='sort-select' (was 'sort-control') — matches spec.",
+  "rca of the issue": "Back-to-results scroll restore: CarDetailPage.goBack navigates to '/' with { state: { restoreScroll: <scrollY> } }. SearchPage renders, but a useEffect (line 297-300) synchronously mirrors the current query string via setSearchParams(..., { replace: true }). react-router's replaceNavigation drops navigation state (location.state becomes null on the next render, and history.state.usr = null on the DOM), so by the time the restore useEffect (line 105-125) polls pendingRestore, the module-level variable is still null because location.state?.restoreScroll was read only once during render but that render happened AFTER the mirror effect already replaced state (or on a re-render where state is already gone). Injected scrollTo logging confirms only scroll-to-0 calls fire; no scrollTo(0, 2400) is ever attempted. Mitigation: pass state through the setSearchParams call, or persist restoreScroll in sessionStorage keyed by history.state key, or move the restore capture into useLayoutEffect that runs before the mirror effect."
+}

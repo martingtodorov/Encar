@@ -25,7 +25,7 @@ import { useApp } from "@/context/AppContext";
 import { EnquiryDialog } from "@/components/EnquiryDialog";
 import { DescriptionPanelBody } from "@/components/DescriptionPanelBody";
 import { useLangNav } from "@/hooks/useLangNav";
-import { getCar, warmCar, forgetCar } from "@/lib/api";
+import { getCar, warmCar, forgetCar, countView } from "@/lib/api";
 import { noteView, WEIGHT } from "@/lib/taste";
 import Lightbox from "@/components/Lightbox";
 import { useSeo } from "@/lib/seo";
@@ -129,6 +129,7 @@ export default function CarDetailPage() {
           if (cancelled) return;
           setCar(d);
           noteView(d);
+          countView(id);
           // Per-car freeform text (dealer branch, address, plate) is translated in the
           // background so the page renders immediately; pick it up when it lands.
           if ((d?.description_pending || d?.translation_pending) && retries < 2) {

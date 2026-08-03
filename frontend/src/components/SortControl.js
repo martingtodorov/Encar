@@ -28,13 +28,13 @@ export const SORT_OPTIONS = [
 export const SortControl = ({ value, onChange }) => {
   const { t } = useApp();
   return (
-    <div className="relative w-full sm:w-auto">
+    <div className="relative w-full sm:w-auto" data-testid="sort-control">
       <label className="sr-only" htmlFor="sort-control">
         {t("sortBy")}
       </label>
       <select
         id="sort-control"
-        data-testid="sort-control"
+        data-testid="sort-select"
         value={value}
         onChange={(e) => onChange?.(e.target.value)}
         aria-label={t("sortBy")}

@@ -15,7 +15,8 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timedelta, timezone
 import uuid
 from pathlib import Path
 
@@ -486,6 +487,46 @@ class SearchBody(BaseModel):
     taste: TasteBody | None = None
 
 
+VIEW_WINDOW_DAYS = int(os.environ.get("VIEW_WINDOW_DAYS", "14"))
+_popular = {"at": 0.0, "ids": []}
+
+
+@api.post("/car/{listing_id}/view")
+async def car_view(listing_id: str):
+    """Count a real open of an ad.
+
+    Counted from the detail page rather than from the GET, because hovering a card
+    pre-fetches the same endpoint and a hover is not interest. One document per ad per day,
+    so the popularity window can be trimmed by simply dropping old days.
+    """
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    await db.car_views.update_one(
+        {"_id": f"{listing_id}:{day}"},
+        {"$inc": {"n": 1}, "$set": {"car_id": listing_id, "day": day}}, upsert=True)
+    return {"ok": True}
+
+
+async def popular_ids(limit=RELEVANT_POOL):
+    """The most opened ads of the last two weeks, most popular first.
+
+    This is what "relevant" means for someone we know nothing about yet: not the newest car
+    in the country, but the one everyone else is looking at. Recomputed at most every five
+    minutes — it does not need to be to the second.
+    """
+    if _popular["ids"] and time.time() - _popular["at"] < 300:
+        return _popular["ids"][:limit]
+    since = (datetime.now(timezone.utc) - timedelta(days=VIEW_WINDOW_DAYS)).strftime("%Y-%m-%d")
+    rows = await db.car_views.aggregate([
+        {"$match": {"day": {"$gte": since}}},
+        {"$group": {"_id": "$car_id", "n": {"$sum": "$n"}}},
+        {"$sort": {"n": -1}},
+        {"$limit": RELEVANT_POOL},
+    ]).to_list(RELEVANT_POOL)
+    _popular["ids"] = [r["_id"] for r in rows]
+    _popular["at"] = time.time()
+    return _popular["ids"][:limit]
+
+
 async def _profile(request: Request, sent):
     """The profile to rank by: what the browser sent, else what the account remembers."""
     if sent and (sent.makes or sent.models):
@@ -515,8 +556,7 @@ async def search(body: SearchBody, request: Request):
     rows = None
     if body.sort == "relevant":
         # Ranking by taste cannot be expressed as a Mongo sort, so a bounded pool of the
-        # freshest matches is scored in memory. Deeper pages fall back to newest, which is
-        # what "relevant" degrades to for a visitor we know nothing about anyway.
+        # freshest matches is scored in memory. Deeper pages fall back to newest.
         makes, models, fuels, samples = await _profile(request, body.taste)
         makes, models, fuels = _weights(makes, 4), _weights(models, 6), _weights(fuels, 4)
         if (makes or models) and skip < RELEVANT_POOL:
@@ -527,6 +567,21 @@ async def search(body: SearchBody, request: Request):
             ranked = _spread(_rank_by_taste(pool, makes, models, fuels, price, mileage),
                              RELEVANT_POOL, per_model=4)
             rows = [d for _, _, d in ranked][skip:skip + size]
+        elif skip < RELEVANT_POOL:
+            # Nothing known about this visitor yet: show what everyone else has been
+            # opening for the last two weeks instead of a bare "newest" list.
+            ids = await popular_ids()
+            if ids:
+                hot = {d["_id"]: d async for d in
+                       db.listings.find({**query, "_id": {"$in": ids}})}
+                ordered = [hot[i] for i in ids if i in hot]
+                rows = ordered[skip:skip + size]
+                if len(rows) < size:
+                    # Top up with the newest ads the popular list did not cover.
+                    seen = {d["_id"] for d in ordered}
+                    fill = db.listings.find({**query, "_id": {"$nin": list(seen)[:500]}}) \
+                        .sort(SORTS["newest"]).limit(size - len(rows))
+                    rows += [d async for d in fill]
 
     if rows is None:
         cursor = db.listings.find(query).sort(sort).skip(skip).limit(size)
@@ -646,6 +701,22 @@ def _why_label(out, why):
     return ""
 
 
+def _interleave(scored):
+    """Round-robin across make+model groups so two of the same car never sit side by side."""
+    groups = {}
+    for row in scored:
+        doc = row[2]
+        key = f"{doc.get('manufacturer') or ''}|{doc.get('model') or ''}"
+        groups.setdefault(key, []).append(row)
+    order = sorted(groups.values(), key=lambda g: -g[0][0])   # best group first
+    out = []
+    while any(order):
+        for group in order:
+            if group:
+                out.append(group.pop(0))
+    return out
+
+
 @api.post("/recommendations")
 async def recommendations(body: TasteBody, request: Request):
     """Cars this visitor is most likely to want next."""
@@ -677,8 +748,8 @@ async def recommendations(body: TasteBody, request: Request):
     if not rows:
         return {"items": [], "lang": lang}
 
-    best = _spread(_rank_by_taste(rows, makes, models, fuels, price, mileage),
-                   max(1, min(body.limit, 24)))
+    best = _interleave(_spread(_rank_by_taste(rows, makes, models, fuels, price, mileage),
+                               max(1, min(body.limit, 24)), per_model=2))
 
     docs = [d for _, _, d in best]
     await translate_listings(db, docs, lang)

@@ -53,11 +53,6 @@ export const Recommended = ({ onOpen }) => {
               className="w-[280px] shrink-0 snap-start sm:w-[300px]"
             >
               <CarCard car={car} onOpen={onOpen} />
-              {car.why_label && (
-                <p className="mt-1.5 px-1 text-[12px] text-muted-foreground">
-                  {t("recoBecause", { name: car.why_label })}
-                </p>
-              )}
             </div>
           ))}
         </div>

@@ -46,6 +46,11 @@ const CAR_CACHE_MAX = 60;
 
 const carKey = (id, lang) => `${lang}:${id}`;
 
+export function countView(id) {
+  // Fire and forget: a failed count must never interrupt reading the ad.
+  http.post(`/car/${encodeURIComponent(id)}/view`).catch(() => {});
+}
+
 export function warmCar(id, lang) {
   const key = carKey(id, lang);
   const hit = carCache.get(key);

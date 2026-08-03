@@ -45,7 +45,7 @@ export const HeaderNav = () => {
       : "text-muted-foreground hover:bg-muted hover:text-foreground"}`;
 
   return (
-    <nav data-testid="header-nav" className="flex flex-1 items-center gap-8">
+    <nav data-testid="header-nav" className="flex flex-1 items-center gap-5">
       <Link
         to={path(items[0].to)}
         data-testid="header-nav-link-search"
@@ -125,7 +125,9 @@ export const HeaderNav = () => {
         </Link>
       ))}
 
-      <div className="ml-auto flex items-center gap-2">
+      {/* Language and theme sit with the menu, not across the header from it; only the
+          account and sign-in actions are pushed to the far right. */}
+      <div className="flex items-center gap-2">
         <div className="inline-flex rounded-[10px] border border-input bg-muted p-0.5 shadow-sm">
           {LANGS.map((l) => (
             <button
@@ -158,7 +160,9 @@ export const HeaderNav = () => {
             <Moon className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
           )}
         </Button>
+      </div>
 
+      <div className="ml-auto flex items-center gap-2">
         {user ? (
           <>
             {user.is_admin && (

@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Navigate, Outlet, useLocation, useParams } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
 import { CookieBar } from "@/components/CookieBar";
+import { ScrollToTop } from "@/components/ScrollToTop";
 import { SiteFooter } from "@/components/SiteFooter";
 import { LANGS } from "@/i18n";
 import { stripLang } from "@/lib/seo";
@@ -28,6 +29,7 @@ export const LangLayout = () => {
   if (!valid) return <LangRedirect />;
   return (
     <>
+      <ScrollToTop />
       <Outlet />
       <SiteFooter />
       <CookieBar />
