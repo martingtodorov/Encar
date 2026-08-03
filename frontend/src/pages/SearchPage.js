@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useSearchParams } from "react-router-dom";
 import { SlidersHorizontal, Loader2, RotateCcw, Bookmark, BookmarkCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -86,6 +86,48 @@ export default function SearchPage() {
   const headerHidden = useScrollDirection(140);
 
   useSeo({ lang, title: t("seoHomeTitle"), description: t("seoHomeDesc") });
+
+  // The floating bar exists only to replace the in-page Filters button once that button
+  // has scrolled off the top of the screen - so watch the button itself rather than
+  // guessing from the header.
+  // Coming back from a car: scroll to where the visitor was, but only once the results
+  // that make the page that tall have rendered.
+  // Grabbed at mount because this page rewrites its own URL with replace: true, which
+  // drops the navigation state long before the results (and the page height) exist.
+  const location = useLocation();
+  const restoreTo = useRef(location.state?.restoreScroll ?? null);
+
+  useEffect(() => {
+    if (restoreTo.current == null || loading || !result.items.length) return;
+    const target = restoreTo.current;
+    restoreTo.current = null;
+    window.scrollTo(0, target);
+  }, [loading, result.items.length]);
+
+  const filterTriggerRef = useRef(null);
+  const [triggerOffscreen, setTriggerOffscreen] = useState(false);
+
+  useEffect(() => {
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const el = filterTriggerRef.current;
+      // Measured rather than observed: an IntersectionObserver set up while the button is
+      // still display:none (desktop layout) reports a zero rect and never recovers.
+      setTriggerOffscreen(!!el && el.offsetParent !== null && el.getBoundingClientRect().bottom < 0);
+    };
+    const onScroll = () => {
+      if (!frame) frame = requestAnimationFrame(measure);
+    };
+    measure();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [resolving]);
 
   const resultsRef = useRef(null);
   const debounce = useRef(null);
@@ -283,7 +325,10 @@ export default function SearchPage() {
   const openCar = useCallback(
     (car) =>
       go(`/car/${car.id}`, {
-        state: { from: `?${stateToParams({ filters, tax, sort, page }, slugFor)}` },
+        state: {
+          from: `?${stateToParams({ filters, tax, sort, page }, slugFor)}`,
+          scrollY: window.scrollY,
+        },
       }),
     [go, filters, tax, sort, page, slugFor]
   );
@@ -299,6 +344,9 @@ export default function SearchPage() {
     toast.success(t("searchSavedToast"), { description: name });
   }, [filters, tax, taxLabels, facets, t, lang, currency, rates, query, result.total, saveSearch]);
 
+  // Any narrowing at all earns the red dot on the floating bar.
+  const anyFilterActive = !!query;
+
   const countLabel =
     result.total === 1
       ? t("resultsCountOne")
@@ -308,20 +356,41 @@ export default function SearchPage() {
     <div className="min-h-screen bg-background">
       <HeaderBar hidden={headerHidden} />
 
-      {/* Mobile: once the header collapses on scroll, keep the filter button reachable */}
+      {/* Mobile: once the header collapses on scroll, keep the filters reachable as a
+          full-width bar carrying the live result count. */}
       <div
-        className={`fixed left-1/2 top-2 z-50 -translate-x-1/2 transition-all duration-300 lg:hidden ${
-          headerHidden ? "pointer-events-auto opacity-100" : "pointer-events-none -translate-y-16 opacity-0"
+        // Flush against the header (or the top edge once the header collapses) and edge
+        // to edge, so there is no gap and nothing of the menu is ever covered. z-30 keeps
+        // it under the header's z-40.
+        className={`fixed inset-x-0 z-30 -mt-px transition-all duration-300 lg:hidden ${
+          headerHidden ? "top-0" : "top-16"
+        } ${
+          triggerOffscreen
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none -translate-y-16 opacity-0"
         }`}
       >
-        <Button
+        <button
+          type="button"
           data-testid="floating-filters-button"
           onClick={() => setSheetOpen(true)}
-          className="h-11 gap-2 rounded-full border border-border bg-[hsl(var(--primary))] px-5 text-sm font-semibold text-primary-foreground shadow-md hover:brightness-110"
+          className="relative flex h-11 w-full items-center gap-2.5 border-b border-border bg-card px-4 text-left shadow-[0_3px_8px_rgba(18,20,23,0.08)] active:bg-muted"
         >
-          <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
-          {t("filters")}
-        </Button>
+          <SlidersHorizontal className="h-[18px] w-[18px] shrink-0 text-foreground" aria-hidden="true" />
+          <span className="truncate text-[14px] font-semibold text-foreground">
+            {t("changeFilters")}
+          </span>
+          <span className="tnum ml-auto shrink-0 text-[14px] text-muted-foreground">
+            {formatNumber(result.total, lang)}
+          </span>
+          {anyFilterActive && (
+            <span
+              data-testid="floating-filters-dot"
+              className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-[hsl(var(--primary))]"
+              aria-hidden="true"
+            />
+          )}
+        </button>
       </div>
 
       <Hero totalUpstream={catalogueSize} onStart={scrollToResults} />
@@ -338,6 +407,7 @@ export default function SearchPage() {
             onSlugs={learnSlugs}
             trailing={
               <Button
+                ref={filterTriggerRef}
                 data-testid="open-filters-button"
                 variant="outline"
                 onClick={() => setSheetOpen(true)}
@@ -383,6 +453,10 @@ export default function SearchPage() {
                     facets={facets}
                     onReset={resetAll}
                     inSheet
+                    tax={tax}
+                    onTaxChange={changeTax}
+                    onTaxLabels={setTaxLabels}
+                    onTaxSlugs={learnSlugs}
                   />
                   <div className="flex gap-2 border-t border-border bg-card px-4 py-3">
                     <Button

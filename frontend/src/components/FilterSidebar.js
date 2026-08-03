@@ -12,6 +12,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
+import { TaxonomySelects } from "@/components/TaxonomySelects";
 import { useApp } from "@/context/AppContext";
 import { formatNumber, convert } from "@/lib/format";
 
@@ -126,6 +127,10 @@ export const FilterSidebar = ({
   facets,
   onReset,
   inSheet = false,
+  tax,
+  onTaxChange,
+  onTaxLabels,
+  onTaxSlugs,
 }) => {
   const { t, lang, currency, rates } = useApp();
   const bounds = facets?.bounds || {};
@@ -182,9 +187,23 @@ export const FilterSidebar = ({
           inSheet ? "" : "max-h-[calc(100vh-210px)]"
         }`}
       >
+        {/* The drawer is the only filter surface on mobile, so the car itself has to be
+            choosable here too. On desktop these live above the results instead. */}
+        {inSheet && onTaxChange && (
+          <div className="mb-4 border-b border-border pb-4 pt-1">
+            <TaxonomySelects
+              value={tax}
+              onChange={onTaxChange}
+              onLabels={onTaxLabels}
+              onSlugs={onTaxSlugs}
+              layout="col"
+            />
+          </div>
+        )}
+
         <Accordion
           type="multiple"
-          defaultValue={["price", "year", "fuel"]}
+          defaultValue={["price", "year", "mileage"]}
           className="w-full"
         >
           <AccordionItem value="price" className="border-border">

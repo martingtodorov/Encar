@@ -145,8 +145,12 @@ export default function CarDetailPage() {
   // only fall back to a bare "/" when this page was opened cold (shared link).
   const goBack = () => {
     const from = location.state?.from;
-    if (typeof from === "string") navigate({ pathname: path("/"), search: from });
-    else if (location.key !== "default") navigate(-1);
+    // Hand the list back the offset it was left at, so the visitor returns to the car
+    // they tapped rather than to the top of 200 results.
+    const restoreScroll = location.state?.scrollY;
+    if (typeof from === "string") {
+      navigate({ pathname: path("/"), search: from }, { state: { restoreScroll } });
+    } else if (location.key !== "default") navigate(-1);
     else navigate(path("/"));
   };
 

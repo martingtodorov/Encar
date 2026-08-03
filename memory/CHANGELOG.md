@@ -259,3 +259,23 @@ Verified (iteration_9): 100% both.
   collection, so two overlapping rebuilds doubled every node — 124 level-1 docs for 62 makes,
   i.e. every dropdown option was silently listed twice. Now 10,703 unique nodes.
 - Testing agent iteration_19: backend 12/12, frontend 9/9 after the fix.
+
+## 2026-06 — Mobile filter bar, drawer taxonomy, back-scroll restore
+- **Floating filter bar redesigned** (mobile): was a red pill under the header; now an
+  edge-to-edge white bar, square corners, 44px tall, flush against the header (`-mt-px`
+  covers the divider so the two read as one block) and never overlapping it — it sits at
+  `top-16` while the header shows and slides to `top-0` once the header collapses, at `z-30`
+  under the header's `z-40`. Reads "Промени филтри", carries the live result count and a red
+  dot when any filter is active.
+- **It now appears only when the in-page Филтри button has actually scrolled off the top**,
+  measured on scroll (rAF-throttled). An IntersectionObserver was tried first and silently
+  failed: set up while the button is `display:none` in the desktop layout, it reports a zero
+  rect and never recovers.
+- **Filter drawer now contains make / model / submodel** (`TaxonomySelects` inside
+  `FilterSidebar` when `inSheet`), because the drawer is the only filter surface on mobile.
+  Accordion defaults changed to price + year + mileage open, fuel closed.
+- **Back from a car returns to where you were**: the list's scroll offset rides along in the
+  navigation state and is restored once the results have rendered. Captured at mount in a
+  ref because SearchPage rewrites its own URL with `replace: true`, which wipes the
+  navigation state before the results (and the page height) exist — that wipe was why the
+  first attempt silently did nothing. Verified: left at 2200, returned at 2200.
