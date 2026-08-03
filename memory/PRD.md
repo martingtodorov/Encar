@@ -371,8 +371,60 @@ quota, no polling.
 - NOTE: `getListingsByIds` returns `{items}`, not an array — that mistake cost one render
   crash ("cars.find is not a function").
 
+### Admin shipment assignment + Maersk PUBLIC track (2026-06, this session)
+The owner said API access is not coming, so tracking now has a third source: Maersk's own
+public track page, read with a real browser, plus an operator screen to attach a reference
+to a customer.
+- `backend/maersk_public.py`: Chromium (Playwright) loads
+  `https://www.maersk.com/tracking/<ref>`. MEASURED FIRST, do not redo this work:
+  a plain httpx/curl call to the page OR to the data endpoint returns **403 Access Denied**
+  from Akamai, while a real browser session loads it with status 200. The page itself calls
+  `https://api.maersk.com/synergy/tracking/<ref>?operator=MAEU` — no key, no quota — so the
+  response is captured on the way past; if the edge resets that call mid-flight it is
+  repeated from inside the page, where the session cookies already are. The JSON shape is
+  undocumented and third-party descriptions disagree, so milestones are recognised BY SHAPE
+  (a dict carrying a date and a description ≤ 90 chars), exactly like `edi.py` does with
+  segments, and the English prose is mapped onto the SAME event-code vocabulary the EDI feed
+  uses so the UI keeps one label map. `text` is kept alongside `code` and the timeline falls
+  back to it when a phrase maps to nothing.
+- Cost control: one page at a time (`asyncio.Lock`), a cap of `MAERSK_PUBLIC_MAX_PER_MIN`
+  (10) reads a minute, and a 30 min cache per reference in `tracking_cache` (`pub:<ref>`,
+  raw payload kept next to the normalised events). A BUYER NEVER WAITS FOR A READ: a cache
+  miss schedules the read as a background task and answers in ~0.2s with `checking: true`;
+  `TrackPage` then re-polls at most 3 times, 12s apart. Only the operator's refresh runs
+  inline. New copy `trackChecking` in BG/RO/EN.
+- Source order in `tracking.track()`: EDI feed → public page → admin assignment → private
+  REST (only if a consumer key ever appears). "The carrier has nothing public for this
+  reference" is now reported as `found: false`, NOT as `configured: false` — a real answer
+  is not a missing integration.
+- Admin → **Shipments** tab (`components/admin/AdminShipments.js`): assign a reference to a
+  customer email with optional car id, vessel name/IMO/MMSI, ETA and a note; list of
+  assignments with "Read carrier" (forces a fresh browser read and prints the last 8
+  milestones) and remove. The shipment endpoints moved from session-only auth to
+  `_require_admin`, so `x-admin-token` works for scripts like the rest of the admin surface.
+- MarineTraffic moved to the OFFICIAL AIS API per the spec the owner supplied:
+  `GET {base}/exportvessel/{key}?v=5&imo=…|mmsi=…&timespan=1440&msgtype=extended&protocol=jsono`,
+  redirects followed, `SPEED` divided by 10, rows read defensively (array or `DATA`), cached
+  30 min. Env: `MARINETRAFFIC_API_KEY`, `MARINETRAFFIC_BASE_URL`,
+  `MARINETRAFFIC_EXPORTVESSEL_VERSION`.
+  **Scraping MarineTraffic was tried and rejected**: even in a real browser their Cloudflare
+  hard-blocks this datacenter IP ("Sorry, you have been blocked"), and vesselfinder.com
+  times out. Live vessel positions therefore need the paid key; until it is set the vessel
+  card says so honestly.
+- Verified (testing agent iteration_21, 13/13 checks + 6/6 pytest in
+  `backend/tests/test_shipments_tracking.py`): assign / duplicate / unknown-email 404 /
+  delete, the ~0.2s `checking` answer followed by an honest not-found, the seeded payload
+  rendering 6 milestones with a Busan→Singapore solid leg and a dashed leg to Piraeus, and
+  BG/RO copy. Test assignments and cached test refs were deleted afterwards;
+  `backend/seed_track_test.py` re-seeds a synthetic payload for UI work (`--clear` removes).
+- STILL NEEDED FROM THE OWNER: a reference Maersk actually publishes (the one supplied,
+  `271191199`, returns "No results found" on Maersk's OWN page, so it is not on public
+  track — a booking number rather than a B/L, or too old), and the MarineTraffic API key.
+
 ## Backlog
 ### P0 (blocked on the owner)
+- **A real Maersk reference** to finish validating the public reader against live data, and
+  the **MarineTraffic API key** for live vessel positions on the map.
 - **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY
   drop in the final landed price of a car saved to their account, batched into one message
   per user. Still needed before it can ship: the owner's email address for testing
