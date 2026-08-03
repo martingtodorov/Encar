@@ -35,6 +35,45 @@ export async function getCar(id, lang) {
   return data;
 }
 
+/**
+ * Car payloads warmed while the visitor hovers a row, so opening the car is instant.
+ * Keyed by language because the payload is translated. Entries hold the PROMISE, so a
+ * hover and the click that follows share one request instead of racing.
+ */
+const carCache = new Map();
+const CAR_TTL = 5 * 60 * 1000;
+const CAR_CACHE_MAX = 60;
+
+const carKey = (id, lang) => `${lang}:${id}`;
+
+export function warmCar(id, lang) {
+  const key = carKey(id, lang);
+  const hit = carCache.get(key);
+  if (hit && Date.now() - hit.at < CAR_TTL) return hit.p;
+  if (carCache.size >= CAR_CACHE_MAX) carCache.clear();
+  const p = getCar(id, lang)
+    .then((d) => {
+      // Also pull the first full-size photo into the browser cache, so the hero image is
+      // already there when the page opens instead of fading in after it.
+      const first = d?.photos?.[0]?.full;
+      if (first) {
+        const im = new Image();
+        im.src = first;
+      }
+      return d;
+    })
+    .catch((e) => {
+      carCache.delete(key);
+      throw e;
+    });
+  carCache.set(key, { at: Date.now(), p });
+  return p;
+}
+
+export function forgetCar(id, lang) {
+  carCache.delete(carKey(id, lang));
+}
+
 export async function getFx() {
   const { data } = await http.get("/fx");
   return data;

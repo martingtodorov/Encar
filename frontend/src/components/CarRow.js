@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PhotoSwiper } from "@/components/PhotoSwiper";
 import { useApp } from "@/context/AppContext";
+import { useCarWarm } from "@/hooks/useCarWarm";
 import {
   carSubtitle,
   carTitle,
@@ -24,6 +25,7 @@ import {
 export const CarRow = ({ car, onOpen }) => {
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
   const saved = isFavourite(car.id);
+  const warm = useCarWarm(car.id);
 
   const badges = [];
   if (car.diagnosed)
@@ -76,6 +78,7 @@ export const CarRow = ({ car, onOpen }) => {
       data-testid="car-row"
       data-car-id={car.id}
       data-under-contract={car.under_contract ? "true" : "false"}
+      {...warm}
       className="group relative flex items-stretch gap-4 overflow-hidden rounded-[14px] border border-border bg-card p-3 shadow-sm transition-shadow duration-200 hover:shadow-md"
     >
       {car.under_contract && (

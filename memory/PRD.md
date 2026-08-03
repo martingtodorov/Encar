@@ -198,6 +198,14 @@ that owns the Resend account.
     column drive the scroller with `scrollTo`/`scrollBy`, guarded by a 450ms lock so the
     observer's updates cannot restart the animation
 
+- **Hover warms a car so the click is instant.** `lib/api.warmCar` holds the payload
+  PROMISE per (id, lang) with a 5 min TTL, so a hover and the click that follows share one
+  request; it also pulls the first full-size photo into the browser cache. `useCarWarm`
+  arms after 280ms of sustained hover (a pointer sweeping the list warms nothing) and after
+  120ms of touch, cancelled by `touchmove` so the start of a scroll flick is not mistaken
+  for a tap. Measured: sweep = 0 requests, settle = 1 request, click -> car page rendered in
+  **0.14s** with the hero photo already decoded. Retries bypass the cache via `forgetCar`.
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY

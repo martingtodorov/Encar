@@ -25,7 +25,7 @@ import { useApp } from "@/context/AppContext";
 import { EnquiryDialog } from "@/components/EnquiryDialog";
 import { DescriptionPanelBody } from "@/components/DescriptionPanelBody";
 import { useLangNav } from "@/hooks/useLangNav";
-import { getCar } from "@/lib/api";
+import { getCar, warmCar, forgetCar } from "@/lib/api";
 import { useSeo } from "@/lib/seo";
 import { formatMileage, formatMoney, formatNumber, formatYearMonth } from "@/lib/format";
 
@@ -110,8 +110,11 @@ export default function CarDetailPage() {
     setLoading(true);
     setError(null);
 
-    const load = (isRetry) =>
-      getCar(id, lang)
+    const load = (isRetry) => {
+      // A row the visitor hovered has already been warmed, so this resolves instantly.
+      // Retries must bypass that cache, otherwise the pending translation never arrives.
+      if (isRetry) forgetCar(id, lang);
+      return (isRetry ? getCar(id, lang) : warmCar(id, lang))
         .then((d) => {
           if (cancelled) return;
           setCar(d);
@@ -124,6 +127,7 @@ export default function CarDetailPage() {
         })
         .catch((e) => !cancelled && setError(e?.response?.data?.detail || e.message))
         .finally(() => !cancelled && setLoading(false));
+    };
 
     load(false);
     return () => {
