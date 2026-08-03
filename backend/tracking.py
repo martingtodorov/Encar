@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import httpx
 
 import edi
+import ports
 
 log = logging.getLogger("tracking")
 
@@ -132,6 +133,7 @@ def _milestone(e):
         "estimated": (e.get("eventClassifierCode") or "ACT").upper() != "ACT",
         "location": loc.get("locationName") or loc.get("UNLocationCode") or "",
         "country": (loc.get("address") or {}).get("country") or loc.get("countryCode") or "",
+        "unloc": (loc.get("UNLocationCode") or "").upper(),
         "mode": call.get("modeOfTransport") or "",
         "vessel_name": vessel.get("vesselName") or call.get("vesselName") or "",
         "vessel_imo": str(vessel.get("vesselIMONumber") or call.get("vesselIMONumber") or ""),
@@ -176,6 +178,13 @@ async def vessel_position(db, imo):
 
 def _view(ref, by, stones, source, cached=False, vessel=None):
     """Turn a sorted list of canonical events into what the Track page renders."""
+    # Coordinates where the port is one we know, so the map can draw the route. Unknown
+    # ports simply have no marker; the timeline still names them.
+    for m in stones:
+        where = ports.locate(m.get("unloc"), m.get("location"))
+        if where:
+            m["lat"], m["lon"] = where["lat"], where["lon"]
+            m["location"] = m["location"] or where["port"]
     done = [m for m in stones if not m["estimated"]]
     ahead = [m for m in stones if m["estimated"]]
     # The port arrival is the date a buyer plans around; the trailing gate-out/delivery

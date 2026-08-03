@@ -347,6 +347,30 @@ quota, no polling.
   or an SFTP drop we would need to poll), plus the MarineTraffic/Kpler key for live vessel
   positions (the vessel card says so honestly until then).
 
+### Vessel map + car link (2026-06)
+- `backend/ports.py`: UN/LOCODE -> coordinates for the ~50 ports these shipments actually
+  call at (Korea, Asian transhipment, Suez, Med/Adriatic, Black Sea, North Europe). A
+  geocoder would be another dependency and another key for data that never changes; unknown
+  ports simply get no marker and the timeline still names them. `edi.py` now captures the
+  UN/LOCODE (X12 `R4` when qualifier is UN, IFTSTA `LOC` first component), the REST path
+  reads `UNLocationCode`, and `tracking._view` attaches lat/lon to each milestone.
+- `frontend/src/components/VesselMap.js` (react-leaflet 5 + leaflet 1.9, OpenStreetMap
+  tiles, no key): solid red polyline for the legs already sailed, dashed grey for what is
+  ahead, filled markers for ports passed and hollow for ports still to come, consecutive
+  events in one port collapsed into a single stop, and a blue ship marker at the AIS
+  position when a key is configured. Circle markers, NOT Leaflet's default pin — the
+  default icon loads from an asset path webpack rewrites, which is the classic
+  "markers vanish in production" bug.
+- Car link: `tracked_shipments[i].car_id` (POST body accepts `car_id`). The Track page shows
+  a "Your car" panel with photo, title, year, mileage, EUR price, a link to the ad and an
+  unlink action; when nothing is linked it offers a picker built from the buyer's saved cars
+  plus any car already attached to a shipment.
+- Verified signed in: car panel rendered the linked Hyundai Santa Fe with its EUR price, the
+  map drew 12 tiles and 5 vectors (Busan -> Singapore solid, dashed on to Piraeus), zero
+  console errors. Test events, saved shipments and the test favourite were then removed.
+- NOTE: `getListingsByIds` returns `{items}`, not an array — that mistake cost one render
+  crash ("cars.find is not a function").
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY

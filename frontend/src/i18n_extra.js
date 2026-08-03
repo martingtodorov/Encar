@@ -162,6 +162,11 @@ const EXTRA = {
     trackNotReady: "Проследяването още не е свързано",
     trackNotReadyBody: "Липсват ключовете за Maersk Track & Trace. Добави ги в настройките на сървъра и страницата започва да работи веднага, без други промени.",
     seoTrackDesc: "Проследи контейнера с автомобила си от Корея до пристанището на доставка.",
+    trackYourCar: "Твоят автомобил",
+    trackPickCar: "Избери автомобил…",
+    trackLinkHint: "Свържи пратката с колата, за да я виждаш до пътя ѝ.",
+    trackUnlinkCar: "Разкачи",
+    trackNoCars: "Запази автомобил, за да можеш да го свържеш с тази пратка.",
   },
   ro: {
     sendEnquiry: "Trimite o solicitare",
@@ -323,6 +328,11 @@ const EXTRA = {
     trackNotReady: "Urmărirea nu este încă conectată",
     trackNotReadyBody: "Lipsesc cheile pentru Maersk Track & Trace. Adaugă-le în setările serverului și pagina începe să funcționeze imediat.",
     seoTrackDesc: "Urmărește containerul mașinii tale din Coreea până în portul de livrare.",
+    trackYourCar: "Mașina ta",
+    trackPickCar: "Alege o mașină…",
+    trackLinkHint: "Leagă transportul de mașină ca să o vezi lângă traseul ei.",
+    trackUnlinkCar: "Deconectează",
+    trackNoCars: "Salvează o mașină ca să o poți lega de acest transport.",
   },
   en: {
     sendEnquiry: "Send enquiry",
@@ -484,6 +494,11 @@ const EXTRA = {
     trackNotReady: "Tracking is not connected yet",
     trackNotReadyBody: "The Maersk Track & Trace keys are missing. Add them to the server settings and this page starts working immediately, with no other changes.",
     seoTrackDesc: "Track your car's container from Korea to the port of delivery.",
+    trackYourCar: "Your car",
+    trackPickCar: "Pick a car…",
+    trackLinkHint: "Link the shipment to your car to see it beside its journey.",
+    trackUnlinkCar: "Unlink",
+    trackNoCars: "Save a car first and you can link it to this shipment.",
   },
 };
 

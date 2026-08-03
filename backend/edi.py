@@ -51,7 +51,7 @@ def _iso(date, time=None):
 
 def _blank():
     return {"code": "", "when": None, "estimated": False, "location": "", "country": "",
-            "mode": "", "vessel_name": "", "vessel_imo": "", "voyage": ""}
+            "unloc": "", "mode": "", "vessel_name": "", "vessel_imo": "", "voyage": ""}
 
 
 def parse_x12_315(text):
@@ -114,6 +114,8 @@ def parse_x12_315(text):
             name = (f[4] if len(f) > 4 else "").strip()
             if name:
                 cur["event"]["location"] = name
+            if (f[2] if len(f) > 2 else "").strip().upper() == "UN":
+                cur["event"]["unloc"] = (f[3] if len(f) > 3 else "").strip().upper()
             if len(f) > 5 and f[5].strip():
                 cur["event"]["country"] = f[5].strip()
 
@@ -170,6 +172,7 @@ def parse_iftsta(text):
                 cur["event"]["estimated"] = False
         elif cur and tag == "LOC":
             comp = (f[2] if len(f) > 2 else "").split(":")
+            cur["event"]["unloc"] = (comp[0] if comp else "").strip().upper()
             cur["event"]["location"] = (comp[3] if len(comp) > 3 else comp[0]).strip()
         elif cur and tag == "TDT":
             cur["event"]["mode"] = "VESSEL"

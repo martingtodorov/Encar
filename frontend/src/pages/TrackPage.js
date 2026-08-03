@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Anchor,
   Container,
@@ -12,10 +13,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HeaderBar } from "@/components/HeaderBar";
+import { VesselMap } from "@/components/VesselMap";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useSeo } from "@/lib/seo";
+import { carTitle, formatMileage, formatMoney, formatYearMonth } from "@/lib/format";
 import {
+  getListingsByIds,
   getTrackedShipments,
   removeTrackedShipment,
   saveTrackedShipment,
@@ -124,7 +128,7 @@ const Row = ({ m, lang, last }) => (
 );
 
 export default function TrackPage() {
-  const { t, lang } = useApp();
+  const { t, lang, currency, rates, favourites } = useApp();
   const { user } = useAuth();
   const [by, setBy] = useState("container");
   const [ref, setRef] = useState("");
@@ -132,13 +136,30 @@ export default function TrackPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState([]);
+  const [cars, setCars] = useState([]);
 
   useSeo({ lang, title: `${t("trackTitle")} · Encar`, description: t("seoTrackDesc") });
 
   useEffect(() => {
-    if (!user) return setSaved([]);
+    if (!user) {
+      setSaved([]);
+      return;
+    }
     getTrackedShipments().then(setSaved).catch(() => setSaved([]));
   }, [user]);
+
+  // The cars a buyer might attach: everything they saved, plus anything already linked to a
+  // shipment even if it is no longer in their saved list.
+  useEffect(() => {
+    const ids = [...new Set([...(favourites || []), ...saved.map((s) => s.car_id).filter(Boolean)])];
+    if (!ids.length) {
+      setCars([]);
+      return;
+    }
+    getListingsByIds(ids, lang)
+      .then((d) => setCars(d.items || []))
+      .catch(() => setCars([]));
+  }, [favourites, saved, lang]);
 
   const lookup = useCallback(
     (value, mode) => {
@@ -161,14 +182,21 @@ export default function TrackPage() {
     lookup(item.ref, item.by || "container");
   };
 
-  const save = () =>
-    saveTrackedShipment({ ref: data.reference, by: data.by, label: "" })
+  const save = (carId) =>
+    saveTrackedShipment({
+      ref: data.reference,
+      by: data.by,
+      label: "",
+      car_id: carId ?? entry?.car_id ?? "",
+    })
       .then(setSaved)
       .catch(() => {});
 
   const drop = (r) => removeTrackedShipment(r).then(setSaved).catch(() => {});
 
-  const isSaved = data && saved.some((s) => s.ref === data.reference);
+  const entry = data ? saved.find((s) => s.ref === data.reference) : null;
+  const linked = entry?.car_id ? cars.find((c) => c.id === entry.car_id) : null;
+  const isSaved = Boolean(entry);
   const status = data?.found
     ? t(
         data.status === "delivered"
@@ -293,7 +321,7 @@ export default function TrackPage() {
                 {user && (
                   <Button
                     variant={isSaved ? "outline" : "default"}
-                    onClick={() => (isSaved ? drop(data.reference) : save())}
+                    onClick={() => (isSaved ? drop(data.reference) : save(""))}
                     data-testid="track-save-button"
                     className="gap-2"
                   >
@@ -334,6 +362,78 @@ export default function TrackPage() {
                 )}
               </div>
             </div>
+
+            {user && isSaved && (
+              <div className="rounded-[14px] border border-border bg-card p-5" data-testid="track-car">
+                <h2 className="text-base font-semibold text-foreground">{t("trackYourCar")}</h2>
+                {linked ? (
+                  <div className="mt-3 flex gap-4">
+                    <img
+                      src={linked.image}
+                      alt={carTitle(linked)}
+                      className="h-[86px] w-[130px] shrink-0 rounded-[10px] object-cover"
+                    />
+                    <div className="min-w-0">
+                      <div className="line-clamp-1 text-sm font-semibold text-foreground">
+                        {carTitle(linked)}
+                      </div>
+                      <div className="tnum mt-0.5 text-[12px] text-muted-foreground">
+                        {formatYearMonth(linked.year_month, lang)} ·{" "}
+                        {formatMileage(linked.mileage, lang)}
+                      </div>
+                      <div className="tnum mt-1 text-sm font-semibold text-foreground">
+                        {formatMoney(linked.sale_eur, currency, lang, rates)}
+                      </div>
+                      <div className="mt-1 flex gap-3">
+                        <Link
+                          to={`/${lang}/car/${linked.id}`}
+                          className="text-[12px] font-medium text-primary hover:underline"
+                          data-testid="track-car-link"
+                        >
+                          {t("viewDetails")}
+                        </Link>
+                        <button
+                          type="button"
+                          onClick={() => save("")}
+                          className="text-[12px] text-muted-foreground hover:text-destructive"
+                          data-testid="track-car-unlink"
+                        >
+                          {t("trackUnlinkCar")}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : cars.length ? (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <select
+                      data-testid="track-car-select"
+                      defaultValue=""
+                      onChange={(e) => e.target.value && save(e.target.value)}
+                      className="h-10 rounded-[10px] border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="">{t("trackPickCar")}</option>
+                      {cars.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {carTitle(c)}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-[12px] text-muted-foreground">{t("trackLinkHint")}</span>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-[12px] text-muted-foreground">{t("trackNoCars")}</p>
+                )}
+              </div>
+            )}
+
+            {data.milestones.some((m) => m.lat) && (
+              <VesselMap
+                milestones={data.milestones}
+                position={data.vessel?.position}
+                vesselName={data.vessel?.name}
+                labelFor={(code) => label(lang, code)}
+              />
+            )}
 
             {data.vessel && (
               <div className="rounded-[14px] border border-border bg-card p-5" data-testid="track-vessel">

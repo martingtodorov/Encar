@@ -1319,6 +1319,7 @@ class TrackBody(BaseModel):
     ref: str
     by: str = "container"
     label: str = ""
+    car_id: str = ""
 
 
 @api.get("/tracking")
@@ -1345,6 +1346,7 @@ async def tracking_save(body: TrackBody, user=Depends(auth.current_user)):
         raise HTTPException(400, "a reference is required")
     items = [x for x in (user.get("tracked_shipments") or []) if x.get("ref") != ref]
     items.insert(0, {"ref": ref, "by": body.by, "label": body.label.strip()[:80],
+                     "car_id": body.car_id.strip()[:40],
                      "added_at": datetime.now(timezone.utc).isoformat()})
     await db.users.update_one({"_id": user["_id"]},
                              {"$set": {"tracked_shipments": items[:20]}})
