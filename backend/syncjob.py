@@ -27,9 +27,55 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+LIVE_ID = "catalogue_partition_live"
+
+# Rough share of the whole job each phase represents, so the bar keeps moving during the
+# post-crawl passes instead of sitting at 100% for a few minutes.
+PHASE_WEIGHT = {"crawl": 0.86, "retire": 0.88, "manual": 0.90, "dedupe": 0.93,
+                "taxonomy": 0.97, "slugs": 0.99, "coverage": 1.0}
+PHASE_LABEL = {"crawl": "Crawling Encar", "retire": "Retiring sold cars",
+               "manual": "Tagging gearboxes", "dedupe": "Removing duplicates",
+               "taxonomy": "Rebuilding dropdowns", "slugs": "Rebuilding URL slugs",
+               "coverage": "Refreshing coverage"}
+
+
 async def get_job(db):
     doc = await db.sync_state.find_one({"_id": JOB_ID}) or {}
-    return {k: v for k, v in doc.items() if k != "_id"} or {"status": "idle"}
+    job = {k: v for k, v in doc.items() if k != "_id"} or {"status": "idle"}
+    job["progress"] = await get_progress(db, job)
+    return job
+
+
+async def get_progress(db, job):
+    """Percent complete, honestly derived: crawled-so-far against the upstream count."""
+    live = await db.sync_state.find_one({"_id": LIVE_ID}) or {}
+    if not live:
+        return None
+    phase = live.get("phase") or "crawl"
+    upstream = live.get("upstream") or 0
+    seen = live.get("seen") or 0
+    if job.get("status") == "done":
+        pct = 100
+    elif phase == "crawl":
+        pct = min(85, round(seen / upstream * 85)) if upstream else 0
+    else:
+        pct = round(PHASE_WEIGHT.get(phase, 0.9) * 100)
+    return {
+        "phase": phase,
+        "phase_label": PHASE_LABEL.get(phase, phase),
+        "percent": pct,
+        "seen": seen,
+        "written": live.get("written") or 0,
+        "upstream": upstream,
+        "leaves": live.get("leaves") or 0,
+        "updated_at": live.get("updated_at"),
+        "run_id": live.get("run_id"),
+    }
+
+
+async def _phase(db, phase):
+    await db.sync_state.update_one(
+        {"_id": LIVE_ID}, {"$set": {"phase": phase, "updated_at": _now()}}, upsert=True)
 
 
 async def get_schedule(db):
@@ -77,6 +123,16 @@ def is_running(db=None):
     return _task is not None and not _task.done()
 
 
+async def clear_stale(db):
+    """A restart kills the task but not the status doc, which would jam the button."""
+    doc = await db.sync_state.find_one({"_id": JOB_ID}) or {}
+    if doc.get("status") == "running" and not is_running():
+        await db.sync_state.update_one(
+            {"_id": JOB_ID},
+            {"$set": {"status": "interrupted", "finished_at": _now(),
+                      "error": "the server restarted while this sync was running"}})
+
+
 async def start(db, trigger="manual"):
     """Kick off the crawl detached. Returns immediately."""
     global _task
@@ -97,10 +153,15 @@ async def _run(db, trigger):
     try:
         await sync_mod.ensure_indexes(db)
         result = await sync_mod.crawl_partitioned(db, manufacturers=None, retire=True)
+        await _phase(db, "manual")
         result["manual_tagged"] = await sync_mod.tag_transmission(db)
+        await _phase(db, "dedupe")
         result["dedupe"] = await sync_mod.dedupe_pass(db)
+        await _phase(db, "taxonomy")
         result["taxonomy"] = await sync_mod.build_taxonomy(db)
+        await _phase(db, "slugs")
         result["slugs"] = await slugs_mod.ensure_taxonomy_slugs(db, force=True)
+        await _phase(db, "coverage")
         try:
             await sync_mod.refresh_brand_coverage(db)
         except Exception as e:

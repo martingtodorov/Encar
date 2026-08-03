@@ -111,6 +111,11 @@ sending domain — the shared `onboarding@resend.dev` sender only delivers to th
 that owns the Resend account.
 
 ## Recent (2026-06, latest session)
+- Admin panel has a **Catalogue sync** tab: manual full-crawl button with a live progress bar
+  plus an optional daily run at a chosen time/zone (currently ON, 03:30 Europe/Sofia).
+- Description translation: prompt hardened for Bulgarian/Romanian grammar (owner chose prompt
+  work over a bigger model), temperature 0.2, cached descriptions cleared, and the panel no
+  longer collapses while the translation streams in.
 - Photo swiper: one macOS trackpad flick now advances exactly one photo (momentum stream is
   treated as a single gesture), and the dot rail is capped at five sliding, animated dots.
 - Mobile header: centred logo, hamburger on the right, theme toggle moved into the drawer.

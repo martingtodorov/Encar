@@ -1260,6 +1260,7 @@ async def on_startup():
                       "created_at": datetime.now(timezone.utc)}},
             upsert=True)
     asyncio.get_running_loop().create_task(_fx_watchdog())
+    await syncjob_mod.clear_stale(db)
     asyncio.get_running_loop().create_task(syncjob_mod.scheduler(db))
     log.info("startup complete: %s listings in index",
              await db.listings.count_documents({}))

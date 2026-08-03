@@ -327,12 +327,41 @@ async def translate_one(db, text, lang):
     return res.get(text.strip(), text)
 
 
+# Grammar is where the fast model slips, so the rules it gets wrong most often are spelled
+# out per language rather than left to "translate naturally".
+DESC_RULES = {
+    "bg": (
+        "Write in correct, idiomatic Bulgarian. Watch the definite article: full article "
+        "(-ът/-ят) only for a masculine subject, short article (-а/-я) otherwise; feminine "
+        "-та, neuter -то, plural -те/-та. Agree adjectives with the noun in gender and "
+        "number. Use the vocabulary a Bulgarian car dealer would use: \u043f\u0440\u043e\u0431\u0435\u0433, "
+        "\u0441\u043a\u043e\u0440\u043e\u0441\u0442\u043d\u0430 \u043a\u0443\u0442\u0438\u044f, \u0433\u0443\u043c\u0438, \u0441\u0435\u0440\u0432\u0438\u0437\u043d\u0430 \u0438\u0441\u0442\u043e\u0440\u0438\u044f, "
+        "\u0437\u0430\u0441\u0442\u0440\u0430\u0445\u043e\u0432\u0430\u0442\u0435\u043b\u043d\u043e \u0441\u044a\u0431\u0438\u0442\u0438\u0435, \u043e\u0431\u043e\u0440\u0443\u0434\u0432\u0430\u043d\u0435, \u043f\u044a\u0440\u0432\u0438 \u0441\u043e\u0431\u0441\u0442\u0432\u0435\u043d\u0438\u043a. "
+        "Never transliterate a Korean word that has a Bulgarian equivalent."
+    ),
+    "ro": (
+        "Write in correct, idiomatic Romanian with all diacritics (\u0103 \u00e2 \u00ee \u0219 \u021b). "
+        "Use the enclitic definite article correctly and agree adjectives in gender and "
+        "number. Use the vocabulary a Romanian dealer would use: rulaj, cutie de viteze, "
+        "anvelope, istoric de service, dot\u0103ri, primul proprietar."
+    ),
+    "en": "Write in clear, natural British English as a dealer would.",
+}
+
 DESC_SYSTEM = (
-    "You are translating a Korean used-car dealer's own description of a vehicle into "
-    "{lang}. Translate the meaning faithfully and naturally, as a dealer would write it "
-    "in {lang}. Keep model names, trim names, option names and numbers exactly as they "
-    "are. Preserve the line breaks of the original. Reply with the translation only - no "
-    "preamble, no notes, no quotation marks around it."
+    "You translate a Korean used-car dealer's own description of a vehicle into {lang}.\n"
+    "{rules}\n"
+    "Rules that always apply:\n"
+    "- Convey the meaning, never the Korean word order. Rewrite the sentence so it reads "
+    "as if it had been written in {lang} in the first place.\n"
+    "- Keep model names, trim names, option names, dates and every number exactly as they "
+    "are, including units.\n"
+    "- Korean dealer shorthand (\uc6d0, \ub9cc\ud0a4\ub85c, \ubc1c\uc0dd, \ubb34\uc0ac\uace0, \uc790\uc728\uc8fc\ud589) must become the "
+    "equivalent term, not a literal gloss.\n"
+    "- Preserve the line breaks of the original.\n"
+    "- Proofread before answering: no misspellings, no missing articles, no agreement "
+    "errors, no half-finished sentences.\n"
+    "- Reply with the translation only: no preamble, no notes, no quotation marks."
 )
 
 
@@ -353,7 +382,8 @@ async def stream_description(db, text, lang):
     async with _anthropic_client().messages.stream(
         model=model,
         max_tokens=4000,
-        system=DESC_SYSTEM.format(lang=LANGS[lang]),
+        temperature=0.2,   # accuracy over flair: this is a spec sheet in prose
+        system=DESC_SYSTEM.format(lang=LANGS[lang], rules=DESC_RULES.get(lang, "")),
         messages=[{"role": "user", "content": text}],
     ) as stream:
         async for piece in stream.text_stream:

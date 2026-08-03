@@ -105,6 +105,30 @@ export const AdminCatalogueSync = () => {
         <Stat testId="sync-active" label="Active listings after run" value={num(res.active)} />
       </div>
 
+      {job.progress && (running || job.status === "done") ? (
+        <div data-testid="sync-progress" className="rounded-[14px] border border-border bg-card p-4">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[13.5px] font-semibold text-foreground">
+              {running ? job.progress.phase_label : "Finished"}
+            </span>
+            <span data-testid="sync-progress-percent" className="tnum text-[13.5px] text-muted-foreground">
+              {job.progress.percent}%
+            </span>
+          </div>
+          <div className="mt-2.5 h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              data-testid="sync-progress-bar"
+              className="h-full rounded-full bg-[hsl(var(--primary))] transition-[width] duration-700"
+              style={{ width: `${job.progress.percent}%` }}
+            />
+          </div>
+          <p className="mt-2 text-[12.5px] text-muted-foreground">
+            {num(job.progress.seen)} of about {num(job.progress.upstream)} cars indexed
+            {job.progress.leaves ? ` · ${num(job.progress.leaves)} slices crawled` : ""}
+          </p>
+        </div>
+      ) : null}
+
       {job.error ? (
         <p data-testid="sync-error" className="rounded-[12px] border border-destructive/40 bg-destructive/5 p-3 text-[13px] text-destructive">
           {job.error}

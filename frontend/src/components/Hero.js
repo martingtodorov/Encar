@@ -18,16 +18,16 @@ export const Hero = ({ totalUpstream, onStart }) => {
       className="hero-bg relative overflow-hidden border-b border-border"
     >
       <div className="hero-grain absolute inset-0" aria-hidden="true" />
-      <div className="relative mx-auto max-w-[1280px] px-4 py-12 sm:px-6 sm:py-16">
+      <div className="relative mx-auto max-w-[1280px] px-4 py-7 sm:px-6 sm:py-10">
         <div className="max-w-3xl">
           <h1 className="text-3xl font-semibold leading-[1.12] tracking-tight text-foreground sm:text-4xl lg:text-5xl">
             {t("heroTitle")}
           </h1>
-          <p className="mt-4 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+          <p className="mt-2.5 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
             {t("heroSubtitle")}
           </p>
 
-          <div className="mt-6 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             {chips.map(({ icon: Icon, label }) => (
               <span
                 key={label}
@@ -39,7 +39,7 @@ export const Hero = ({ totalUpstream, onStart }) => {
             ))}
           </div>
 
-          <div className="mt-8 flex flex-wrap items-center gap-4">
+          <div className="mt-5 flex flex-wrap items-center gap-4">
             <Button
               data-testid="hero-cta"
               onClick={onStart}

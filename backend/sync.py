@@ -13,6 +13,7 @@ backoff on 429/5xx. No IP rotation of any kind.
 
 import asyncio
 import logging
+import time
 import os
 from datetime import datetime, timezone
 
@@ -293,6 +294,24 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
           "unsplittable": 0, "excluded_skipped": 0, "written": 0}
     seen = set()
 
+    # Live progress for the admin panel. Written at most every few seconds: a crawl does
+    # thousands of batches and one write each would cost more than the crawl.
+    live_id = f"{progress_key}_live"
+    live = {"upstream": 0, "last_write": 0.0}
+
+    async def publish(phase, force=False):
+        now = time.monotonic()
+        if not force and now - live["last_write"] < 3:
+            return
+        live["last_write"] = now
+        await db.sync_state.update_one(
+            {"_id": live_id},
+            {"$set": {"phase": phase, "run_id": run_id, "upstream": live["upstream"],
+                      "seen": len(seen), "written": st["written"], "leaves": st["leaves"],
+                      "probes": st["probes"], "excluded": st["excluded_skipped"],
+                      "updated_at": datetime.now(timezone.utc)}},
+            upsert=True)
+
     async def sink(rows):
         ops = []
         now = datetime.now(timezone.utc)
@@ -320,6 +339,7 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
         if ops:
             await db.listings.bulk_write(ops, ordered=False)
             st["written"] += len(ops)
+        await publish("crawl")
 
     scope = list(manufacturers) if manufacturers else [None]
     per_make = {}
@@ -328,6 +348,8 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
     for mfr in scope:
         base = [f"Manufacturer.{mfr}"] if mfr else []
         total = await encar.count(_q(base))
+        live["upstream"] += total
+        await publish("crawl", force=True)
         before = len(seen)
         before_excluded = st["excluded_skipped"]
         await _set(db, **{f"{progress_key}_current": mfr or "ALL"})
@@ -363,6 +385,7 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
                                "retired_at": datetime.now(timezone.utc)}})
         retired = r.modified_count
 
+    await publish("retire" if retire else "crawl", force=True)
     result = {
         "run_id": run_id, "stats": st, "per_make": per_make,
         "distinct_ids": len(seen), "retired": retired,

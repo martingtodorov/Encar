@@ -320,3 +320,34 @@ Verified (iteration_9): 100% both.
   wipes navigation state. Verified: 2199 restored within 1.5s and it sticks.
 - **Debug lesson**: three guesses at the restore bug cost more than one round of
   `console.log` + captured browser logs would have. Instrument first.
+
+## 2026-06 — Catalogue sync in the admin panel
+- New **Catalogue sync** tab (`AdminCatalogueSync`): one button starts a whole-catalogue
+  crawl and a switch schedules it daily at a chosen time and time zone. Backend is
+  `syncjob.py` with `GET /api/admin/catalogue-sync`, `POST .../run` and
+  `PUT .../schedule`; the job is detached (a crawl outlives any request) and everything is
+  read back from `sync_state`. Post-crawl it repeats what `crawl.py` does — retire, gearbox
+  tagging, dedupe, taxonomy rebuild, slug rebuild, coverage — because otherwise the
+  dropdowns and English URL slugs would still describe yesterday's catalogue.
+- **Live progress bar**: `crawl_partitioned` publishes `{seen, written, leaves, upstream}`
+  at most every 3s (a write per batch would cost more than the crawl), and the phases after
+  the crawl each report their own label so the bar keeps moving instead of parking at 100%.
+  Verified live: 5%, 11,418 of ~209,966 cars, 61 slices, run button disabled while running.
+- A job left `running` by a server restart is marked `interrupted` at startup
+  (`clear_stale`), otherwise the button would stay jammed for ever.
+- Daily schedule is currently ON at 03:30 Europe/Sofia.
+- `martingtodorov@gmail.com` already had `is_admin: true`; nothing was changed.
+
+## 2026-06 — Translation quality and UX
+- The description panel no longer collapses when Translate is pressed: the box keeps the
+  height it had (measured on click) while the stream fills it in.
+- Owner chose prompt-only improvement over a bigger model. `DESC_SYSTEM` now carries
+  per-language grammar rules (Bulgarian definite article long/short forms and adjective
+  agreement, Romanian diacritics and enclitic article, dealer vocabulary in both), forbids
+  Korean word order, requires Korean dealer shorthand to be converted rather than glossed,
+  and asks for a proofread pass; temperature dropped to 0.2. The 36 cached description
+  translations were cleared so the new prompt actually takes effect.
+- Landing block tightened (hero padding, trust cards side-by-side on mobile): the first car
+  now appears at 1010px instead of 1227px on a phone.
+- `color-scheme: dark` added to the dark theme so native controls — the make/model selects,
+  their option lists and the time picker — stop rendering in the browser's light chrome.

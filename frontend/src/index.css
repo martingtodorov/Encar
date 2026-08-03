@@ -53,6 +53,9 @@ code {
     }
 
     .dark {
+        /* Without this the browser paints native controls - the make/model selects and
+           their option lists, and the time picker - in its own light chrome. */
+        color-scheme: dark;
         --background: 222 16% 8%;
         --foreground: 210 20% 96%;
         --card: 222 15% 12%;
