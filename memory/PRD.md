@@ -233,6 +233,31 @@ that owns the Resend account.
   rapid clicks land on slide 9, not 5. New i18n key: `zoom`.
 - The CTA dot in the card rail is plain white like the others, not accent-coloured.
 
+## Code review pass (2026-06)
+Applied: seed password moved out of `seed_admin.py` into `backend/.env`
+(`ADMIN_SEED_PASSWORD`, no default so a missing value fails the seed); stable React keys
+for the two photo lists in `CarDetailPage` (thumb strip, lightbox) which had a real URL
+available.
+
+Rejected after checking the source — do NOT "fix" these again:
+- The 18 flagged `is` / `is not` comparisons are all `is None` / `is not None`. That is the
+  correct Python; switching them to `==` would be a regression.
+- `_ANTHROPIC` (translate.py) is a module global initialised to `None`; `resp` is assigned
+  in the `try` and the `except` path always raises; `pct` (syncjob.py) is assigned on every
+  branch of an if/elif/else. No path leaves them undefined.
+- No `console.*` statements exist anywhere in `frontend/src`.
+- The four "empty" catch blocks are deliberate best-effort paths (favourites merge, saved
+  search merge, the anonymous `/auth/me` probe, passkey list) and each already carries a
+  comment. Logging an expected anonymous visit as an error would be noise.
+- Index keys in `PhotoSwiper` dots and `CarGrid` skeletons are `Array.from({length})`
+  placeholder lists with no other identity — index is the right key there.
+
+Not done on purpose (would be a large, risky rewrite with no user-visible gain): splitting
+`car_detail`, `build_query`, `normalise_row`, `SearchPage` and `CarDetailPage`, and the
+exhaustive-deps sweep. On `SearchPage`/`AppContext` the omitted deps are intentional (URL is
+the single source of truth); adding them mechanically invites render loops. Worth doing as
+its own scoped task with the testing agent, not folded into a feature.
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY

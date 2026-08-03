@@ -301,7 +301,7 @@ export default function CarDetailPage() {
                   >
                     {photos.map((p, i) => (
                       <button
-                        key={i}
+                        key={p.full || p.thumb || i}
                         type="button"
                         data-testid="detail-photo-thumb"
                         onClick={() => setActive(i)}
@@ -703,7 +703,7 @@ export default function CarDetailPage() {
 
           <div className="flex flex-col gap-1.5 bg-black py-1.5">
             {photos.map((p, i) => (
-              <div key={i} className="w-full bg-black">
+              <div key={p.full || i} className="w-full bg-black">
                 <ImageWithFallback
                   src={p.full}
                   alt={car?.title || ""}

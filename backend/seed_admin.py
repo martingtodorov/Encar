@@ -19,7 +19,9 @@ from auth import ph  # noqa: E402
 # NOTE: not a .test/.local address - pydantic's EmailStr rejects reserved TLDs, so a
 # seeded account on one of those can never actually sign in through /api/auth/login.
 EMAIL = "admin@encarskin.com"
-PASSWORD = "AdminTest2026!"
+# Kept in backend/.env (ADMIN_SEED_PASSWORD), never in source. No default on purpose: a
+# missing value should stop the seed rather than quietly create a guessable account.
+PASSWORD = os.environ["ADMIN_SEED_PASSWORD"]
 
 
 async def main():
