@@ -279,3 +279,44 @@ Verified (iteration_9): 100% both.
   ref because SearchPage rewrites its own URL with `replace: true`, which wipes the
   navigation state before the results (and the page height) exist — that wipe was why the
   first attempt silently did nothing. Verified: left at 2200, returned at 2200.
+
+## 2026-06 — Filter bar polish, hero scope, pagination scroll
+- **The "dividing line" under the header was its own `shadow-sm`**, not a border. `HeaderBar`
+  now takes a `flush` prop that drops both the shadow and the bottom border whenever the
+  mobile filter bar is on screen — including while the header is collapsed, where the shadow
+  was still bleeding down onto the bar.
+- **Hero and trust strip are page-one, unfiltered only** (`isHome = !anyFilterActive &&
+  page <= 1`). Sorting alone still counts as the home view, as the owner asked.
+- **Pagination scrolls to the top of the page.** Measuring the top of the list looked right
+  on paper but shifted mid-scroll: the hero unmounts from page two onwards, so the target
+  moved out from under the animation and landed ~900px off. Scrolling to 0 is what the owner
+  asked for and is immune to that.
+- **Scroll restore made snappy**: instead of waiting for the fetch to resolve, a bounded rAF
+  loop re-asserts the offset as soon as the document is tall enough (skeletons count), for up
+  to 2.5s. The testing agent had caught the earlier version landing ~900px short because the
+  browser clamps a scroll the document cannot yet accommodate.
+- Test ids tidied per the report: the drawer copy of the filter panel is now
+  `filter-sidebar-sheet` (it was a duplicate `filter-sidebar` in the DOM) and the desktop
+  back button is `back-to-results-button`.
+
+## 2026-06 — Pagination, page-two reload, logo reset, scroll restore (finally)
+- **Reloading or sharing a `?page=2` link snapped back to page one.** The auto-sort effect
+  called `setPage(1)`, and that effect also runs on mount and after slug resolution. Removed
+  the reset from there: `changeTax` and `removeChip` already reset the page when the visitor
+  actually narrows the search. A `mounted` ref was tried first and failed, because refs
+  survive React StrictMode's double effect invocation.
+- **Pagination now lands at the top of the page.** A smooth scroll was being interrupted by
+  the results swapping underneath it, so the jump is instant and re-asserted once the new
+  page has rendered. Measuring the top of the list instead was worse: the hero unmounts from
+  page two onwards, moving the target mid-animation.
+- **Clicking the logo starts over.** Linking to `/{lang}` alone did nothing on a filtered
+  search, because the live filters immediately rewrote the query string back into the URL.
+  The link now carries a `home` timestamp in navigation state and the search page clears
+  every filter and scrolls to the top when it sees one.
+- **Scroll restore fixed (third attempt).** The offset arrives fine, but the effect reading
+  it had `[]` deps and the render carrying it is not always the mounting one, so the effect
+  simply never saw it. Keyed on `location.key` instead, with the target held in a
+  module-level variable because this page's own `setSearchParams(..., {replace: true})`
+  wipes navigation state. Verified: 2199 restored within 1.5s and it sticks.
+- **Debug lesson**: three guesses at the restore bug cost more than one round of
+  `console.log` + captured browser logs would have. Instrument first.

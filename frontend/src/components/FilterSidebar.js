@@ -160,7 +160,7 @@ export const FilterSidebar = ({
 
   return (
     <div
-      data-testid="filter-sidebar"
+      data-testid={inSheet ? "filter-sidebar-sheet" : "filter-sidebar"}
       className={
         inSheet
           ? "flex h-full flex-col"

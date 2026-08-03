@@ -167,7 +167,7 @@ export default function CarDetailPage() {
       {/* Mobile clears the always-visible car bar; desktop only needs the normal gap. */}
       <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-[72px] sm:px-6 lg:pt-2">
         <Button
-          data-testid="back-to-results"
+          data-testid="back-to-results-button"
           variant="ghost"
           onClick={goBack}
           // Mobile has the arrow in the header instead; two back affordances is one too many.

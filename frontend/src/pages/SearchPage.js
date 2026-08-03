@@ -39,6 +39,9 @@ import { describeSearch } from "@/lib/describeSearch";
 // 16 ads per page on every viewport: mobile shows them as cards, desktop as rows.
 const PAGE_SIZE = 16;
 
+// Scroll offset handed back by a car page, read on the next mount of this one.
+let pendingRestore = null;
+
 // Make alone is still browsing, so newest first. Once a model (or a trim below it) narrows
 // the list the visitor is comparing like with like, so cheapest first.
 const autoSort = (tax) =>
@@ -92,17 +95,32 @@ export default function SearchPage() {
   // guessing from the header.
   // Coming back from a car: scroll to where the visitor was, but only once the results
   // that make the page that tall have rendered.
-  // Grabbed at mount because this page rewrites its own URL with replace: true, which
-  // drops the navigation state long before the results (and the page height) exist.
+  // Kept OUTSIDE the component: this page rewrites its own URL with replace: true, which
+  // drops the navigation state, so a remount would find nothing left to restore.
   const location = useLocation();
-  const restoreTo = useRef(location.state?.restoreScroll ?? null);
+  if (location.state?.restoreScroll != null) pendingRestore = location.state.restoreScroll;
 
   useEffect(() => {
-    if (restoreTo.current == null || loading || !result.items.length) return;
-    const target = restoreTo.current;
-    restoreTo.current = null;
-    window.scrollTo(0, target);
-  }, [loading, result.items.length]);
+    const target = pendingRestore;
+    if (target == null) return undefined;
+    pendingRestore = null;
+    // Waiting for the results to arrive made the jump feel like a second page load, so
+    // instead poll the layout and move the moment the document is tall enough - the
+    // loading skeletons alone are usually enough.
+    let frame = 0;
+    const started = Date.now();
+    const tick = () => {
+      if (document.documentElement.scrollHeight >= target + window.innerHeight * 0.5) {
+        window.scrollTo(0, target);
+        if (Date.now() - started > 900) return;   // settled: stop re-asserting
+      }
+      if (Date.now() - started < 2500) frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => frame && cancelAnimationFrame(frame);
+    // Keyed on the navigation, not on mount: the render that carries the offset is not
+    // always the mounting one, and a mount-only effect simply missed it.
+  }, [location.key]);
 
   const filterTriggerRef = useRef(null);
   const [triggerOffscreen, setTriggerOffscreen] = useState(false);
@@ -258,7 +276,9 @@ export default function SearchPage() {
   useEffect(() => {
     if (sortTouched) return;
     setSort(autoSort(tax));
-    setPage(1);
+    // No page reset here. Picking a different car already resets it in changeTax, whereas
+    // this effect also runs on mount and on slug resolution - and doing it here is what
+    // sent anyone reloading or sharing a ?page=2 link back to the first page.
   }, [tax.model, tax.badge, tax.badgeDetail, sortTouched]);
 
   // Mirror the live search into the query string. `replace` so we do not push a history
@@ -310,14 +330,33 @@ export default function SearchPage() {
     setSortTouched(false);
   }, []);
 
+  // Tapping the logo starts over: clear every filter and go back to the top.
+  const homeSignal = location.state?.home;
+  useEffect(() => {
+    if (!homeSignal) return;
+    resetAll();
+    window.scrollTo(0, 0);
+  }, [homeSignal, resetAll]);
+
   const scrollToResults = useCallback(() => {
     resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
+  // A new page starts at the top of the page, not at the pagination the visitor just
+  // clicked. Measuring the list instead was unreliable: the hero disappears from page two
+  // onwards, so the layout shifts out from under the target mid-scroll.
+  const jumpedToPage = useRef(false);
   const changePage = useCallback((p) => {
     setPage(p);
-    resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    jumpedToPage.current = true;
+    window.scrollTo(0, 0);
   }, []);
+
+  useEffect(() => {
+    if (!jumpedToPage.current || loading) return;
+    jumpedToPage.current = false;
+    window.scrollTo(0, 0);
+  }, [loading, result.page]);
 
   // Carry the live search in the navigation state. The detail page's own "back to
   // results" button is not a browser Back, so without this it can only guess at "/"
@@ -344,8 +383,10 @@ export default function SearchPage() {
     toast.success(t("searchSavedToast"), { description: name });
   }, [filters, tax, taxLabels, facets, t, lang, currency, rates, query, result.total, saveSearch]);
 
-  // Any narrowing at all earns the red dot on the floating bar.
+  // Any narrowing at all earns the red dot on the floating bar - and hides the hero.
   const anyFilterActive = !!query;
+  const isHome = !anyFilterActive && page <= 1;
+  const barVisible = triggerOffscreen;
 
   const countLabel =
     result.total === 1
@@ -354,7 +395,7 @@ export default function SearchPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <HeaderBar hidden={headerHidden} />
+      <HeaderBar hidden={headerHidden} flush={barVisible} />
 
       {/* Mobile: once the header collapses on scroll, keep the filters reachable as a
           full-width bar carrying the live result count. */}
@@ -393,9 +434,12 @@ export default function SearchPage() {
         </button>
       </div>
 
-      <Hero totalUpstream={catalogueSize} onStart={scrollToResults} />
+      {/* The pitch belongs on the landing view only: once someone has filtered, they are
+          shopping and the hero is just something to scroll past. Sorting alone still counts
+          as the home view. */}
+      {isHome && <Hero totalUpstream={catalogueSize} onStart={scrollToResults} />}
 
-      <TrustStrip />
+      {isHome && <TrustStrip />}
 
       {/* Cascading Make -> Model -> Submodel -> Trim replaces the old search box */}
       <section className="bg-card">
@@ -525,15 +569,17 @@ export default function SearchPage() {
               />
             </div>
 
-            <CarGrid
-              items={result.items}
-              loading={loading}
-              error={error}
-              onRetry={() => runSearch(payload)}
-              onOpen={openCar}
-              onClearFilters={resetAll}
-              pageSize={PAGE_SIZE}
-            />
+            <div>
+              <CarGrid
+                items={result.items}
+                loading={loading}
+                error={error}
+                onRetry={() => runSearch(payload)}
+                onOpen={openCar}
+                onClearFilters={resetAll}
+                pageSize={PAGE_SIZE}
+              />
+            </div>
 
             <ResultsPagination
               page={result.page || page}

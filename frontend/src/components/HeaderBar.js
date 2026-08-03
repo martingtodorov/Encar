@@ -7,7 +7,7 @@ import { useApp } from "@/context/AppContext";
 import { NavDrawer } from "@/components/NavDrawer";
 import { HeaderNav } from "@/components/HeaderNav";
 
-export const HeaderBar = ({ hidden = false, onBack }) => {
+export const HeaderBar = ({ hidden = false, onBack, flush = false }) => {
   const { t } = useApp();
   const { path } = useLangNav();
 
@@ -15,9 +15,11 @@ export const HeaderBar = ({ hidden = false, onBack }) => {
     <header
       data-testid="header-bar"
       data-hidden={hidden ? "true" : "false"}
-      className={`sticky top-0 z-40 border-b border-border bg-card shadow-sm transition-transform duration-300 lg:translate-y-0 ${
-        hidden ? "-translate-y-full" : "translate-y-0"
-      }`}
+      // `flush`: something sits immediately below (the mobile filter bar), and the
+      // header's own shadow and border would read as a dividing line between them.
+      className={`sticky top-0 z-40 bg-card transition-transform duration-300 lg:translate-y-0 ${
+        flush ? "border-b-0 shadow-none" : "border-b border-border shadow-sm"
+      } ${hidden ? "-translate-y-full" : "translate-y-0"}`}
     >
       <div className="mx-auto flex h-16 max-w-[1280px] items-center gap-3 px-3 sm:px-6">
         {/* Mobile: logo centred, menu at the right edge under the thumb; the empty
@@ -41,7 +43,15 @@ export const HeaderBar = ({ hidden = false, onBack }) => {
         </div>
 
         <div className="flex flex-1 justify-center lg:flex-none lg:justify-start">
-          <Link to={path("/")} aria-label="Encar" className="inline-flex items-center">
+          {/* The logo is a "start over" button: on a filtered search the URL alone would
+              be rewritten straight back by the live filters, so it carries a reset flag. */}
+          <Link
+            to={path("/")}
+            state={{ home: Date.now() }}
+            data-testid="header-logo-link"
+            aria-label="Encar"
+            className="inline-flex items-center"
+          >
             <BrandLogo compact />
           </Link>
         </div>
