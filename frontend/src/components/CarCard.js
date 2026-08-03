@@ -69,6 +69,8 @@ export const CarCard = ({ car, onOpen }) => {
             images={car.images?.length ? car.images : [car.image]}
             alt={carTitle(car)}
             testId="car-card-swiper"
+            ctaLabel={t("viewListing")}
+            ctaHint={t("tapToOpen")}
           />
         </div>
 
