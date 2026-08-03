@@ -36,6 +36,7 @@ import mailer                # noqa: E402
 import pricing               # noqa: E402
 import slugs as slugs_mod    # noqa: E402
 import syncjob as syncjob_mod  # noqa: E402
+import edi                  # noqa: E402
 import tracking             # noqa: E402
 import sync as sync_mod      # noqa: E402
 from encar import encar, image_url  # noqa: E402
@@ -1357,6 +1358,26 @@ async def tracking_unsave(ref: str, user=Depends(auth.current_user)):
     await db.users.update_one({"_id": user["_id"]},
                              {"$set": {"tracked_shipments": items}})
     return {"items": items}
+
+
+@api.post("/tracking/edi")
+async def tracking_edi(request: Request, x_edi_token: str = Header(default="")):
+    """Ingest a Maersk status message (X12 315 or EDIFACT IFTSTA).
+
+    Maersk pushes these over AS2/SFTP/VAN, so whatever sits in front (the EDI provider or
+    the VAN) forwards the raw message here. Authenticated by a shared secret, or by an
+    admin session so the owner can paste a file in from the Track page.
+    """
+    token = os.environ.get("EDI_INGEST_TOKEN", "")
+    if not (token and x_edi_token == token):
+        await auth.current_admin(request)
+    body = (await request.body()).decode("utf-8", "replace")
+    if not body.strip():
+        raise HTTPException(400, "empty message")
+    try:
+        return await edi.ingest(db, body)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 api.include_router(auth.router)

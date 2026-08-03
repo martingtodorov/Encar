@@ -34,6 +34,11 @@ const EVENTS = {
     GTOT: "Излязъл от терминала", PICK: "Вдигнат", DROP: "Оставен",
     RESE: "Резервация потвърдена", CONF: "Потвърдено", ISSU: "Издаден документ",
     SURR: "Документът предаден",
+    VD: "Отплава", VA: "Пристигна", AR: "Натоварен на кораба",
+    UV: "Разтоварен от кораба", AG: "Приет в терминала", AL: "Натоварен контейнер приет",
+    AE: "Предаден за доставка", OA: "Излязъл от терминала", RD: "Контейнерът върнат",
+    EE: "Празен контейнер изпратен", AV: "Готов за доставка", CU: "Освободен от митницата",
+    D: "Доставен",
   },
   ro: {
     GTIN: "Primit în terminal", STUF: "Încărcat în container",
@@ -42,6 +47,11 @@ const EVENTS = {
     GTOT: "A ieșit din terminal", PICK: "Ridicat", DROP: "Predat",
     RESE: "Rezervare confirmată", CONF: "Confirmat", ISSU: "Document emis",
     SURR: "Document predat",
+    VD: "A plecat", VA: "A sosit", AR: "Încărcat pe navă",
+    UV: "Descărcat de pe navă", AG: "Primit în terminal", AL: "Container plin primit",
+    AE: "Predat pentru livrare", OA: "A ieșit din terminal", RD: "Container returnat",
+    EE: "Container gol trimis", AV: "Gata de livrare", CU: "Eliberat de vamă",
+    D: "Livrat",
   },
   en: {
     GTIN: "Received at terminal", STUF: "Stuffed into container",
@@ -50,6 +60,11 @@ const EVENTS = {
     GTOT: "Left the terminal", PICK: "Picked up", DROP: "Dropped off",
     RESE: "Booking confirmed", CONF: "Confirmed", ISSU: "Document issued",
     SURR: "Document surrendered",
+    VD: "Vessel departed", VA: "Vessel arrived", AR: "Loaded on vessel",
+    UV: "Unloaded from vessel", AG: "Received at terminal", AL: "Full container received",
+    AE: "Released for delivery", OA: "Left the terminal", RD: "Container returned",
+    EE: "Empty container dispatched", AV: "Available for delivery", CU: "Customs released",
+    D: "Delivered",
   },
 };
 

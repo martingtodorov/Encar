@@ -318,6 +318,35 @@ Shipment tracking page shipped, wired for real data, nothing mocked.
   in_transit, ETA ARRI Piraeus, vessel MAERSK SELETAR IMO 9525338, zero console errors.
   The seeded doc and the placeholder key were removed afterwards.
 
+### EDI ingest (the owner's actual Maersk setup)
+The zip the owner supplied is NOT the REST API: it is the Maersk implementation guide pair
+for **X12 315** and **EDIFACT IFTSTA D99B** (v1.3), i.e. Maersk PUSHES container status
+messages to the customer over AS2/SFTP/VAN. So tracking is a feed, not a poll — no keys, no
+quota, no polling.
+- `backend/edi.py` parses both formats into the same canonical event shape used by the REST
+  path. Element positions vary between senders and profiles, so fields are recognised BY
+  SHAPE, not by counting: in X12 `B4` the 1-2 letter status code, the 8-digit date with an
+  optional time after it, the 4-letter equipment initial + container number, and the place
+  name between them; in `TDT` the longest alphabetic component is the vessel name (shorter
+  ones are carrier codes like MAEU) and any 7-digit component is the IMO. Estimated vs
+  actual comes from the DTM qualifier (X12 139/140, IFTSTA 132 vs 133/334). IFTSTA status
+  codes are mapped onto the X12 vocabulary so the UI has ONE label map.
+  Timestamps are stored exactly as sent (carriers quote local time without an offset;
+  inventing UTC would shift events by hours).
+- `POST /api/tracking/edi` takes the raw message, authenticated by `EDI_INGEST_TOKEN`
+  (in backend/.env) or an admin session. Idempotent: upsert on (ref, code, when) with a
+  unique index, so a redelivered message cannot duplicate a timeline. Events live in
+  `shipment_events`, indexed on container and bol.
+- `tracking.track()` prefers the EDI feed (`source: "edi"`) and falls back to the REST
+  client only for references the feed has not covered.
+- Verified: X12 315 and IFTSTA samples both parse (container, B/L, codes, est/act, ports,
+  vessel, voyage), ingest returns `{stored: 5}`, lookup works by container AND by B/L,
+  redelivery keeps 5 milestones, a wrong token is rejected, garbage is rejected with a clear
+  message, and the BG page renders the full timeline. Test events were then deleted.
+- STILL NEEDED: how the messages reach us (their EDI provider/VAN forwarding to the webhook,
+  or an SFTP drop we would need to poll), plus the MarineTraffic/Kpler key for live vessel
+  positions (the vessel card says so honestly until then).
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY

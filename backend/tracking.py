@@ -16,14 +16,17 @@ from datetime import datetime, timezone
 
 import httpx
 
+import edi
+
 log = logging.getLogger("tracking")
 
 CACHE_TTL = int(os.environ.get("TRACKING_CACHE_TTL", "900"))
 VESSEL_TTL = int(os.environ.get("VESSEL_CACHE_TTL", "1800"))
 
 # DCSA event codes Maersk returns, in the order a container actually moves.
-EVENT_ORDER = ["GTIN", "STUF", "LOAD", "DEPA", "ARRI", "DISC", "STRP", "GTOT", "PICK",
-               "DROP", "RESE", "CONF", "ISSU", "SURR"]
+# Codes that mean the container has reached the customer, in both vocabularies:
+# EDI (D delivered, AE gate-out for delivery, RD empty returned) and DCSA/REST.
+DELIVERED = {"D", "AE", "RD", "GTOT", "PICK", "SURR"}
 
 _token = {"value": None, "expires": 0.0}
 
@@ -171,11 +174,53 @@ async def vessel_position(db, imo):
         return None
 
 
+def _view(ref, by, stones, source, cached=False, vessel=None):
+    """Turn a sorted list of canonical events into what the Track page renders."""
+    done = [m for m in stones if not m["estimated"]]
+    ahead = [m for m in stones if m["estimated"]]
+    # The port arrival is the date a buyer plans around; the trailing gate-out/delivery
+    # forecasts only matter once the ship is in.
+    eta = (next((m for m in ahead if m["code"] in ("VA", "ARRI")), None)
+           or (ahead[-1] if ahead else None))
+    last = done[-1] if done else None
+    return {
+        "configured": True,
+        "found": True,
+        "source": source,
+        "cached": cached,
+        "reference": ref,
+        "by": by,
+        "status": "delivered" if (last and last["code"] in DELIVERED)
+                  else "in_transit" if done else "booked",
+        "last": last,
+        "eta": eta,
+        "vessel": vessel,
+        "milestones": stones,
+        "updated_at": _now().isoformat(),
+    }
+
+
 async def track(db, ref, by="container"):
-    """Normalised tracking view for one container or bill of lading."""
+    """Normalised tracking view for one container or bill of lading.
+
+    The EDI feed is authoritative: Maersk pushes status messages to us, so if anything has
+    arrived for this reference it is used and nothing upstream is called. The REST client is
+    the fallback for references the feed has not covered.
+    """
     ref = (ref or "").strip().upper()
     if not ref or len(ref) > 40:
         raise ValueError("that reference does not look right")
+
+    stones = await edi.events_for(db, ref, by)
+    if stones:
+        sailing = next((m for m in reversed(stones) if m.get("vessel_name")), None)
+        vessel = None
+        if sailing:
+            vessel = {"imo": sailing.get("vessel_imo") or "", "name": sailing["vessel_name"],
+                      "voyage": sailing.get("voyage") or "",
+                      "position": await vessel_position(db, sailing.get("vessel_imo"))}
+        return _view(ref, by, stones, "edi", vessel=vessel)
+
     if not is_configured():
         return {"configured": False, "reference": ref, "by": by}
 
@@ -190,35 +235,12 @@ async def track(db, ref, by="container"):
         return {"configured": True, "reference": ref, "by": by, "found": False,
                 "cached": cached, "milestones": []}
 
-    stones = [_milestone(e) for e in events]
-    stones = [m for m in stones if m["when"]]
-    stones.sort(key=lambda m: m["when"])
-
-    done = [m for m in stones if not m["estimated"]]
-    ahead = [m for m in stones if m["estimated"]]
-    # The port arrival is the date a buyer plans around; the trailing gate-out/delivery
-    # forecasts are only useful once the ship is in.
-    eta = next((m for m in ahead if m["code"] == "ARRI"), None) or (ahead[-1] if ahead else None)
-    last = done[-1] if done else None
+    stones = sorted([m for m in (_milestone(e) for e in events) if m["when"]],
+                    key=lambda m: m["when"])
     sailing = next((m for m in reversed(stones) if m["vessel_imo"]), None)
-
     vessel = None
     if sailing:
         vessel = {"imo": sailing["vessel_imo"], "name": sailing["vessel_name"],
                   "voyage": sailing["voyage"],
                   "position": await vessel_position(db, sailing["vessel_imo"])}
-
-    return {
-        "configured": True,
-        "found": True,
-        "cached": cached,
-        "reference": ref,
-        "by": by,
-        "status": "delivered" if (last and last["code"] in ("GTOT", "PICK", "SURR"))
-                  else "in_transit" if done else "booked",
-        "last": last,
-        "eta": eta,
-        "vessel": vessel,
-        "milestones": stones,
-        "updated_at": _now().isoformat(),
-    }
+    return _view(ref, by, stones, "rest", cached=cached, vessel=vessel)
