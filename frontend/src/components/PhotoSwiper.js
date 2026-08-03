@@ -80,6 +80,7 @@ export const PhotoSwiper = ({
   arrows = false,
   ctaLabel = "",
   ctaHint = "",
+  onCtaReached,
   className = "",
 }) => {
   const photos = images.filter(Boolean);
@@ -110,6 +111,8 @@ export const PhotoSwiper = ({
   };
   const emitRef = useRef(emit);
   emitRef.current = emit;
+  const onCtaReachedRef = useRef(onCtaReached);
+  onCtaReachedRef.current = onCtaReached;
 
   useEffect(() => {
     const root = scroller.current;
@@ -129,6 +132,12 @@ export const PhotoSwiper = ({
     root.querySelectorAll("[data-slide-index]").forEach((c) => io.observe(c));
     return () => io.disconnect();
   }, [count]);
+
+  // Swiping to the last photo already says the visitor is interested, so the car is warmed
+  // from that slide on (one before the closing CTA panel), exactly as it is on hover.
+  useEffect(() => {
+    if (hasCta && active >= ctaIndex - 1) onCtaReachedRef.current?.();
+  }, [active, ctaIndex, hasCta]);
 
   // Follow an index chosen from outside (the detail page's thumbnail column).
   useEffect(() => {

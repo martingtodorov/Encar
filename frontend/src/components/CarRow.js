@@ -25,7 +25,7 @@ import {
 export const CarRow = ({ car, onOpen }) => {
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
   const saved = isFavourite(car.id);
-  const warm = useCarWarm(car.id);
+  const [warm, warmNow] = useCarWarm(car.id);
 
   const badges = [];
   if (car.diagnosed)
@@ -109,6 +109,7 @@ export const CarRow = ({ car, onOpen }) => {
             testId="car-row-swiper"
             ctaLabel={t("viewListing")}
             ctaHint={t("tapToOpen")}
+            onCtaReached={warmNow}
           />
         </div>
       </div>

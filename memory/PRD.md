@@ -217,6 +217,11 @@ that owns the Resend account.
   click/keyboard target (Enter and Space), the heart and the "View details" button stop
   propagation, and the swiper's capture-phase guard still means a swipe never opens the car.
   New i18n keys: `viewListing`, `tapToOpen` (BG/RO/EN).
+- **Reaching the last photo warms the car.** `PhotoSwiper` fires `onCtaReached` once the
+  active slide is the final photo (one before the CTA panel), which calls the same
+  `warmCar` used on hover. `useCarWarm` now returns `[props, warmNow]`. Verified on mobile
+  and desktop: swiping photos 2-3 sends nothing, arriving at photo 4 fires exactly one
+  request, and opening from there renders straight away.
 
 ## Backlog
 ### P0 (blocked on the owner)

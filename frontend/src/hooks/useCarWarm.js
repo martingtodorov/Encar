@@ -9,7 +9,8 @@ import { warmCar } from "@/lib/api";
  * intent, a pointer that settles on a card is. Touch arms at 120ms and cancels on
  * touchmove, which is how a tap is told apart from the start of a scroll flick.
  *
- * Spread the returned props onto the card/row root.
+ * Returns `[props, warmNow]`: spread the props onto the card/row root, and call `warmNow`
+ * from anywhere else that signals intent (reaching the last slide of the gallery).
  */
 export const useCarWarm = (id) => {
   const { lang } = useApp();
@@ -32,13 +33,21 @@ export const useCarWarm = (id) => {
 
   useEffect(() => cancel, []);
 
-  return {
-    onMouseEnter: () => arm(280),
-    onMouseLeave: cancel,
-    // Left to fire after touchend on purpose: the detail page reuses the same promise.
-    onTouchStart: () => arm(120),
-    onTouchMove: cancel,
+  const warmNow = () => {
+    cancel();
+    warmCar(id, lang);
   };
+
+  return [
+    {
+      onMouseEnter: () => arm(280),
+      onMouseLeave: cancel,
+      // Left to fire after touchend on purpose: the detail page reuses the same promise.
+      onTouchStart: () => arm(120),
+      onTouchMove: cancel,
+    },
+    warmNow,
+  ];
 };
 
 export default useCarWarm;
