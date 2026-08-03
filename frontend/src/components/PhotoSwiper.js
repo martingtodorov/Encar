@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Camera, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowRight, Camera, ChevronLeft, ChevronRight } from "lucide-react";
 import { ImageWithFallback } from "@/components/ImageWithFallback";
 
 /**
@@ -29,7 +29,7 @@ const SWIPE_PX = 6; // below this a gesture is a tap, above it a swipe
  * Instagram-style dot rail: never more than five dots on screen. Longer galleries slide
  * the rail so the active dot stays centred, which animates as you swipe.
  */
-const DotRail = ({ count, active }) => {
+const DotRail = ({ count, active, ctaIndex }) => {
   const pitch = DOT + GAP;
   const shown = Math.min(WINDOW, count);
   const maxOffset = Math.max(0, count - WINDOW);
@@ -52,10 +52,11 @@ const DotRail = ({ count, active }) => {
           {Array.from({ length: count }).map((_, n) => (
             <span
               key={n}
-              className="shrink-0 rounded-full bg-white transition-all duration-300"
+              className="shrink-0 rounded-full transition-all duration-300"
               style={{
-                width: DOT,
+                width: n === ctaIndex && n === active ? DOT * 2 : DOT,
                 height: DOT,
+                background: n === ctaIndex ? "hsl(var(--primary))" : "#fff",
                 boxShadow: "0 1px 3px rgba(0,0,0,.45)",
                 opacity: n === active ? 1 : 0.5,
                 transform: n === active ? "scale(1)" : "scale(0.72)",
@@ -77,9 +78,17 @@ export const PhotoSwiper = ({
   onTap,
   showCount = true,
   arrows = false,
+  ctaLabel = "",
+  ctaHint = "",
   className = "",
 }) => {
-  const slides = images.filter(Boolean);
+  const photos = images.filter(Boolean);
+  // A final CTA panel instead of a fifth photo: the card carries just enough of the car to
+  // create interest, then hands the visitor a clear way into the listing. Pointless on a
+  // single-photo car, so it only appears once there is a deck to swipe.
+  const hasCta = Boolean(ctaLabel) && photos.length >= 2;
+  const count = photos.length + (hasCta ? 1 : 0);
+  const ctaIndex = hasCta ? photos.length : -1;
   const [i, setI] = useState(0);
   const active = index === undefined ? i : index;
 
@@ -104,7 +113,7 @@ export const PhotoSwiper = ({
 
   useEffect(() => {
     const root = scroller.current;
-    if (!root || slides.length < 2) return;
+    if (!root || count < 2) return;
     const io = new IntersectionObserver(
       (entries) => {
         let best = null;
@@ -119,7 +128,7 @@ export const PhotoSwiper = ({
     );
     root.querySelectorAll("[data-slide-index]").forEach((c) => io.observe(c));
     return () => io.disconnect();
-  }, [slides.length]);
+  }, [count]);
 
   // Follow an index chosen from outside (the detail page's thumbnail column).
   useEffect(() => {
@@ -134,7 +143,7 @@ export const PhotoSwiper = ({
     }
   }, [active]);
 
-  if (slides.length === 0) {
+  if (count === 0) {
     return (
       <div className={`h-full w-full ${className}`}>
         <ImageWithFallback src={null} alt={alt} testId={`${testId}-image`} />
@@ -183,7 +192,7 @@ export const PhotoSwiper = ({
           onTap?.();
         }}
       >
-        {slides.map((src, n) => (
+        {photos.map((src, n) => (
           <div
             key={`${src}-${n}`}
             data-slide-index={n}
@@ -200,9 +209,25 @@ export const PhotoSwiper = ({
             )}
           </div>
         ))}
+
+        {hasCta && (
+          <div
+            data-slide-index={ctaIndex}
+            data-testid={`${testId}-cta`}
+            className="flex h-full w-full shrink-0 snap-start snap-always flex-col items-center justify-center gap-1 bg-gradient-to-br from-background to-muted px-6 text-center"
+          >
+            <ArrowRight className="mb-1 h-8 w-8 text-primary" aria-hidden="true" />
+            <span className="text-sm font-semibold text-foreground">{ctaLabel}</span>
+            {ctaHint && (
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                {ctaHint}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
-      {slides.length > 1 && arrows && (
+      {count > 1 && arrows && (
         <>
           <button
             type="button"
@@ -221,7 +246,7 @@ export const PhotoSwiper = ({
             type="button"
             data-testid={`${testId}-next`}
             aria-label="Next photo"
-            disabled={active === slides.length - 1}
+            disabled={active === count - 1}
             onClick={(e) => {
               e.stopPropagation();
               step(1);
@@ -233,16 +258,16 @@ export const PhotoSwiper = ({
         </>
       )}
 
-      {slides.length > 1 && (
+      {count > 1 && (
         <>
-          <DotRail count={slides.length} active={active} />
-          {showCount && (
+          <DotRail count={count} active={active} ctaIndex={ctaIndex} />
+          {showCount && active !== ctaIndex && (
             <span
               data-testid={`${testId}-counter`}
               className="tnum pointer-events-none absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white"
             >
               <Camera className="h-3 w-3" aria-hidden="true" />
-              {active + 1}/{slides.length}
+              {active + 1}/{photos.length}
             </span>
           )}
         </>

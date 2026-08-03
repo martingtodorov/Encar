@@ -206,6 +206,18 @@ that owns the Resend account.
   for a tap. Measured: sweep = 0 requests, settle = 1 request, click -> car page rendered in
   **0.14s** with the hero photo already decoded. Retries bypass the cache via `forgetCar`.
 
+- **Final CTA slide in the desktop row gallery.** After the 4 photos the deck ends on a
+  panel — arrow, "Виж обявата" and a small "Натисни за отваряне" eyebrow, on a subtle
+  gradient — so the visitor feels the end of the preview and gets an obvious way in rather
+  than a "+26 photos" overlay. It only appears when there are at least 2 photos, the dot
+  rail marks it with a wider accent dot, and the photo counter hides while it is showing.
+  Mobile (`CarCard`) is deliberately left without it, as instructed, and the viewport meta
+  tag was not touched.
+- **The whole ad card is clickable**, desktop row and mobile card: the root is the single
+  click/keyboard target (Enter and Space), the heart and the "View details" button stop
+  propagation, and the swiper's capture-phase guard still means a swipe never opens the car.
+  New i18n keys: `viewListing`, `tapToOpen` (BG/RO/EN).
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY

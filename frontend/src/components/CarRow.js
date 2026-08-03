@@ -79,7 +79,17 @@ export const CarRow = ({ car, onOpen }) => {
       data-car-id={car.id}
       data-under-contract={car.under_contract ? "true" : "false"}
       {...warm}
-      className="group relative flex items-stretch gap-4 overflow-hidden rounded-[14px] border border-border bg-card p-3 shadow-sm transition-shadow duration-200 hover:shadow-md"
+      role="button"
+      tabIndex={0}
+      aria-label={`${carTitle(car)} \u2014 ${t("viewDetails")}`}
+      onClick={() => onOpen?.(car)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen?.(car);
+        }
+      }}
+      className="group relative flex cursor-pointer items-stretch gap-4 overflow-hidden rounded-[14px] border border-border bg-card p-3 shadow-sm transition-shadow duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {car.under_contract && (
         <span data-testid="car-row-contract-ribbon" className="ribbon">
@@ -87,40 +97,30 @@ export const CarRow = ({ car, onOpen }) => {
         </span>
       )}
 
-      {/* thumbnail: drag through the photos in place, click to open the car */}
+      {/* Swipe through the photos in place; a tap anywhere on the row opens the car. */}
       <div className="relative w-[236px] shrink-0">
         <div
           data-testid="car-row-open"
-          role="button"
-          tabIndex={0}
-          aria-label={`${carTitle(car)} \u2014 ${t("viewDetails")}`}
-          onKeyDown={(e) => e.key === "Enter" && onOpen?.(car)}
-          className="aspect-video w-full cursor-pointer overflow-hidden rounded-[10px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="aspect-video w-full overflow-hidden rounded-[10px]"
         >
           <PhotoSwiper
             images={car.images?.length ? car.images : [car.image]}
             alt={carTitle(car)}
             testId="car-row-swiper"
-            onTap={() => onOpen?.(car)}
+            ctaLabel={t("viewListing")}
+            ctaHint={t("tapToOpen")}
           />
         </div>
       </div>
 
       {/* details */}
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 py-0.5">
-        <button
-          type="button"
-          onClick={() => onOpen?.(car)}
-          className="text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          tabIndex={-1}
+        <h3
+          data-testid="car-row-title"
+          className="line-clamp-1 text-[16px] font-semibold leading-tight text-foreground"
         >
-          <h3
-            data-testid="car-row-title"
-            className="line-clamp-1 text-[16px] font-semibold leading-tight text-foreground"
-          >
-            {carTitle(car)}
-          </h3>
-        </button>
+          {carTitle(car)}
+        </h3>
 
         {subtitle && (
           <p className="line-clamp-1 text-[12.5px] leading-tight text-muted-foreground" title={subtitle}>
@@ -190,7 +190,10 @@ export const CarRow = ({ car, onOpen }) => {
 
         <Button
           data-testid="car-row-details-button"
-          onClick={() => onOpen?.(car)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpen?.(car);
+          }}
           className="h-9 w-full rounded-[9px] bg-[hsl(var(--primary))] px-3 text-[13px] font-medium text-primary-foreground transition-all hover:brightness-110"
         >
           {t("viewDetails")}

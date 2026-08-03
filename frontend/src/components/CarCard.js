@@ -44,7 +44,17 @@ export const CarCard = ({ car, onOpen }) => {
       data-car-id={car.id}
       data-under-contract={car.under_contract ? "true" : "false"}
       {...warm}
-      className="group relative flex flex-col overflow-hidden rounded-[14px] border border-border bg-card shadow-sm transition-shadow duration-200 hover:shadow-md"
+      role="button"
+      tabIndex={0}
+      aria-label={`${carTitle(car)} \u2014 ${t("viewDetails")}`}
+      onClick={() => onOpen?.(car)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen?.(car);
+        }
+      }}
+      className="group relative flex cursor-pointer flex-col overflow-hidden rounded-[14px] border border-border bg-card shadow-sm transition-shadow duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {car.under_contract && (
         <span data-testid="car-card-contract-ribbon" className="ribbon">
@@ -53,20 +63,12 @@ export const CarCard = ({ car, onOpen }) => {
       )}
 
       <div className="relative">
-        {/* swipe through the photos without leaving the list; a tap still opens the car */}
-        <div
-          data-testid="car-card-open"
-          role="button"
-          tabIndex={0}
-          aria-label={`${carTitle(car)} \u2014 ${t("viewDetails")}`}
-          onKeyDown={(e) => e.key === "Enter" && onOpen?.(car)}
-          className="aspect-video w-full cursor-pointer"
-        >
+        {/* Swipe through the photos without leaving the list; a tap anywhere opens the car. */}
+        <div data-testid="car-card-open" className="aspect-video w-full">
           <PhotoSwiper
             images={car.images?.length ? car.images : [car.image]}
             alt={carTitle(car)}
             testId="car-card-swiper"
-            onTap={() => onOpen?.(car)}
           />
         </div>
 
@@ -95,14 +97,12 @@ export const CarCard = ({ car, onOpen }) => {
 
       {/* compact body: tight spacing, no filler gaps */}
       <div className="flex flex-col gap-1.5 p-2.5">
-        <button type="button" onClick={() => onOpen?.(car)} className="text-left" tabIndex={-1}>
-          <h3
-            data-testid="car-card-title"
-            className="line-clamp-1 text-[14px] font-semibold leading-tight text-foreground"
-          >
-            {carTitle(car)}
-          </h3>
-        </button>
+        <h3
+          data-testid="car-card-title"
+          className="line-clamp-1 text-[14px] font-semibold leading-tight text-foreground"
+        >
+          {carTitle(car)}
+        </h3>
 
         {subtitle && (
           <p
@@ -161,7 +161,10 @@ export const CarCard = ({ car, onOpen }) => {
           </div>
           <Button
             data-testid="car-card-details-button"
-            onClick={() => onOpen?.(car)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen?.(car);
+            }}
             className="h-8 shrink-0 rounded-[8px] bg-[hsl(var(--primary))] px-2.5 text-[12px] font-medium text-primary-foreground transition-all hover:brightness-110"
           >
             {t("viewDetails")}

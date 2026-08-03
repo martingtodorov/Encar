@@ -132,6 +132,8 @@ const EXTRA = {
     simpleRepair: "\u041b\u0435\u043a\u0438 \u0440\u0435\u043c\u043e\u043d\u0442\u0438",
     accidentRepair: "\u0420\u0435\u043c\u043e\u043d\u0442 \u0441\u043b\u0435\u0434 \u0443\u0434\u0430\u0440",
     notFound: "\u0410\u0432\u0442\u043e\u043c\u043e\u0431\u0438\u043b\u044a\u0442 \u043d\u0435 \u0435 \u043d\u0430\u043c\u0435\u0440\u0435\u043d",
+    viewListing: "Виж обявата",
+    tapToOpen: "Натисни за отваряне",
   },
   ro: {
     sendEnquiry: "Trimite o solicitare",
@@ -263,6 +265,8 @@ const EXTRA = {
     simpleRepair: "Repara\u021bii minore",
     accidentRepair: "Repara\u021bii dup\u0103 accident",
     notFound: "Automobilul nu a fost g\u0103sit",
+    viewListing: "Vezi anunțul",
+    tapToOpen: "Apasă pentru a deschide",
   },
   en: {
     sendEnquiry: "Send enquiry",
@@ -394,6 +398,8 @@ const EXTRA = {
     simpleRepair: "Minor repairs",
     accidentRepair: "Accident repairs",
     notFound: "Car not found",
+    viewListing: "View the listing",
+    tapToOpen: "Tap to open",
   },
 };
 
