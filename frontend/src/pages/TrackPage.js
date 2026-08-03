@@ -45,7 +45,7 @@ const EVENTS = {
     UV: "Разтоварен от кораба", AG: "Приет в терминала", AL: "Натоварен контейнер приет",
     AE: "Предаден за доставка", OA: "Излязъл от терминала", RD: "Контейнерът върнат",
     EE: "Празен контейнер изпратен", AV: "Готов за доставка", CU: "Освободен от митницата",
-    D: "Доставен",
+    D: "Доставен", DLV: "Доставка до твоя адрес",
   },
   ro: {
     GTIN: "Primit în terminal", STUF: "Încărcat în container",
@@ -58,7 +58,7 @@ const EVENTS = {
     UV: "Descărcat de pe navă", AG: "Primit în terminal", AL: "Container plin primit",
     AE: "Predat pentru livrare", OA: "A ieșit din terminal", RD: "Container returnat",
     EE: "Container gol trimis", AV: "Gata de livrare", CU: "Eliberat de vamă",
-    D: "Livrat",
+    D: "Livrat", DLV: "Livrare la adresa ta",
   },
   en: {
     GTIN: "Received at terminal", STUF: "Stuffed into container",
@@ -71,7 +71,7 @@ const EVENTS = {
     UV: "Unloaded from vessel", AG: "Received at terminal", AL: "Full container received",
     AE: "Released for delivery", OA: "Left the terminal", RD: "Container returned",
     EE: "Empty container dispatched", AV: "Available for delivery", CU: "Customs released",
-    D: "Delivered",
+    D: "Delivered", DLV: "Delivery to your address",
   },
 };
 
@@ -138,7 +138,9 @@ const Row = ({ m, lang, last }) => (
 export default function TrackPage() {
   const { t, lang, currency, rates, favourites } = useApp();
   const { user } = useAuth();
-  const [by, setBy] = useState("container");
+  // Buyers only ever hold the bill of lading we send them, so that is the only kind of
+  // reference the page accepts.
+  const [by, setBy] = useState("bol");
   const [ref, setRef] = useState("");
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -282,22 +284,8 @@ export default function TrackPage() {
             lookup(ref, by);
           }}
         >
-          <div className="flex overflow-hidden rounded-[10px] border border-input">
-            {["container", "bol"].map((m) => (
-              <button
-                key={m}
-                type="button"
-                data-testid={`track-by-${m}`}
-                onClick={() => setBy(m)}
-                className={`px-3 py-2 text-[13px] font-medium transition-colors ${
-                  by === m
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-background text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {t(m === "container" ? "trackByContainer" : "trackByBol")}
-              </button>
-            ))}
+          <div className="flex items-center rounded-[10px] border border-input bg-muted px-3 py-2 text-[13px] font-medium text-muted-foreground">
+            {t("trackByBol")}
           </div>
           <Input
             data-testid="track-input"
@@ -457,6 +445,21 @@ export default function TrackPage() {
                         {[data.route.from_terminal, data.route.to_terminal]
                           .filter(Boolean)
                           .join(" → ")}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {data.delivery && (
+                  <div data-testid="track-delivery">
+                    <div className="text-[12px] uppercase tracking-wide text-muted-foreground">
+                      {t("trackDelivery")}
+                    </div>
+                    <div className="mt-0.5 text-sm font-semibold text-foreground">
+                      {when(data.delivery.when, lang)}
+                    </div>
+                    {data.delivery.location && (
+                      <div className="mt-0.5 text-[12px] text-muted-foreground">
+                        {data.delivery.location}
                       </div>
                     )}
                   </div>

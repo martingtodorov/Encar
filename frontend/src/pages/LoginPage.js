@@ -3,6 +3,7 @@ import { useSearchParams, Link } from "react-router-dom";
 import { Fingerprint, Loader2, LogIn, UserPlus, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BLANK_BILLING, BillingFields } from "@/components/BillingFields";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { HeaderBar } from "@/components/HeaderBar";
@@ -25,6 +26,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [billing, setBilling] = useState(BLANK_BILLING);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
 
@@ -52,7 +54,7 @@ export default function LoginPage() {
       setError(t("passwordTooShort", { n: MIN_PASSWORD }));
       return;
     }
-    if (mode === "register") run("register", () => register(email, password, name));
+    if (mode === "register") run("register", () => register(email, password, name, billing));
     else run("login", () => login(email, password));
   };
 
@@ -157,6 +159,20 @@ export default function LoginPage() {
               </p>
             )}
           </div>
+
+          {registering && (
+            <div className="rounded-[12px] border border-border bg-background p-4">
+              <h2 className="text-[13.5px] font-semibold text-foreground">
+                {t("billingTitle")}
+              </h2>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+                {t("billingBlurb")} {t("billingOptional")}
+              </p>
+              <div className="mt-3">
+                <BillingFields value={billing} onChange={setBilling} />
+              </div>
+            </div>
+          )}
 
           {error && (
             <div

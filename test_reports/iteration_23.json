@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 23 - reviewed billing address on register, +7 day delivery step (DLV), provider caching, track-page container toggle removal, footer + legal pages in 3 langs, cookie bar accept/decline behaviour, relevant sort, admin buyers file, desktop Lightbox and mobile fallback. 9/9 new pytest tests pass. All frontend acceptance criteria verified with one minor selector-naming mismatch.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SortControl", "issue": "Review spec expected data-testid=\"sort-select\" on landing/search sort dropdown; actual attribute is data-testid=\"sort-control\" (label 'Relevant to me' renders correctly). Consider aliasing to match the spec.", "selector": "[data-testid='sort-control']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_review_iter23.py",
+    "/app/test_reports/pytest/iter23.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: rename/duplicate data-testid on sort dropdown from 'sort-control' to 'sort-select' to match the review spec, or update the spec."
+  ],
+  "critical_code_review_comments": [
+    "backend/tracking.py::_delivery correctly appends DLV milestone at last-milestone + DELIVERY_LEAD_DAYS (7) and names the billing city; verified for 271191199 -> 16 Aug 2026 (last carrier event 09 Aug 2026).",
+    "backend/jsoncargo.py TTL_CONTAINER=86400 - two consecutive /api/tracking calls for 271191199 both served from cache; /api/admin/tracking-quota `used` counter did not change between the two calls. Provider quota preserved.",
+    "backend/server.py sort='relevant': in-memory scoring of RELEVANT_POOL; verified BMW rises to top when taste sent; empty taste falls back to newest; rubbish input returns 200 (no 500).",
+    "backend/auth.py Billing model + clean(): empty form correctly leaves no address in DB (verified via GET /auth/me after registering with empty billing). Country is uppercased and capped at 2 chars. /auth/taste requires auth (401 unauth).",
+    "backend/server.py /admin/buyers returns per-user makes/models with price/mileage ranges; verified test buyer appears in list with makes=['BMW'] and non-null price_low/price_high after POST /auth/taste with samples.",
+    "Frontend routes: legal pages live at /:lang/{terms|privacy|cookies|contact} (NOT /:lang/legal/{slug} — review request path was misleading). data-testid=\"legal-{slug}\" present, translated for BG/RO/EN, footer-link-* all wired.",
+    "Track page: data-testid=\"track-by-container\" removed; only Bill of lading input accepted; delivery block (data-testid=\"track-delivery\") shows 'AT YOUR ADDRESS (EST.) 16 Aug 2026, 00:00' for 271191199.",
+    "CookieBar: fresh context shows data-testid=\"cookie-bar\"; cookie-accept -> ab_consent=all, bar hidden on reload. cookie-decline -> ab_consent=necessary; visiting car pages then reading document cookies shows NO ab_taste is written (consent gate in taste.js honoured).",
+    "Desktop Lightbox (viewport 1920x1080, >=1024px): dbl-click a thumbnail (or the swiper onTap) opens data-testid=\"lightbox\" with lightbox-image, lightbox-thumb-0, counter '1 / N', ArrowRight advances, Escape closes. At 390x844 the Lightbox is not used — the vertical Dialog gallery (data-testid=\"detail-lightbox\") is used instead.",
+    "Footer shows 'Auto&Bid LTD', 'ЕИК 208833206', mailto and four legal links on every page; renders in EN/BG/RO.",
+    "Registration screen /en/login?mode=register renders BillingFields data-testid: billing-full_name / -street / -city / -post_code / -country / -phone. Empty billing accepted; filled billing persisted (GET /auth/me confirms)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_review_iter23.py",
+    "/app/test_reports/iteration_23.json"
+  ],
+  "success_rate": {"backend": "100% (9/9 pytest)", "frontend": "100% functional; 1 low-priority selector naming mismatch"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! ; x-admin-token: encar-admin. Test buyers created dynamically (email pattern TEST_billing_*@example.com and TEST_nobill_*@example.com).",
+  "seed_data_creation": "Two fresh accounts created via /api/auth/register during the pytest run (TEST_billing_* and TEST_nobill_*). One had billing address + taste written via /api/auth/taste for admin/buyers verification.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend URL from REACT_APP_BACKEND_URL. Test file: /app/backend/tests/test_review_iter23.py. Sort dropdown selector is data-testid='sort-control' NOT 'sort-select'. Legal page routes are /:lang/{slug} not /:lang/legal/{slug}. Lightbox is only rendered when window.matchMedia('(min-width: 1024px)').matches AND `shot!==null` (state controlled by CarDetailPage openPhotos). Provider quota metered — do NOT loop /api/admin/shipments/{ref}/refresh; only 271191199 / MRSU5757040 stay cached. ab_taste writes are consent-gated (require ab_consent=all).",
+  "rca of the issue": "N/A"
+}

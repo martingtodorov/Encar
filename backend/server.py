@@ -205,6 +205,8 @@ def build_query(p):
     return q
 
 
+RELEVANT_POOL = 600
+
 SORTS = {
     "newest": [("recency", 1)],
     "price_asc": [("sale_eur", 1)],
@@ -434,6 +436,31 @@ async def get_fx(refresh: bool = False):
     return jsonable(await fx_mod.get_rates(db, force=refresh))
 
 
+class TasteBody(BaseModel):
+    """What a visitor's browser learned about them. Sent per request, never stored."""
+    makes: dict[str, float] = Field(default_factory=dict)
+    models: dict[str, float] = Field(default_factory=dict)
+    fuels: dict[str, float] = Field(default_factory=dict)
+    samples: list[list[float]] = Field(default_factory=list)
+    exclude: list[str] = Field(default_factory=list)
+    limit: int = 12
+    lang: str = "bg"
+
+
+def _weights(raw, keep=6):
+    """Trust nothing from the client: cap the size and clamp every weight."""
+    clean = {}
+    for key, value in list(raw.items())[:24]:
+        name = str(key).strip()[:60]
+        try:
+            weight = float(value)
+        except (TypeError, ValueError):
+            continue
+        if name and 0 < weight:
+            clean[name] = min(weight, 50.0)
+    return dict(sorted(clean.items(), key=lambda kv: -kv[1])[:keep])
+
+
 class SearchBody(BaseModel):
     q: str | None = None
     makes: list[str] = Field(default_factory=list)
@@ -456,6 +483,20 @@ class SearchBody(BaseModel):
     page: int = 1
     page_size: int = 24
     lang: str = "bg"
+    taste: TasteBody | None = None
+
+
+async def _profile(request: Request, sent):
+    """The profile to rank by: what the browser sent, else what the account remembers."""
+    if sent and (sent.makes or sent.models):
+        return sent.makes, sent.models, sent.fuels, sent.samples
+    try:
+        user = await auth.optional_user(request)
+    except Exception:
+        user = None
+    stored = (user or {}).get("taste") or {}
+    return (stored.get("makes") or {}, stored.get("models") or {},
+            stored.get("fuels") or {}, stored.get("samples") or [])
 
 
 @api.post("/search")
@@ -470,8 +511,26 @@ async def search(body: SearchBody, request: Request):
     skip = (page - 1) * size
 
     total = await db.listings.count_documents(query)
-    cursor = db.listings.find(query).sort(sort).skip(skip).limit(size)
-    rows = [d async for d in cursor]
+
+    rows = None
+    if body.sort == "relevant":
+        # Ranking by taste cannot be expressed as a Mongo sort, so a bounded pool of the
+        # freshest matches is scored in memory. Deeper pages fall back to newest, which is
+        # what "relevant" degrades to for a visitor we know nothing about anyway.
+        makes, models, fuels, samples = await _profile(request, body.taste)
+        makes, models, fuels = _weights(makes, 4), _weights(models, 6), _weights(fuels, 4)
+        if (makes or models) and skip < RELEVANT_POOL:
+            pool = [d async for d in
+                    db.listings.find(query).sort(SORTS["newest"]).limit(RELEVANT_POOL)]
+            price, _, _ = _centre(samples, 0)
+            mileage, _, _ = _centre(samples, 1)
+            ranked = _spread(_rank_by_taste(pool, makes, models, fuels, price, mileage),
+                             RELEVANT_POOL, per_model=4)
+            rows = [d for _, _, d in ranked][skip:skip + size]
+
+    if rows is None:
+        cursor = db.listings.find(query).sort(sort).skip(skip).limit(size)
+        rows = [d async for d in cursor]
 
     await translate_listings(db, rows, lang)
     items = [listing_out(d) for d in rows]
@@ -504,68 +563,44 @@ async def search(body: SearchBody, request: Request):
     }
 
 
-class TasteBody(BaseModel):
-    """What a visitor's browser learned about them. Sent per request, never stored."""
-    makes: dict[str, float] = Field(default_factory=dict)
-    models: dict[str, float] = Field(default_factory=dict)
-    fuels: dict[str, float] = Field(default_factory=dict)
-    price: float | None = None
-    year: int | None = None
-    exclude: list[str] = Field(default_factory=list)
-    limit: int = 12
-    lang: str = "bg"
+def _centre(samples, slot):
+    """The middle of what the buyer keeps looking at, weighted by how long they looked.
 
-
-def _weights(raw, keep=6):
-    """Trust nothing from the client: cap the size and clamp every weight."""
-    clean = {}
-    for key, value in list(raw.items())[:24]:
-        name = str(key).strip()[:60]
-        try:
-            weight = float(value)
-        except (TypeError, ValueError):
-            continue
-        if name and 0 < weight:
-            clean[name] = min(weight, 50.0)
-    return dict(sorted(clean.items(), key=lambda kv: -kv[1])[:keep])
-
-
-@api.post("/recommendations")
-async def recommendations(body: TasteBody, request: Request):
-    """Cars this visitor is most likely to want next.
-
-    The profile is a bag of weighted makes, models and fuels plus the price and year the
-    visitor keeps circling. Candidates are anything sharing a favoured make or model, then
-    each one is scored: a model match counts for far more than its make, the fuel is a mild
-    preference, and distance from the visitor's price and year is a penalty rather than a
-    filter, so a slightly dearer or older car can still win on the rest of its merits.
+    A plain mean would let one curious click at €90,000 drag the whole profile upwards, so
+    the samples are weighted and the top and bottom thirds are allowed to define a RANGE
+    rather than being averaged away.
     """
-    lang = norm_lang(body.lang)
-    makes = _weights(body.makes, 4)
-    models = _weights(body.models, 6)
-    fuels = _weights(body.fuels, 4)
-    if not makes and not models:
-        return {"items": [], "lang": lang}
-
-    query = build_query({})
-    ors = []
-    if makes:
-        ors.append({"manufacturer": {"$in": list(makes)}})
-    if models:
-        ors.append({"model": {"$in": list(models)}})
-    query["$or"] = ors
-    if body.exclude:
-        query["_id"] = {"$nin": [str(x)[:64] for x in body.exclude[:60]]}
-    # A generous price window, so the scoring has room to prefer the closest ones.
-    if body.price and body.price > 0:
-        query["sale_eur"] = {"$gte": body.price * 0.5, "$lte": body.price * 1.8}
-
-    rows = [d async for d in db.listings.find(query).sort(SORTS["newest"]).limit(300)]
+    rows = [(float(s[slot]), float(s[2]) if len(s) > 2 else 1.0)
+            for s in samples if isinstance(s, (list, tuple)) and len(s) > slot
+            and _positive(s[slot])]
     if not rows:
-        return {"items": [], "lang": lang}
+        return None, None, None
+    rows.sort(key=lambda r: r[0])
+    total = sum(w for _, w in rows) or 1.0
+    running, centre = 0.0, rows[-1][0]
+    for value, weight in rows:
+        running += weight
+        if running >= total / 2:
+            centre = value
+            break
+    return centre, rows[0][0], rows[-1][0]
 
-    top_make = max(makes, key=makes.get) if makes else ""
-    scale_make = makes.get(top_make, 1) or 1
+
+def _positive(value):
+    try:
+        return float(value) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _rank_by_taste(rows, makes, models, fuels, price, mileage):
+    """Score candidates against a profile. Returns [(score, why, doc)] highest first.
+
+    A model match counts for far more than its make, fuel is a mild preference, and distance
+    from the buyer's price and mileage is a PENALTY rather than a filter — so a slightly
+    dearer or higher-mileage car can still win on the rest of its merits.
+    """
+    scale_make = max(makes.values()) if makes else 1
     scale_model = max(models.values()) if models else 1
     scale_fuel = max(fuels.values()) if fuels else 1
 
@@ -576,29 +611,74 @@ async def recommendations(body: TasteBody, request: Request):
         fuel_w = fuels.get(doc.get("fuel_type") or "", 0) / scale_fuel
         score = 6 * model_w + 3 * make_w + 1.5 * fuel_w
 
-        if body.price and doc.get("sale_eur"):
-            score -= 2.5 * min(1.0, abs(doc["sale_eur"] - body.price) / body.price)
-        if body.year and doc.get("form_year"):
-            score -= 1.5 * min(1.0, abs(doc["form_year"] - body.year) / 8)
+        if price and doc.get("sale_eur"):
+            score -= 2.5 * min(1.0, abs(doc["sale_eur"] - price) / price)
+        if mileage and doc.get("mileage"):
+            score -= 1.5 * min(1.0, abs(doc["mileage"] - mileage) / max(mileage, 1))
         # A nudge for the freshest ads, never enough to outrank a real preference.
         score += 0.4 if (doc.get("recency") or 999) < 50 else 0
 
         scored.append((score, "model" if model_w else "make" if make_w else "", doc))
 
     scored.sort(key=lambda s: -s[0])
+    return scored
 
-    # A shelf of twelve near-identical cars is not a choice. Three per model keeps the row
-    # varied without letting a weaker match jump the queue.
-    limit = max(1, min(body.limit, 24))
-    best, per_model = [], {}
+
+def _spread(scored, limit, per_model=3):
+    """A shelf of near-identical cars is not a choice: cap how many share a model."""
+    out, seen = [], {}
     for row in scored:
         key = row[2].get("model") or ""
-        if per_model.get(key, 0) >= 3:
+        if seen.get(key, 0) >= per_model:
             continue
-        per_model[key] = per_model.get(key, 0) + 1
-        best.append(row)
-        if len(best) >= limit:
+        seen[key] = seen.get(key, 0) + 1
+        out.append(row)
+        if len(out) >= limit:
             break
+    return out
+
+
+def _why_label(out, why):
+    if why == "model":
+        return out.get("model_t") or out.get("model") or ""
+    if why == "make":
+        return out.get("manufacturer_t") or out.get("manufacturer") or ""
+    return ""
+
+
+@api.post("/recommendations")
+async def recommendations(body: TasteBody, request: Request):
+    """Cars this visitor is most likely to want next."""
+    lang = norm_lang(body.lang)
+    makes = _weights(body.makes, 4)
+    models = _weights(body.models, 6)
+    fuels = _weights(body.fuels, 4)
+    if not makes and not models:
+        return {"items": [], "lang": lang}
+
+    price, price_low, price_high = _centre(body.samples, 0)
+    mileage, _, _ = _centre(body.samples, 1)
+
+    query = build_query({})
+    ors = []
+    if makes:
+        ors.append({"manufacturer": {"$in": list(makes)}})
+    if models:
+        ors.append({"model": {"$in": list(models)}})
+    query["$or"] = ors
+    if body.exclude:
+        query["_id"] = {"$nin": [str(x)[:64] for x in body.exclude[:60]]}
+    # A generous window around the range they browse, so scoring has room to prefer the
+    # closest ones without hiding a good car just outside it.
+    if price_low and price_high:
+        query["sale_eur"] = {"$gte": price_low * 0.7, "$lte": price_high * 1.4}
+
+    rows = [d async for d in db.listings.find(query).sort(SORTS["newest"]).limit(300)]
+    if not rows:
+        return {"items": [], "lang": lang}
+
+    best = _spread(_rank_by_taste(rows, makes, models, fuels, price, mileage),
+                   max(1, min(body.limit, 24)))
 
     docs = [d for _, _, d in best]
     await translate_listings(db, docs, lang)
@@ -607,8 +687,7 @@ async def recommendations(body: TasteBody, request: Request):
         out = listing_out(doc)
         out.pop("landed_eur", None)
         # Built AFTER translation, or the reason would name the car in Korean.
-        out["why_label"] = (out.get("model_t") or out.get("model") or "") if why == "model" \
-            else (out.get("manufacturer_t") or out.get("manufacturer") or "") if why else ""
+        out["why_label"] = _why_label(out, why)
         items.append(out)
     await publish_prices(items)
     return {"items": items, "lang": lang}
@@ -1564,6 +1643,42 @@ async def admin_shipment_refresh(ref: str, request: Request, by: str = "containe
         raise HTTPException(400, str(e))
     except RuntimeError as e:
         raise HTTPException(502, str(e))
+
+
+@api.get("/admin/buyers")
+async def admin_buyers(request: Request, x_admin_token: str = Header(default="")):
+    """What each customer is actually shopping for.
+
+    Built from the same profile that drives their recommendations: the makes and models they
+    keep coming back to, and the price and mileage range they browse in. Read-only, so the
+    operator can pick up the phone knowing what to offer.
+    """
+    await _require_admin(request, x_admin_token)
+    rows = [u async for u in db.users.find(
+        {}, {"email": 1, "name": 1, "taste": 1, "billing": 1, "favourites": 1,
+             "created_at": 1}).sort("created_at", -1).limit(300)]
+
+    out = []
+    for u in rows:
+        taste = u.get("taste") or {}
+        samples = taste.get("samples") or []
+        price, price_low, price_high = _centre(samples, 0)
+        mileage, mileage_low, mileage_high = _centre(samples, 1)
+        top = lambda m, n: [k for k, _ in sorted((m or {}).items(), key=lambda kv: -kv[1])[:n]]
+        out.append({
+            "email": u.get("email") or "", "name": u.get("name") or "",
+            "city": (u.get("billing") or {}).get("city") or "",
+            "favourites": len(u.get("favourites") or []),
+            "makes": top(taste.get("makes"), 3), "models": top(taste.get("models"), 3),
+            "fuels": top(taste.get("fuels"), 2),
+            "price": price, "price_low": price_low, "price_high": price_high,
+            "mileage": mileage, "mileage_low": mileage_low, "mileage_high": mileage_high,
+            "events": taste.get("events") or 0,
+            "updated_at": taste.get("updated_at"),
+            "joined_at": u.get("created_at"),
+        })
+    out.sort(key=lambda r: (-r["events"], r["email"]))
+    return {"items": out}
 
 
 @api.get("/admin/tracking-quota")

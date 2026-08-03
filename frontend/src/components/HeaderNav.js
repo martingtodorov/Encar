@@ -45,7 +45,7 @@ export const HeaderNav = () => {
       : "text-muted-foreground hover:bg-muted hover:text-foreground"}`;
 
   return (
-    <nav data-testid="header-nav" className="flex flex-1 items-center gap-6 xl:gap-8">
+    <nav data-testid="header-nav" className="flex flex-1 items-center gap-8">
       <Link
         to={path(items[0].to)}
         data-testid="header-nav-link-search"

@@ -24,7 +24,7 @@ import { useApp } from "@/context/AppContext";
 import { useLangNav } from "@/hooks/useLangNav";
 import { getCatalogueSize, getFilters, resolveSlugs, searchCars } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
-import { noteSearch } from "@/lib/taste";
+import { noteSearch, getTaste } from "@/lib/taste";
 import { useScrollDirection } from "@/hooks/useScrollDirection";
 import { useSeo } from "@/lib/seo";
 import {
@@ -243,7 +243,13 @@ export default function SearchPage() {
   }, []);
 
   const payload = useMemo(
-    () => buildPayload({ filters, tax, sort, page }, { lang, pageSize: PAGE_SIZE }),
+    () => {
+      const body = buildPayload({ filters, tax, sort, page }, { lang, pageSize: PAGE_SIZE });
+      // "Relevant" is ranked against this visitor's own profile, which lives on their
+      // machine, so it has to travel with the request. Signed-in buyers also have it on
+      // their account, and the backend prefers whichever is present.
+      return sort === "relevant" ? { ...body, taste: getTaste() } : body;
+    },
     [filters, tax, sort, page, lang]
   );
 

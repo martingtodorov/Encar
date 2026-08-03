@@ -9,17 +9,37 @@ import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
 import { useSeo } from "@/lib/seo";
 import { AccountShipments } from "@/components/AccountShipments";
+import { BLANK_BILLING, BillingFields } from "@/components/BillingFields";
 import http from "@/lib/api";
 
 export default function AccountPage() {
   const { t, lang } = useApp();
-  const { user, loading, logout, addPasskey, passkeySupported, errorMessage } = useAuth();
+  const { user, loading, logout, addPasskey, passkeySupported, errorMessage,
+          updateBilling } = useAuth();
   const { go } = useLangNav();
 
   useSeo({ lang, title: `${t("myAccount")} \u00b7 Encar` });
 
   const [passkeys, setPasskeys] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [billing, setBilling] = useState(BLANK_BILLING);
+  const [savingBilling, setSavingBilling] = useState(false);
+
+  useEffect(() => {
+    if (user?.billing) setBilling({ ...BLANK_BILLING, ...user.billing });
+  }, [user?.id]);
+
+  const saveAddress = async () => {
+    setSavingBilling(true);
+    try {
+      await updateBilling(billing);
+      toast.success(t("billingSaved"));
+    } catch (e) {
+      toast.error(errorMessage(e, t("authFailed")));
+    } finally {
+      setSavingBilling(false);
+    }
+  };
 
   useEffect(() => {
     if (!loading && !user) go("/login", { replace: true });
@@ -167,6 +187,27 @@ export default function AccountPage() {
         </section>
 
         <AccountShipments />
+
+        <section
+          data-testid="account-billing"
+          className="mt-6 rounded-[16px] border border-border bg-card p-5 shadow-sm"
+        >
+          <h2 className="text-[14.5px] font-semibold text-foreground">{t("billingTitle")}</h2>
+          <p className="mt-1 max-w-lg text-[12.5px] leading-relaxed text-muted-foreground">
+            {t("billingBlurb")}
+          </p>
+          <div className="mt-4">
+            <BillingFields value={billing} onChange={setBilling} prefix="account-billing" />
+          </div>
+          <Button
+            data-testid="account-billing-save"
+            onClick={saveAddress}
+            disabled={savingBilling}
+            className="mt-4 h-10 gap-2 rounded-[10px] bg-[hsl(var(--primary))] px-4 text-[13.5px] font-semibold text-primary-foreground hover:brightness-110"
+          >
+            {t("billingSave")}
+          </Button>
+        </section>
 
         <Button
           data-testid="account-logout-button"

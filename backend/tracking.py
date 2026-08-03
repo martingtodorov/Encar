@@ -13,7 +13,7 @@ import hashlib
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -309,6 +309,37 @@ async def _cargo(db, ref, by, refresh=False):
             "route": jsoncargo.route(snap), "snapshot": snap}
 
 
+DELIVERY_DAYS = int(os.environ.get("DELIVERY_LEAD_DAYS", "7"))
+
+
+async def _delivery(db, stones, user_id):
+    """The step the carrier never reports: the car reaching the buyer's own address.
+
+    Ocean tracking ends at the destination terminal, but nobody is waiting at a terminal.
+    Customs, unloading and the lorry take about a week after the last port date, so one
+    clearly ESTIMATED step is appended, named with the city from the buyer's billing
+    address when they have given us one.
+    """
+    if not stones:
+        return None
+    last = max(s["when"] for s in stones)
+    try:
+        base = datetime.fromisoformat(last)
+    except ValueError:
+        return None
+    city, country = "", ""
+    if user_id:
+        owner = await db.users.find_one({"_id": user_id}, {"billing": 1})
+        billing = (owner or {}).get("billing") or {}
+        city, country = billing.get("city") or "", billing.get("country") or ""
+    return {
+        "code": "DLV", "text": "Delivery to your address",
+        "when": (base + timedelta(days=DELIVERY_DAYS)).strftime("%Y-%m-%dT%H:%M:00"),
+        "estimated": True, "location": city, "country": country, "unloc": "",
+        "mode": "road", "vessel_name": "", "vessel_imo": "", "voyage": "",
+    }
+
+
 async def track(db, ref, by="container", refresh=False):
     """Normalised tracking view for one container or bill of lading.
 
@@ -323,7 +354,8 @@ async def track(db, ref, by="container", refresh=False):
 
     # What the admin assigned: customer, car, ship. The EDI feed (when it arrives) is merged
     # on top of it rather than replacing it.
-    manual = await db.shipments.find_one({"ref": ref}, {"_id": 0, "user_id": 0})
+    manual = await db.shipments.find_one({"ref": ref}, {"_id": 0})
+    owner_id = (manual or {}).pop("user_id", "") if manual else ""
 
     stones = await edi.events_for(db, ref, by)
     source = "edi"
@@ -377,7 +409,12 @@ async def track(db, ref, by="container", refresh=False):
             if not vessel["position"]:
                 vessel["position"] = await vessel_position(db, vessel["imo"],
                                                            vessel.get("mmsi", ""))
+        # The buyer's own doorstep, which no carrier reports, appended as an estimate.
+        door = await _delivery(db, stones, owner_id)
+        if door:
+            stones = stones + [door]
         view = _view(ref, by, stones, source, vessel=vessel)
+        view["delivery"] = door
         if cargo:
             view["route"] = cargo["route"]
             view["container"] = cargo["container"]

@@ -163,15 +163,41 @@ def _public(user, passkeys=0):
         "favourites": user.get("favourites") or [],
         "saved_searches": user.get("saved_searches") or [],
         "is_admin": bool(user.get("is_admin")),
+        "billing": user.get("billing") or {},
+        "consent": user.get("consent") or "",
+        "taste": user.get("taste") or {},
         "created_at": user.get("created_at"),
     }
 
 
 # ── payloads ------------------------------------------------------------------
+class Billing(BaseModel):
+    """Where the car is finally delivered. Optional everywhere, and only ever the
+    minimum needed to drive a lorry to the buyer's door and raise an invoice."""
+    full_name: str = ""
+    street: str = ""
+    city: str = ""
+    post_code: str = ""
+    country: str = ""
+    phone: str = ""
+
+    def clean(self):
+        out = {
+            "full_name": self.full_name.strip()[:120],
+            "street": self.street.strip()[:160],
+            "city": self.city.strip()[:80],
+            "post_code": self.post_code.strip()[:16],
+            "country": self.country.strip().upper()[:2],
+            "phone": self.phone.strip()[:32],
+        }
+        return out if any(out.values()) else {}
+
+
 class Credentials(BaseModel):
     email: EmailStr
     password: str
     name: str = ""
+    billing: Billing | None = None
 
 
 class LoginBody(BaseModel):
@@ -210,6 +236,11 @@ async def register(body: Credentials, response: Response):
         "is_admin": False,
         "created_at": _now(),
     }
+    # Stored only when the buyer actually filled it in: an empty form leaves no address
+    # behind, and `PUT /auth/billing` can add or erase it later.
+    billing = body.billing.clean() if body.billing else {}
+    if billing:
+        user["billing"] = billing
     if await _db.users.find_one({"email_norm": email}):
         raise HTTPException(409, "that email is already registered")
     # The first account (or the first one created while no administrator exists) owns
@@ -419,6 +450,39 @@ async def delete_passkey(passkey_id: str, user=Depends(current_user)):
 
 
 # ── favourites, synced to the account ----------------------------------------
+class TasteIn(BaseModel):
+    """The interest profile a browser has built up. Small, and never trusted blindly."""
+    makes: dict[str, float] = {}
+    models: dict[str, float] = {}
+    fuels: dict[str, float] = {}
+    samples: list[list[float]] = []
+    events: int = 0
+    consent: str = ""
+
+
+@router.post("/auth/taste")
+async def put_taste(body: TasteIn, user=Depends(current_user)):
+    """Mirror the browser's profile onto the account.
+
+    Kept so recommendations follow the buyer between devices and so the operator can see
+    what each customer is actually shopping for. Capped on the way in.
+    """
+    taste = {
+        "makes": dict(list(body.makes.items())[:8]),
+        "models": dict(list(body.models.items())[:8]),
+        "fuels": dict(list(body.fuels.items())[:6]),
+        "samples": [[float(x) for x in row[:3]] for row in body.samples[:12]
+                    if isinstance(row, list) and row],
+        "events": min(int(body.events or 0), 100000),
+        "updated_at": _now(),
+    }
+    update = {"taste": taste}
+    if body.consent in ("all", "necessary"):
+        update["consent"] = body.consent
+    await _db.users.update_one({"_id": user["_id"]}, {"$set": update})
+    return {"saved": True}
+
+
 @router.get("/auth/favourites")
 async def get_favourites(user=Depends(current_user)):
     return {"ids": user.get("favourites") or []}

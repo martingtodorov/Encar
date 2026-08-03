@@ -21,7 +21,7 @@ export const HeaderBar = ({ hidden = false, onBack, flush = false }) => {
         flush ? "border-b-0 shadow-none" : "border-b border-border shadow-sm"
       } ${hidden ? "-translate-y-full" : "translate-y-0"}`}
     >
-      <div className="mx-auto flex h-16 max-w-[1280px] items-center gap-3 px-3 sm:px-6">
+      <div className="mx-auto flex h-16 max-w-[1280px] items-center gap-3 px-3 sm:px-6 lg:gap-8">
         {/* Mobile: logo centred, menu at the right edge under the thumb; the empty
             left cell is what keeps the logo optically centred. Theme lives in the drawer.
             Desktop: logo left, full nav inline, no drawer at all. */}

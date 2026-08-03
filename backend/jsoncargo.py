@@ -26,7 +26,7 @@ import httpx
 log = logging.getLogger("jsoncargo")
 
 TTL_BOL = int(os.environ.get("CARGO_TTL_BOL", "2592000"))        # a B/L never changes
-TTL_CONTAINER = int(os.environ.get("CARGO_TTL_CONTAINER", "43200"))   # 12h
+TTL_CONTAINER = int(os.environ.get("CARGO_TTL_CONTAINER", "86400"))   # once a day, shared
 TTL_VESSEL = int(os.environ.get("CARGO_TTL_VESSEL", "21600"))         # 6h
 TTL_NAME = int(os.environ.get("CARGO_TTL_NAME", "31536000"))          # identity is forever
 TTL_STATS = int(os.environ.get("CARGO_TTL_STATS", "21600"))

@@ -192,6 +192,11 @@ export async function apiMe() {
   return data;
 }
 
+export async function saveBilling(billing) {
+  const { data } = await http.put("/auth/billing", billing);
+  return data.user;
+}
+
 export async function apiRegister(body) {
   const { data } = await http.post("/auth/register", body);
   return data;
@@ -289,6 +294,11 @@ export async function refreshShipment(ref, by = "container") {
 export async function getRecommendations(profile) {
   const { data } = await http.post("/recommendations", profile);
   return data;
+}
+
+export async function getBuyers() {
+  const { data } = await http.get("/admin/buyers");
+  return data.items || [];
 }
 
 export async function getTrackingQuota() {

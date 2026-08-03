@@ -1,3 +1,4 @@
+import { getConsent, markSignedIn, setConsent } from "@/lib/taste";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   apiLogin,
@@ -12,6 +13,7 @@ import {
   apiPutFavourites,
   apiPutSearches,
   apiRegister,
+  saveBilling,
 } from "@/lib/api";
 import { createCredential, getCredential, passkeySupported } from "@/lib/passkey";
 import { useApp } from "@/context/AppContext";
@@ -103,7 +105,7 @@ export function AuthProvider({ children }) {
   );
 
   const register = useCallback(
-    async (email, password, name) => {
+    async (email, password, name, billing) => {
       const local = favourites;
       const localSearches = searches;
       const { user: u } = await apiRegister({ email, password, name: name || "" });
@@ -146,6 +148,20 @@ export function AuthProvider({ children }) {
 
   const clearJustRegistered = useCallback(() => setJustRegistered(false), []);
 
+  const updateBilling = useCallback(async (billing) => {
+    const u = await saveBilling(billing);
+    setUser(u);
+    return u;
+  }, []);
+
+  useEffect(() => {
+    // Signed-in buyers get their profile mirrored to the account; taste.js needs to know,
+    // and the session cookie is httpOnly so it cannot check for itself.
+    markSignedIn(!!user);
+    // Consent recorded on the account means we do not ask again on a new device.
+    if (user?.consent && !getConsent()) setConsent(user.consent);
+  }, [user]);
+
   const value = useMemo(
     () => ({
       user,
@@ -155,12 +171,14 @@ export function AuthProvider({ children }) {
       logout,
       passkeyLogin,
       addPasskey,
+      updateBilling,
       passkeySupported: passkeySupported(),
       errorMessage: message,
       justRegistered,
       clearJustRegistered,
     }),
-    [user, loading, login, register, logout, passkeyLogin, addPasskey, justRegistered,
+    [user, loading, login, register, logout, passkeyLogin, addPasskey, updateBilling,
+     justRegistered,
      clearJustRegistered]
   );
 

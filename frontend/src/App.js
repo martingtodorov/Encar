@@ -14,6 +14,7 @@ import TrackPage from "@/pages/TrackPage";
 import LoginPage from "@/pages/LoginPage";
 import AccountPage from "@/pages/AccountPage";
 import AdminPage from "@/pages/AdminPage";
+import LegalPage from "@/pages/LegalPage";
 
 function App() {
   return (
@@ -32,6 +33,10 @@ function App() {
               <Route path="login" element={<LoginPage />} />
               <Route path="account" element={<AccountPage />} />
               <Route path="admin" element={<AdminPage />} />
+              <Route path="terms" element={<LegalPage slug="terms" />} />
+              <Route path="privacy" element={<LegalPage slug="privacy" />} />
+              <Route path="cookies" element={<LegalPage slug="cookies" />} />
+              <Route path="contact" element={<LegalPage slug="contact" />} />
             </Route>
             {/* Bare and legacy URLs keep working: same page, language added. */}
             <Route path="*" element={<LangRedirect />} />

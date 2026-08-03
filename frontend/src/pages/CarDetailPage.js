@@ -26,7 +26,8 @@ import { EnquiryDialog } from "@/components/EnquiryDialog";
 import { DescriptionPanelBody } from "@/components/DescriptionPanelBody";
 import { useLangNav } from "@/hooks/useLangNav";
 import { getCar, warmCar, forgetCar } from "@/lib/api";
-import { noteView } from "@/lib/taste";
+import { noteView, WEIGHT } from "@/lib/taste";
+import Lightbox from "@/components/Lightbox";
 import { useSeo } from "@/lib/seo";
 import { formatMileage, formatMoney, formatNumber, formatYearMonth } from "@/lib/format";
 
@@ -97,6 +98,14 @@ export default function CarDetailPage() {
   const [error, setError] = useState(null);
   const [active, setActive] = useState(0);
   const [lightbox, setLightbox] = useState(false);
+  // Desktop opens the full lightbox; the phone keeps the vertical photo column, which
+  // reads better on a small screen than a one-at-a-time viewer.
+  const [shot, setShot] = useState(null);
+
+  const openPhotos = (i) => {
+    if (window.matchMedia("(min-width: 1024px)").matches) setShot(i);
+    else setLightbox(true);
+  };
 
   // Opening a car from halfway down the result list must not keep that scroll offset:
   // the visitor expects to land at the top of the car they just tapped.
@@ -141,6 +150,14 @@ export default function CarDetailPage() {
   const money = (v) => formatMoney(v, currency, lang, rates);
   const pct = (f) => `${Math.round((f || 0) * 100)}%`;
   const saved = isFavourite(id);
+  // Time on the page is the honest measure of interest: a 30-second read counts for more
+  // than a click that bounced. One extra signal, once, then the timer is done.
+  useEffect(() => {
+    if (!car) return undefined;
+    const timer = setTimeout(() => noteView(car, WEIGHT.dwell), 30000);
+    return () => clearTimeout(timer);
+  }, [car?.id]);
+
   const photos = car?.photos || [];
   const q = car?.quote;
 
@@ -289,7 +306,7 @@ export default function CarDetailPage() {
                     testId="detail-main-photo"
                     index={active}
                     onIndexChange={setActive}
-                    onTap={() => photos.length && setLightbox(true)}
+                    onTap={() => photos.length && openPhotos(active)}
                     countOnHover
                     hint={t("zoom")}
                     arrows
@@ -307,6 +324,7 @@ export default function CarDetailPage() {
                         type="button"
                         data-testid="detail-photo-thumb"
                         onClick={() => setActive(i)}
+                        onDoubleClick={() => openPhotos(i)}
                         aria-label={`${t("allPhotos")} ${i + 1}`}
                         aria-current={i === active ? "true" : undefined}
                         className={`h-16 w-24 shrink-0 overflow-hidden rounded-[8px] border-2 transition-colors lg:aspect-video lg:h-auto lg:w-full ${
@@ -717,6 +735,22 @@ export default function CarDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Desktop viewer: one photo at a time with a thumbnail strip, arrows, keyboard,
+          drag and trackpad swipe. The phone keeps the vertical column above. */}
+      {shot !== null && (
+        <Lightbox
+          images={photos.map((p) => p.full)}
+          thumbnails={photos.map((p) => p.thumb)}
+          index={shot}
+          label={car?.title || ""}
+          onClose={() => setShot(null)}
+          onChange={(i) => {
+            setShot(i);
+            setActive(i);
+          }}
+        />
+      )}
     </div>
   );
 }

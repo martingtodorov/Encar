@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { Navigate, Outlet, useLocation, useParams } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
+import { CookieBar } from "@/components/CookieBar";
+import { SiteFooter } from "@/components/SiteFooter";
 import { LANGS } from "@/i18n";
 import { stripLang } from "@/lib/seo";
 
@@ -24,7 +26,13 @@ export const LangLayout = () => {
   }, [valid, urlLang, lang, setLang]);
 
   if (!valid) return <LangRedirect />;
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <SiteFooter />
+      <CookieBar />
+    </>
+  );
 };
 
 /** Sends a prefix-less or unknown-prefix URL to the same page in the visitor's language. */

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Activity, Inbox, PieChart, RefreshCcw, Ship } from "lucide-react";
+import { Activity, Inbox, PieChart, RefreshCcw, Ship, Users } from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
@@ -12,6 +12,7 @@ import { AdminCoverage } from "@/components/admin/AdminCoverage";
 import { AdminEnquiries } from "@/components/admin/AdminEnquiries";
 import { AdminCatalogueSync } from "@/components/admin/AdminCatalogueSync";
 import { AdminShipments } from "@/components/admin/AdminShipments";
+import { AdminBuyers } from "@/components/admin/AdminBuyers";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
@@ -19,6 +20,7 @@ const TABS = [
   { id: "enquiries", label: "Enquiries", icon: Inbox },
   { id: "sync", label: "Catalogue sync", icon: RefreshCcw },
   { id: "shipments", label: "Shipments", icon: Ship },
+  { id: "buyers", label: "Buyers", icon: Users },
 ];
 
 export default function AdminPage() {
@@ -92,6 +94,7 @@ export default function AdminPage() {
           {tab === "enquiries" && <AdminEnquiries />}
           {tab === "sync" && <AdminCatalogueSync />}
           {tab === "shipments" && <AdminShipments />}
+          {tab === "buyers" && <AdminBuyers />}
         </div>
       </main>
     </div>

@@ -2,14 +2,16 @@ import { ChevronDown } from "lucide-react";
 import { useApp } from "@/context/AppContext";
 
 // Sorting default depends on intent:
-//  * browsing with no make/model chosen -> "newest", because a freshly-arrived car is
-//    the interesting thing when you have not said what you are looking for
+//  * browsing with no make/model chosen -> "relevant": cars in the makes, price band and
+//    mileage range this visitor keeps coming back to. With no history it simply falls back
+//    to newest, so a first-time visitor still sees the freshest arrivals.
 //  * once a make or model is chosen -> "price_asc", because the question becomes
 //    "what is the cheapest one of THESE?"
-export const DEFAULT_SORT_BROWSE = "newest";
+export const DEFAULT_SORT_BROWSE = "relevant";
 export const DEFAULT_SORT_FILTERED = "price_asc";
 
 export const SORT_OPTIONS = [
+  { value: "relevant", key: "sortRelevant" },
   { value: "price_asc", key: "sortPriceAsc" },
   { value: "price_desc", key: "sortPriceDesc" },
   { value: "newest", key: "sortNewest" },
