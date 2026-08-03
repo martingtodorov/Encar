@@ -1335,6 +1335,7 @@ async def on_startup():
             upsert=True)
     asyncio.get_running_loop().create_task(_fx_watchdog())
     await syncjob_mod.clear_stale(db)
+    await syncjob_mod.resume_if_interrupted(db)
     asyncio.get_running_loop().create_task(syncjob_mod.scheduler(db))
     log.info("startup complete: %s listings in index",
              await db.listings.count_documents({}))
@@ -1359,5 +1360,8 @@ async def _fx_watchdog(period=1800):
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    # Order matters: let a running sync be cancelled and record itself while Mongo is
+    # still open, otherwise it dies mid-write and leaves the job stuck on "running".
+    await syncjob_mod.stop(db)
     await encar.close()
     client.close()

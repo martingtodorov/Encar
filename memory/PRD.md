@@ -258,6 +258,22 @@ exhaustive-deps sweep. On `SearchPage`/`AppContext` the omitted deps are intenti
 the single source of truth); adding them mechanically invites render loops. Worth doing as
 its own scoped task with the testing agent, not folded into a feature.
 
+- **The sync no longer dies badly on a restart.** Measured first: during a live crawl the
+  API is unaffected (search 0.33s vs 0.32s baseline, car page 0.14s) and the catalogue stays
+  fully visible (149,379 results mid-crawl), so the sync does NOT take the site down. The
+  real failure was the shutdown order — `client.close()` ran while the detached sync task
+  was still writing, so it died with `InvalidOperation: Cannot use MongoClient after close`
+  and left the job doc stuck on "running", jamming the Sync button until the next boot.
+  Now `syncjob.stop()` cancels the task and records the interruption while Mongo is still
+  open (called from `on_shutdown` before `encar.close()`/`client.close()`), and
+  `resume_if_interrupted()` on startup picks the crawl back up ONCE (`resumed` flag, 6h
+  window) so a restart mid-sync does not leave the catalogue half-refreshed, while a crash
+  loop cannot turn into an endless crawl. Verified end to end: clean "catalogue sync stopped
+  for shutdown" with no traceback, one "resuming the catalogue sync" on the next boot, and
+  the admin panel correctly reporting `interrupted` in between.
+  Note: `/api/admin/sync/status` is the LEGACY endpoint (old `run_full_sync` doc) and can
+  report a stale "running"; the panel uses `/api/admin/catalogue-sync`.
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY

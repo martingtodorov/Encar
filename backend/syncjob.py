@@ -123,6 +123,53 @@ def is_running(db=None):
     return _task is not None and not _task.done()
 
 
+# A sync interrupted longer ago than this is not worth resuming automatically: the
+# catalogue has moved on and the operator can start a fresh one.
+RESUME_WINDOW_S = 6 * 3600
+
+
+async def stop(db, timeout=20):
+    """Cancel a running sync and record it, while the database client is still open.
+
+    Without this the process shutdown closes Mongo underneath the detached task, which
+    then dies mid-write ("Cannot use MongoClient after close") and leaves the job doc
+    stuck on "running" — which in turn jams the Sync button until the next startup.
+    """
+    global _task
+    if not is_running():
+        return False
+    _task.cancel()
+    await asyncio.wait([_task], timeout=timeout)
+    await db.sync_state.update_one(
+        {"_id": JOB_ID},
+        {"$set": {"status": "interrupted", "finished_at": _now(),
+                  "error": "the server restarted while this sync was running"}})
+    log.info("catalogue sync stopped for shutdown")
+    return True
+
+
+async def resume_if_interrupted(db):
+    """Pick a restart-interrupted sync back up, once.
+
+    The crawl upserts, so starting it again converges on the same index; what matters is
+    that a restart in the middle of a sync does not silently leave the catalogue
+    half-refreshed. `resumed` bounds this to a single automatic attempt, so a crash loop
+    cannot turn into an endless crawl.
+    """
+    doc = await db.sync_state.find_one({"_id": JOB_ID}) or {}
+    if doc.get("status") != "interrupted" or doc.get("resumed") or is_running():
+        return False
+    started = doc.get("started_at")
+    if started:
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        if (_now() - started).total_seconds() > RESUME_WINDOW_S:
+            return False
+    log.info("resuming the catalogue sync the restart interrupted")
+    await start(db, trigger="resume")
+    return True
+
+
 async def clear_stale(db):
     """A restart kills the task but not the status doc, which would jam the button."""
     doc = await db.sync_state.find_one({"_id": JOB_ID}) or {}
@@ -151,6 +198,8 @@ async def _run(db, trigger):
         upsert=True)
     result = {}
     try:
+        await db.sync_state.update_one(
+            {"_id": JOB_ID}, {"$set": {"resumed": trigger == "resume"}})
         await sync_mod.ensure_indexes(db)
         result = await sync_mod.crawl_partitioned(db, manufacturers=None, retire=True)
         await _phase(db, "manual")
