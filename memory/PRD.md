@@ -125,6 +125,10 @@ that owns the Resend account.
   canonical and hreflang tags; generated `robots.txt` + `sitemap.xml`
   (`frontend/scripts/gen-seo.js` — re-run with the real domain at go-live).
 - Car detail pages now open scrolled to the top.
+- URL filters are English slugs (`?make=hyundai&model=all-new-tucson&fuels=diesel~electric`),
+  resolved back to upstream values by `GET /api/meta/resolve`. Old Korean-value links and
+  saved searches still work. Also fixed a duplicate-taxonomy bug that had every dropdown
+  option listed twice.
 - Passkeys are no longer offered on the registration form; a "Sign in faster next time"
   dialog appears after registration instead (only on devices with a platform authenticator).
   Email verification is deliberately NOT built — deferred by the owner until a sending domain

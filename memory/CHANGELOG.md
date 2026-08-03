@@ -239,3 +239,23 @@ Verified (iteration_9): 100% both.
   `h-7 w-7`. Icons need `!h-6 !w-6` (or similar) to win that specificity. Final sizing:
   48x48 buttons with 24px glyphs, cells `w-12` so the logo stays centred.
 - Lightbox close button offset settled at `mt-14` (91px from the top of the phone).
+
+## 2026-06 — English slugs in the query string
+- Filter values in the URL were percent-encoded Hangul (`?make=%ED%98%84%EB%8C%80`):
+  unreadable, unshareable and worthless to a crawler. Every taxonomy node and flat facet
+  now carries an English slug derived from the cached English translation
+  (`backend/slugs.py`), so URLs read
+  `?make=hyundai&model=all-new-tucson&badge=diesel-1-6-2wd&fuels=diesel~electric&regions=seoul`.
+  `GET /api/meta/resolve` translates them back to the upstream values, and `/meta/taxonomy`
+  + `/meta/filters` now return a `slug` per item so the UI can write them.
+  Slug uniqueness is scoped by parent (level, make, model, badge); a value with no English
+  translation deliberately keeps its raw value. Unknown slugs and raw Korean values are
+  echoed back, so pre-slug links and pre-slug saved searches still work.
+- `SearchPage` holds the search until the incoming slugs are resolved, and `SavedSearchesPage`
+  does the same before counting matches — missing that step made every saved search with a
+  slug report "0 cars now" (found by testing agent iteration_19, fixed and re-verified:
+  15,466 cars with a thumbnail).
+- **Duplicate taxonomy fixed**: `build_taxonomy()` never dropped its `taxonomy_new` staging
+  collection, so two overlapping rebuilds doubled every node — 124 level-1 docs for 62 makes,
+  i.e. every dropdown option was silently listed twice. Now 10,703 unique nodes.
+- Testing agent iteration_19: backend 12/12, frontend 9/9 after the fix.

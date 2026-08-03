@@ -6,9 +6,37 @@ import { HeaderBar } from "@/components/HeaderBar";
 import { SavedSearchCard } from "@/components/SavedSearchCard";
 import { useApp } from "@/context/AppContext";
 import { useLangNav } from "@/hooks/useLangNav";
-import { searchCars } from "@/lib/api";
-import { buildPayload, paramsToState } from "@/lib/searchQuery";
+import { resolveSlugs, searchCars } from "@/lib/api";
+import { buildPayload, hasResolvableTokens, paramsToState } from "@/lib/searchQuery";
 import { useSeo } from "@/lib/seo";
+
+/** Slugs in a stored query -> the Korean values /api/search understands. */
+async function resolveState(params) {
+  const state = paramsToState(params);
+  if (!hasResolvableTokens(params)) return state;
+  try {
+    const r = await resolveSlugs({
+      make: state.tax.make,
+      model: state.tax.model,
+      badge: state.tax.badge,
+      badge_detail: state.tax.badgeDetail,
+      fuels: (state.filters.fuels || []).join("~"),
+      regions: (state.filters.regions || []).join("~"),
+    });
+    return {
+      ...state,
+      tax: {
+        make: r.make || "",
+        model: r.model || "",
+        badge: r.badge || "",
+        badgeDetail: r.badge_detail || "",
+      },
+      filters: { ...state.filters, fuels: r.fuels || [], regions: r.regions || [] },
+    };
+  } catch (e) {
+    return state;
+  }
+}
 
 /**
  * Saved searches, each resolved live: the point of coming back is to see what has
@@ -24,8 +52,12 @@ export default function SavedSearchesPage() {
   useEffect(() => {
     let cancelled = false;
     searches.forEach((s) => {
-      const state = paramsToState(new URLSearchParams(s.query));
-      searchCars(buildPayload({ ...state, sort: "newest", page: 1 }, { lang, pageSize: 1 }))
+      // Stored queries hold English slugs, and the search endpoint speaks the upstream
+      // Korean values, so they have to be translated back before counting matches.
+      resolveState(new URLSearchParams(s.query))
+        .then((state) =>
+          searchCars(buildPayload({ ...state, sort: "newest", page: 1 }, { lang, pageSize: 1 }))
+        )
         .then((d) => {
           if (cancelled) return;
           const car = (d.items || [])[0];
