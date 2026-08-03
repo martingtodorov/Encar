@@ -1,0 +1,42 @@
+{
+  "summary": "Verified the English-slug URL feature end-to-end. Backend /api/meta/resolve edge cases, taxonomy/filters slug uniqueness (62 unique makes), stability across calls, and /api/search compatibility with resolved Korean values - ALL PASS (12/12 pytest). Frontend: /en/ and /bg/ slug URLs load results with correct chips and clean English query string, model/submodel selection writes English slugs to URL (make=hyundai&model=accent-new), legacy raw-Korean URL /en/?make=%ED%98%84%EB%8C%80 is rewritten to /en/?make=hyundai and shows Hyundai results, Make dropdown lists 62 unique makes with no duplicates, Model dropdown for Hyundai has 142 unique entries, language switch EN->RO preserves slugs and switches to RON, saved-search restore works (open reproduces filters and count). ONE REGRESSION FOUND: SavedSearchesPage live count shows 0 for any saved search whose query contains a slug (e.g. Hyundai · 2020+ shows 'Image unavailable · 0 cars now' while seen_total is 18,629). The older 2019+ search (no slug) renders correctly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "SavedSearchesPage.js",
+        "issue": "Live count on /en/searches is 0 (and thumbnail missing) for any saved search whose stored query contains an English slug like make=hyundai. Opening the same search restores 18,629 cars, so the search itself is fine - only the live-count call on the list page is broken.",
+        "selector": "SavedSearchCard state.total",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "SavedSearchesPage live-count",
+        "issue": "SavedSearchesPage.useEffect calls paramsToState(new URLSearchParams(s.query)) then buildPayload(...) and submits POST /api/search with makes:['hyundai'] (the raw slug) instead of the Korean value. /api/search speaks Korean, so it returns 0. SearchPage does an on-mount resolveSlugs() before searching - SavedSearchesPage does not.",
+        "affected_selectors": ["saved-searches-list", "SavedSearchCard"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_english_slugs.py",
+    "/app/test_reports/pytest/slugs.xml"
+  ],
+  "action_items": [
+    "In /app/frontend/src/pages/SavedSearchesPage.js, resolve slugs before calling buildPayload/searchCars. Import resolveSlugs from lib/api and, when hasResolvableTokens(new URLSearchParams(s.query)) is true, POST/GET /api/meta/resolve first, then substitute the returned Korean values into tax.make/model/badge/badgeDetail and filters.fuels/regions before searchCars(). Otherwise the live count on /en/searches is 0 and no thumbnail is fetched."
+  ],
+  "critical_code_review_comments": [
+    "SavedSearchesPage does not perform slug resolution before calling /api/search, so the whole 'live count on the searches index' feature is broken for any saved search that includes a make/model/badge/fuels/regions slug. The fix is analogous to the SearchPage resolve-on-mount effect - one round trip to /api/meta/resolve then use the returned Korean values in the payload.",
+    "backend slugs.py ensure_taxonomy_slugs correctly scopes uniqueness by (level, make, model, badge). Verified 62 level-1 docs, 142 unique level-2 models for Hyundai, all slugs stable across two consecutive calls.",
+    "meta_resolve echoes unknown slugs and raw Korean values back untouched as designed - legacy URL 현대 -> resolves to itself and SearchPage then renders Hyundai chip and 38,866 results."
+  ],
+  "updated_files": ["/app/backend/tests/test_english_slugs.py"],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "89% (8/9 - saved-search live count broken)"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! - used for saved-search test. Login works via [data-testid='auth-email-input'] and [data-testid='auth-password-input'].",
+  "seed_data_creation": "One saved search created during test: 'Hyundai · 2020+' (query=make=hyundai&year_min=2020). Still present on /en/searches for the admin account. The pre-existing '2019+' search remains untouched.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend feature complete and correct. Only remaining bug is client-side: SavedSearchesPage must resolve slugs before submitting /api/search. Reproduction: log in as admin, save any Hyundai search on /en/, then load /en/searches - the card shows '0 cars now' and 'Image unavailable' although the search itself works when opened. Test file /app/backend/tests/test_english_slugs.py is safe to re-run as a regression suite.",
+  "rca of the issue": "SavedSearchesPage.useEffect runs paramsToState(new URLSearchParams(s.query)) which does no slug translation; buildPayload then forwards ['hyundai'] as a make. Backend /api/search matches on Korean manufacturer, so it returns total=0. SearchPage avoids this because its resolve-on-mount effect calls resolveSlugs() and only then dispatches the search. The fix is to mirror that resolve step in SavedSearchesPage before searchCars() is called."
+}

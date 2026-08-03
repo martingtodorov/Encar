@@ -17,6 +17,12 @@ export async function getFilters(lang) {
 }
 
 /** Cascading Make -> Model -> Submodel -> Trim. Served from a precomputed tree. */
+/** English slugs from the URL -> the Korean values the search endpoint speaks. */
+export async function resolveSlugs(params) {
+  const { data } = await http.get("/meta/resolve", { params });
+  return data;
+}
+
 export async function getTaxonomy({ level, make = "", model = "", badge = "", lang }) {
   const { data } = await http.get("/meta/taxonomy", {
     params: { level, make, model, badge, lang },

@@ -53,7 +53,7 @@ const Field = ({ id, label, items, current, onPick, disabled, busyKey, placehold
   </div>
 );
 
-export const TaxonomySelects = ({ value, onChange, onLabels, layout = "row", trailing }) => {
+export const TaxonomySelects = ({ value, onChange, onLabels, onSlugs, layout = "row", trailing }) => {
   const { t, lang } = useApp();
   const { make = "", model = "", badge = "", badgeDetail = "" } = value || {};
 
@@ -110,14 +110,24 @@ export const TaxonomySelects = ({ value, onChange, onLabels, layout = "row", tra
   // can show "Mercedes-Benz" instead of the raw Korean value. Derived from the loaded
   // options rather than stored, so it re-resolves when the language changes.
   useEffect(() => {
-    if (!onLabels) return;
-    const pick = (items, v) => (v ? items.find((i) => i.value === v)?.label || v : "");
-    onLabels({
-      make: pick(makes, make),
-      model: pick(models, model),
-      badge: pick(badges, badge),
-      badgeDetail: pick(details, badgeDetail),
-    });
+    const pick = (items, v, field) => (v ? items.find((i) => i.value === v)?.[field] || "" : "");
+    if (onLabels) {
+      onLabels({
+        make: pick(makes, make, "label") || make,
+        model: pick(models, model, "label") || model,
+        badge: pick(badges, badge, "label") || badge,
+        badgeDetail: pick(details, badgeDetail, "label") || badgeDetail,
+      });
+    }
+    // Slugs go into the query string, so the URL reads ?make=hyundai instead of Hangul.
+    if (onSlugs) {
+      onSlugs([
+        ["make", make, pick(makes, make, "slug")],
+        ["model", model, pick(models, model, "slug")],
+        ["badge", badge, pick(badges, badge, "slug")],
+        ["badge_detail", badgeDetail, pick(details, badgeDetail, "slug")],
+      ].filter(([, v, sl]) => v && sl));
+    }
   }, [makes, models, badges, details, make, model, badge, badgeDetail]);
 
   return (

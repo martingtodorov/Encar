@@ -20,14 +20,24 @@ export const EMPTY = {
 
 export const EMPTY_TAX = { make: "", model: "", badge: "", badgeDetail: "" };
 
-export function stateToParams({ filters, tax, sort, page }) {
+// Which slug dimension each query key belongs to. Anything not listed is a plain
+// number or flag and needs no translation.
+const DIM = { make: "make", model: "model", badge: "badge", badgeDetail: "badge_detail",
+              fuels: "fuel", regions: "region" };
+
+/**
+ * `slugFor(dim, value)` turns an upstream Korean value into its English slug. Without it
+ * (or for a value we have no slug for) the raw value is written, which still works.
+ */
+export function stateToParams({ filters, tax, sort, page }, slugFor) {
+  const slug = (key, v) => (slugFor && DIM[key] ? slugFor(DIM[key], v) || v : v);
   const p = new URLSearchParams();
   Object.entries(tax).forEach(([k, v]) => {
-    if (v) p.set(k, v);
+    if (v) p.set(k, slug(k, v));
   });
   Object.entries(filters).forEach(([k, v]) => {
     if (Array.isArray(v)) {
-      if (v.length) p.set(k, v.join(LIST_SEP));
+      if (v.length) p.set(k, v.map((x) => slug(k, x)).join(LIST_SEP));
     } else if (typeof v === "boolean") {
       if (v) p.set(k, "1");
     } else if (v !== "" && v !== null && v !== undefined) {
@@ -91,8 +101,13 @@ export function buildPayload({ filters, tax, sort, page }, { lang, pageSize }) {
 }
 
 /** Sort and page are deliberately dropped: a saved search reopens on page 1. */
-export function savableQuery({ filters, tax }) {
-  return stateToParams({ filters, tax, sort: "", page: 1 }).toString();
+export function savableQuery({ filters, tax }, slugFor) {
+  return stateToParams({ filters, tax, sort: "", page: 1 }, slugFor).toString();
+}
+
+/** Does this URL carry anything that might be a slug needing resolution? */
+export function hasResolvableTokens(p) {
+  return ["make", "model", "badge", "badgeDetail", "fuels", "regions"].some((k) => !!p.get(k));
 }
 
 export function isEmptySearch(query) {

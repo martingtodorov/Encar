@@ -554,6 +554,13 @@ async def build_taxonomy(db):
     is a single indexed lookup, so the dropdowns open instantly. Refreshed on every
     sync and at most weekly on demand.
     """
+    # A leftover staging collection (crashed build, or two rebuilds overlapping) would be
+    # inserted into again and every node would appear twice in the dropdowns.
+    try:
+        await db.taxonomy_new.drop()
+    except Exception:
+        pass
+
     levels = [
         (1, ["manufacturer"]),
         (2, ["manufacturer", "model"]),

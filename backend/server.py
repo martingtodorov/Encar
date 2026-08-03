@@ -33,6 +33,7 @@ import auth                  # noqa: E402
 import fx as fx_mod          # noqa: E402
 import mailer                # noqa: E402
 import pricing               # noqa: E402
+import slugs as slugs_mod    # noqa: E402
 import sync as sync_mod      # noqa: E402
 from encar import encar, image_url  # noqa: E402
 from translate import (LANGS, breaker_status, schedule_translation,  # noqa: E402
@@ -509,14 +510,24 @@ async def meta_filters(lang: str = "bg", refresh: bool = False):
     labels += [x["value"] for x in cached.get("regions", [])]
     tmap = await translate_many(db, labels, lang)
 
-    def decorate(items):
+    # Slugs let the query string read `?fuels=petrol` instead of percent-encoded Hangul.
+    try:
+        make_slugs = await slugs_mod.taxonomy_slug_map(db, 1)
+        _, fuel_slugs = await slugs_mod.facet_slugs(db, "fuel")
+        _, region_slugs = await slugs_mod.facet_slugs(db, "region")
+    except Exception as e:
+        log.warning("facet slugs unavailable: %s", str(e)[:160])
+        make_slugs, fuel_slugs, region_slugs = {}, {}, {}
+
+    def decorate(items, smap=None):
         return [{"value": i["value"], "count": i["count"],
+                 "slug": (smap or {}).get(i["value"], ""),
                  "label": tmap.get(i["value"], i["value"])} for i in items]
 
     return {
-        "makes": decorate(cached.get("makes", [])),
-        "fuels": decorate(cached.get("fuels", [])),
-        "regions": decorate(cached.get("regions", [])),
+        "makes": decorate(cached.get("makes", []), make_slugs),
+        "fuels": decorate(cached.get("fuels", []), fuel_slugs),
+        "regions": decorate(cached.get("regions", []), region_slugs),
         "transmissions": cached.get("transmissions", []),
         "bounds": cached.get("bounds", {}),
         "computed_at": jsonable(cached.get("computed_at")),
@@ -566,6 +577,12 @@ async def meta_taxonomy(
         await sync_mod.refresh_taxonomy_if_stale(db)
     except Exception as e:
         log.warning("taxonomy refresh failed: %s", e)
+    try:
+        # URLs carry English slugs, so the tree must always have them; a rebuild swaps
+        # the collection and wipes them, hence the check on every read.
+        await slugs_mod.ensure_taxonomy_slugs(db)
+    except Exception as e:
+        log.warning("taxonomy slug fill failed: %s", str(e)[:160])
 
     q = {"level": level}
     if level >= 2:
@@ -576,8 +593,8 @@ async def meta_taxonomy(
         q["badge"] = badge
 
     rows = [
-        {"value": d["value"], "count": d["count"]}
-        async for d in db.taxonomy.find(q, {"value": 1, "count": 1})
+        {"value": d["value"], "count": d["count"], "slug": d.get("slug") or ""}
+        async for d in db.taxonomy.find(q, {"value": 1, "count": 1, "slug": 1})
         .sort([("value", 1)])          # alphabetical, not by popularity
         .limit(limit)
     ]
@@ -596,6 +613,44 @@ async def meta_taxonomy(
         "level": level,
         "items": [{**r, "label": tmap.get(r["value"], r["value"])} for r in rows],
         "built_at": jsonable((built or {}).get("built_at")),
+    }
+
+
+@api.get("/meta/resolve")
+async def meta_resolve(
+    make: str = "",
+    model: str = "",
+    badge: str = "",
+    badge_detail: str = "",
+    fuels: str = "",
+    regions: str = "",
+):
+    """English slugs from the URL -> the upstream Korean values the search speaks.
+
+    Unknown tokens are echoed back untouched so links made before slugs existed, and any
+    value we could not translate, still work.
+    """
+    try:
+        await slugs_mod.ensure_taxonomy_slugs(db)
+    except Exception as e:
+        log.warning("taxonomy slug fill failed: %s", str(e)[:160])
+
+    tax = await slugs_mod.resolve_taxonomy(db, make, model, badge, badge_detail)
+
+    async def flat(dim, raw):
+        tokens = [t for t in (raw or "").split("~") if t]
+        if not tokens:
+            return []
+        by_slug, _ = await slugs_mod.facet_slugs(db, dim)
+        return [by_slug.get(t, t) for t in tokens]
+
+    return {
+        "make": tax.get("make", ""),
+        "model": tax.get("model", ""),
+        "badge": tax.get("badge", ""),
+        "badge_detail": tax.get("badge_detail", ""),
+        "fuels": await flat("fuel", fuels),
+        "regions": await flat("region", regions),
     }
 
 

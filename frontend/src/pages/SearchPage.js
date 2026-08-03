@@ -21,7 +21,7 @@ import { CarGrid } from "@/components/CarGrid";
 import { ResultsPagination } from "@/components/ResultsPagination";
 import { useApp } from "@/context/AppContext";
 import { useLangNav } from "@/hooks/useLangNav";
-import { getCatalogueSize, getFilters, searchCars } from "@/lib/api";
+import { getCatalogueSize, getFilters, resolveSlugs, searchCars } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { useScrollDirection } from "@/hooks/useScrollDirection";
 import { useSeo } from "@/lib/seo";
@@ -29,6 +29,7 @@ import {
   EMPTY,
   EMPTY_TAX,
   buildPayload,
+  hasResolvableTokens,
   paramsToState,
   savableQuery,
   stateToParams,
@@ -68,6 +69,13 @@ export default function SearchPage() {
   );
   const [page, setPage] = useState(initial.page);
 
+  // value -> English slug, per dimension. Seeded from the URL on arrival and then kept
+  // topped up by the facets and taxonomy responses, so the query string can always be
+  // written in English even before every dropdown level has loaded.
+  const [slugs, setSlugs] = useState({});
+  // A URL carrying slugs cannot be searched until they are translated back.
+  const [resolving, setResolving] = useState(() => hasResolvableTokens(searchParams));
+
   const [facets, setFacets] = useState(null);
   const [result, setResult] = useState({ items: [], total: 0, pages: 0 });
   const [loading, setLoading] = useState(true);
@@ -82,11 +90,74 @@ export default function SearchPage() {
   const resultsRef = useRef(null);
   const debounce = useRef(null);
 
+  const learnSlugs = useCallback((entries) => {
+    if (!entries?.length) return;
+    setSlugs((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      entries.forEach(([dim, value, slug]) => {
+        if (!value || !slug) return;
+        const key = `${dim}:${value}`;
+        if (next[key] !== slug) {
+          next[key] = slug;
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  }, []);
+
+  const slugFor = useCallback((dim, value) => slugs[`${dim}:${value}`] || "", [slugs]);
+
+  useEffect(() => {
+    if (!resolving) return;
+    const q = {
+      make: initial.tax.make,
+      model: initial.tax.model,
+      badge: initial.tax.badge,
+      badge_detail: initial.tax.badgeDetail,
+      fuels: (initial.filters.fuels || []).join("~"),
+      regions: (initial.filters.regions || []).join("~"),
+    };
+    resolveSlugs(q)
+      .then((r) => {
+        const learned = [
+          ["make", r.make, initial.tax.make],
+          ["model", r.model, initial.tax.model],
+          ["badge", r.badge, initial.tax.badge],
+          ["badge_detail", r.badge_detail, initial.tax.badgeDetail],
+          ...(r.fuels || []).map((v, i) => ["fuel", v, (initial.filters.fuels || [])[i]]),
+          ...(r.regions || []).map((v, i) => ["region", v, (initial.filters.regions || [])[i]]),
+        ].filter(([, value, slug]) => value && slug && value !== slug);
+        learnSlugs(learned);
+        setTax({
+          make: r.make || "",
+          model: r.model || "",
+          badge: r.badge || "",
+          badgeDetail: r.badge_detail || "",
+        });
+        setFilters((f) => ({
+          ...f,
+          fuels: r.fuels || [],
+          regions: r.regions || [],
+        }));
+      })
+      .catch(() => {})
+      .finally(() => setResolving(false));
+  }, [resolving, initial, learnSlugs]);
+
   useEffect(() => {
     getFilters(lang)
-      .then(setFacets)
+      .then((d) => {
+        setFacets(d);
+        learnSlugs([
+          ...(d.makes || []).map((m) => ["make", m.value, m.slug]),
+          ...(d.fuels || []).map((m) => ["fuel", m.value, m.slug]),
+          ...(d.regions || []).map((m) => ["region", m.value, m.slug]),
+        ]);
+      })
       .catch(() => setFacets(null));
-  }, [lang]);
+  }, [lang, learnSlugs]);
 
   useEffect(() => {
     getCatalogueSize()
@@ -113,10 +184,11 @@ export default function SearchPage() {
   );
 
   useEffect(() => {
+    if (resolving) return undefined;
     if (debounce.current) clearTimeout(debounce.current);
     debounce.current = setTimeout(() => runSearch(payload), 280);
     return () => debounce.current && clearTimeout(debounce.current);
-  }, [payload, runSearch]);
+  }, [payload, runSearch, resolving]);
 
   const setFilter = useCallback((key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -151,8 +223,9 @@ export default function SearchPage() {
   // entry per keystroke - the entry that exists when a car is opened already carries
   // these params, which is exactly what Back needs to restore.
   useEffect(() => {
-    setSearchParams(stateToParams({ filters, tax, sort, page }), { replace: true });
-  }, [filters, tax, sort, page, setSearchParams]);
+    if (resolving) return;
+    setSearchParams(stateToParams({ filters, tax, sort, page }, slugFor), { replace: true });
+  }, [filters, tax, sort, page, setSearchParams, slugFor, resolving]);
 
   const changeSort = useCallback((v) => {
     setSort(v);
@@ -210,14 +283,14 @@ export default function SearchPage() {
   const openCar = useCallback(
     (car) =>
       go(`/car/${car.id}`, {
-        state: { from: `?${stateToParams({ filters, tax, sort, page })}` },
+        state: { from: `?${stateToParams({ filters, tax, sort, page }, slugFor)}` },
       }),
-    [go, filters, tax, sort, page]
+    [go, filters, tax, sort, page, slugFor]
   );
 
   // A saved search is the current filters, nothing else: it always reopens on page 1
   // with the default sort, so it keeps working as the catalogue changes.
-  const query = useMemo(() => savableQuery({ filters, tax }), [filters, tax]);
+  const query = useMemo(() => savableQuery({ filters, tax }, slugFor), [filters, tax, slugFor]);
   const alreadySaved = isSearchSaved(query);
 
   const saveThis = useCallback(() => {
@@ -262,6 +335,7 @@ export default function SearchPage() {
             value={tax}
             onChange={changeTax}
             onLabels={setTaxLabels}
+            onSlugs={learnSlugs}
             trailing={
               <Button
                 data-testid="open-filters-button"
