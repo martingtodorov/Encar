@@ -288,7 +288,8 @@ export default function CarDetailPage() {
                     index={active}
                     onIndexChange={setActive}
                     onTap={() => photos.length && setLightbox(true)}
-                    showCount={false}
+                    countOnHover
+                    hint={t("zoom")}
                     arrows
                   />
                 </div>
@@ -317,19 +318,6 @@ export default function CarDetailPage() {
                 )}
               </div>
 
-              {photos.length > 1 && (
-                <div className="mt-2 flex items-center justify-between">
-                  <span className="text-[12px] font-medium text-muted-foreground">
-                    {t("allPhotos")}
-                  </span>
-                  <span
-                    data-testid="detail-photo-count"
-                    className="tnum text-[12px] text-muted-foreground"
-                  >
-                    {formatNumber(active + 1, lang)} / {formatNumber(photos.length, lang)}
-                  </span>
-                </div>
-              )}
             </div>
 
             {/* On mobile the enquiry is the next thing after the photos: by then the buyer

@@ -223,6 +223,16 @@ that owns the Resend account.
   and desktop: swiping photos 2-3 sends nothing, arriving at photo 4 fires exactly one
   request, and opening from there renders straight away.
 
+- **Desktop car-page gallery chrome** (owner kept the existing 16:9 + full scrolling thumb
+  column, only the chrome changed): arrows are invisible until the gallery is hovered
+  (`group/photos`), the photo counter moved onto the image as a bottom-right pill reading
+  "12/43 · Увеличи" (hover-only on desktop, always visible on mobile) and the row under the
+  gallery is gone. `overscroll-behavior-x: contain` stops a trackpad flick from triggering
+  the browser back gesture, and arrows now step from the slide they are already heading for
+  while the observer stays quiet until `scrollend` (900ms fallback for Safari < 18) — 8
+  rapid clicks land on slide 9, not 5. New i18n key: `zoom`.
+- The CTA dot in the card rail is plain white like the others, not accent-coloured.
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY

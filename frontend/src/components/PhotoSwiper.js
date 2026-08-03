@@ -7,7 +7,8 @@ import { ImageWithFallback } from "@/components/ImageWithFallback";
  *
  * The gesture, inertia, momentum and the snap animation all come from the browser
  * (`snap-x snap-mandatory` + `snap-start snap-always`), which is why it feels right on a
- * phone and on a Mac trackpad without a single line of animation code. Only two things
+ * phone and on a Mac trackpad without a single line of animation code. It also gets
+ * two-finger horizontal trackpad scrolling and shift+wheel for free. Only three things
  * need JavaScript:
  *   1. tap vs swipe — the browser synthesises a `click` where the finger lifts, so a
  *      swipe would otherwise open the car. A 6px horizontal threshold marks the gesture
@@ -15,21 +16,26 @@ import { ImageWithFallback } from "@/components/ImageWithFallback";
  *      the card underneath.
  *   2. which slide is showing — an IntersectionObserver at 0.55 instead of a scroll
  *      listener, so the dot never flickers mid-swipe.
+ *   3. arrows must win over the observer while their smooth scroll is running, otherwise
+ *      twelve quick clicks only advance five slides (the observer reports every slide the
+ *      animation passes through and each report restarts the scroll).
  *
  * `touch-action: pan-x pan-y` is deliberate: with `pan-x` alone the page stops scrolling
  * vertically as soon as a finger lands on a photo, which in a long result list feels
- * broken.
+ * broken. `overscroll-behavior-x: contain` stops a trackpad flick past the first photo
+ * from triggering the browser's back gesture.
  */
 const DOT = 6;      // dot diameter in px
 const GAP = 6;      // gap between dots in px
 const WINDOW = 5;   // most dots ever shown at once
 const SWIPE_PX = 6; // below this a gesture is a tap, above it a swipe
+const SCROLL_MS = 900; // `scrollend` fallback for browsers without it (Safari < 18)
 
 /**
  * Instagram-style dot rail: never more than five dots on screen. Longer galleries slide
  * the rail so the active dot stays centred, which animates as you swipe.
  */
-const DotRail = ({ count, active, ctaIndex }) => {
+const DotRail = ({ count, active }) => {
   const pitch = DOT + GAP;
   const shown = Math.min(WINDOW, count);
   const maxOffset = Math.max(0, count - WINDOW);
@@ -54,9 +60,9 @@ const DotRail = ({ count, active, ctaIndex }) => {
               key={n}
               className="shrink-0 rounded-full transition-all duration-300"
               style={{
-                width: n === ctaIndex && n === active ? DOT * 2 : DOT,
+                width: DOT,
                 height: DOT,
-                background: n === ctaIndex ? "hsl(var(--primary))" : "#fff",
+                background: "#fff",
                 boxShadow: "0 1px 3px rgba(0,0,0,.45)",
                 opacity: n === active ? 1 : 0.5,
                 transform: n === active ? "scale(1)" : "scale(0.72)",
@@ -69,6 +75,9 @@ const DotRail = ({ count, active, ctaIndex }) => {
   );
 };
 
+const ARROW =
+  "absolute top-1/2 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur-sm transition-opacity duration-200 hover:bg-black/65 focus-visible:opacity-100 group-hover/photos:opacity-100 disabled:opacity-0 lg:flex";
+
 export const PhotoSwiper = ({
   images = [],
   alt = "",
@@ -77,6 +86,8 @@ export const PhotoSwiper = ({
   onIndexChange,
   onTap,
   showCount = true,
+  countOnHover = false,
+  hint = "",
   arrows = false,
   ctaLabel = "",
   ctaHint = "",
@@ -84,7 +95,7 @@ export const PhotoSwiper = ({
   className = "",
 }) => {
   const photos = images.filter(Boolean);
-  // A final CTA panel instead of a fifth photo: the card carries just enough of the car to
+  // A final CTA panel instead of one more photo: the card carries just enough of the car to
   // create interest, then hands the visitor a clear way into the listing. Pointless on a
   // single-photo car, so it only appears once there is a deck to swipe.
   const hasCta = Boolean(ctaLabel) && photos.length >= 2;
@@ -96,9 +107,11 @@ export const PhotoSwiper = ({
   const scroller = useRef(null);
   const start = useRef(null);
   const swiping = useRef(false);
-  // Suppresses the follow-the-index effect while our own smooth scroll is still running,
-  // otherwise the observer's updates would restart the scroll and it would stutter.
-  const lock = useRef(0);
+  // While an arrow or a thumbnail is driving the scroller, IT is the source of truth and
+  // the observer stays quiet until the animation ends.
+  const driving = useRef(false);
+  const target = useRef(null);
+  const timer = useRef(null);
 
   // Only the first photo is fetched up front (it is the LCP candidate); the rest wait for
   // a sign the visitor is actually interested in this car.
@@ -119,6 +132,7 @@ export const PhotoSwiper = ({
     if (!root || count < 2) return;
     const io = new IntersectionObserver(
       (entries) => {
+        if (driving.current) return;
         let best = null;
         entries.forEach((e) => {
           if (!best || e.intersectionRatio > best.intersectionRatio) best = e;
@@ -133,22 +147,38 @@ export const PhotoSwiper = ({
     return () => io.disconnect();
   }, [count]);
 
+  useEffect(() => () => clearTimeout(timer.current), []);
+
   // Swiping to the last photo already says the visitor is interested, so the car is warmed
-  // from that slide on (one before the closing CTA panel), exactly as it is on hover.
+  // in the background from that slide on, exactly as it is on hover.
   useEffect(() => {
     if (hasCta && active >= ctaIndex - 1) onCtaReachedRef.current?.();
   }, [active, ctaIndex, hasCta]);
 
+  const glide = (n) => {
+    const el = scroller.current;
+    if (!el) return;
+    setPrimed(true);
+    target.current = n;
+    driving.current = true;
+    el.scrollTo({ left: n * el.clientWidth, behavior: "smooth" });
+
+    const done = () => {
+      driving.current = false;
+      target.current = null;
+    };
+    clearTimeout(timer.current);
+    timer.current = setTimeout(done, SCROLL_MS);
+    el.addEventListener("scrollend", done, { once: true });
+  };
+
   // Follow an index chosen from outside (the detail page's thumbnail column).
   useEffect(() => {
     const el = scroller.current;
-    if (!el) return;
+    if (!el || driving.current) return;
     if (active > 0) setPrimed(true);
-    if (Date.now() < lock.current) return;
-    const target = active * el.clientWidth;
-    if (Math.abs(el.scrollLeft - target) > el.clientWidth * 0.5) {
-      lock.current = Date.now() + 450;
-      el.scrollTo({ left: target, behavior: "smooth" });
+    if (Math.abs(el.scrollLeft - active * el.clientWidth) > el.clientWidth * 0.5) {
+      glide(active);
     }
   }, [active]);
 
@@ -160,18 +190,21 @@ export const PhotoSwiper = ({
     );
   }
 
+  // Steps from the slide the arrows are already heading for, so rapid clicks add up
+  // instead of fighting the animation in flight.
   const step = (dir) => {
-    const el = scroller.current;
-    if (!el) return;
-    setPrimed(true);
-    lock.current = Date.now() + 450;
-    el.scrollBy({ left: dir * el.clientWidth, behavior: "smooth" });
+    const from = target.current ?? active;
+    const n = Math.min(count - 1, Math.max(0, from + dir));
+    if (n !== from) {
+      emit(n);
+      glide(n);
+    }
   };
 
   return (
     <div
       data-testid={testId}
-      className={`relative h-full w-full overflow-hidden ${className}`}
+      className={`group/photos relative h-full w-full overflow-hidden ${className}`}
       onMouseEnter={prime}
       onPointerDown={prime}
     >
@@ -179,7 +212,11 @@ export const PhotoSwiper = ({
         ref={scroller}
         data-testid={`${testId}-track`}
         className="no-scrollbar absolute inset-0 flex snap-x snap-mandatory overflow-x-auto overflow-y-hidden"
-        style={{ touchAction: "pan-x pan-y", scrollbarWidth: "none" }}
+        style={{
+          touchAction: "pan-x pan-y",
+          overscrollBehaviorX: "contain",
+          scrollbarWidth: "none",
+        }}
         onTouchStart={(e) => {
           const t = e.touches[0];
           start.current = { x: t.clientX, y: t.clientY };
@@ -247,7 +284,7 @@ export const PhotoSwiper = ({
               e.stopPropagation();
               step(-1);
             }}
-            className="absolute left-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-opacity hover:bg-black/65 disabled:opacity-0 lg:flex"
+            className={`${ARROW} left-3`}
           >
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
           </button>
@@ -260,7 +297,7 @@ export const PhotoSwiper = ({
               e.stopPropagation();
               step(1);
             }}
-            className="absolute right-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-opacity hover:bg-black/65 disabled:opacity-0 lg:flex"
+            className={`${ARROW} right-3`}
           >
             <ChevronRight className="h-5 w-5" aria-hidden="true" />
           </button>
@@ -269,14 +306,19 @@ export const PhotoSwiper = ({
 
       {count > 1 && (
         <>
-          <DotRail count={count} active={active} ctaIndex={ctaIndex} />
+          <DotRail count={count} active={active} />
           {showCount && active !== ctaIndex && (
             <span
               data-testid={`${testId}-counter`}
-              className="tnum pointer-events-none absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white"
+              className={
+                countOnHover
+                  ? "tnum pointer-events-none absolute bottom-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-medium text-white transition-opacity duration-200 lg:opacity-0 lg:group-hover/photos:opacity-100"
+                  : "tnum pointer-events-none absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white"
+              }
             >
-              <Camera className="h-3 w-3" aria-hidden="true" />
+              {!countOnHover && <Camera className="h-3 w-3" aria-hidden="true" />}
               {active + 1}/{photos.length}
+              {hint && <span className="hidden lg:inline">· {hint}</span>}
             </span>
           )}
         </>

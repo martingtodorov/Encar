@@ -134,6 +134,7 @@ const EXTRA = {
     notFound: "\u0410\u0432\u0442\u043e\u043c\u043e\u0431\u0438\u043b\u044a\u0442 \u043d\u0435 \u0435 \u043d\u0430\u043c\u0435\u0440\u0435\u043d",
     viewListing: "Виж обявата",
     tapToOpen: "Натисни за отваряне",
+    zoom: "Увеличи",
   },
   ro: {
     sendEnquiry: "Trimite o solicitare",
@@ -267,6 +268,7 @@ const EXTRA = {
     notFound: "Automobilul nu a fost g\u0103sit",
     viewListing: "Vezi anunțul",
     tapToOpen: "Apasă pentru a deschide",
+    zoom: "Mărește",
   },
   en: {
     sendEnquiry: "Send enquiry",
@@ -400,6 +402,7 @@ const EXTRA = {
     notFound: "Car not found",
     viewListing: "View the listing",
     tapToOpen: "Tap to open",
+    zoom: "Zoom",
   },
 };
 
