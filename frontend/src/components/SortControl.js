@@ -36,7 +36,7 @@ export const SortControl = ({ value, onChange }) => {
         value={value}
         onChange={(e) => onChange?.(e.target.value)}
         aria-label={t("sortBy")}
-        className="h-11 w-full min-w-[190px] appearance-none truncate rounded-[10px] border border-input bg-card pl-3 pr-9 text-sm text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 sm:w-auto"
+        className="h-11 w-full min-w-[190px] appearance-none truncate rounded-[10px] border border-input bg-background pl-3 pr-9 text-sm text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 sm:w-auto"
       >
         {SORT_OPTIONS.map((o) => (
           <option key={o.value} value={o.value} data-testid={`sort-option-${o.value}`}>

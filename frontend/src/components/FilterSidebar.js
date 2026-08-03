@@ -99,7 +99,7 @@ const RangeRow = ({ minValue, maxValue, onMin, onMax, testIdPrefix, suffix, plac
           value={minValue ?? ""}
           onChange={(e) => onMin(e.target.value.replace(/[^0-9]/g, ""))}
           placeholder={placeholderMin}
-          className="tnum h-10 border-border bg-card text-[13px]"
+          className="tnum h-10 border-border bg-background text-[13px]"
         />
       </div>
       <span className="mt-5 text-muted-foreground">{"\u2013"}</span>
@@ -113,7 +113,7 @@ const RangeRow = ({ minValue, maxValue, onMin, onMax, testIdPrefix, suffix, plac
           value={maxValue ?? ""}
           onChange={(e) => onMax(e.target.value.replace(/[^0-9]/g, ""))}
           placeholder={placeholderMax}
-          className="tnum h-10 border-border bg-card text-[13px]"
+          className="tnum h-10 border-border bg-background text-[13px]"
         />
       </div>
     </div>
@@ -164,7 +164,7 @@ export const FilterSidebar = ({
       className={
         inSheet
           ? "flex h-full flex-col"
-          : "rounded-[14px] border border-border bg-card shadow-[0_1px_2px_rgba(18,20,23,0.06)]"
+          : "rounded-[14px] border border-border bg-background shadow-[0_1px_2px_rgba(18,20,23,0.06)]"
       }
     >
       {!inSheet && (

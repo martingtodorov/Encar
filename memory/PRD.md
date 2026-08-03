@@ -143,6 +143,20 @@ that owns the Resend account.
   circular close button pinned to the top-right of the photo viewer at any scroll depth.
   Header back and menu buttons enlarged to 48x48.
 
+## Fixed 2026-06 (this session)
+- **Admin cost & margin on the car page**: the backend already returned an `admin` block for
+  signed-in admins but NOTHING in the frontend rendered it. `CarDetailPage` now shows a
+  "Cost & margin (admin only)" panel (`data-testid="detail-admin-pricing"`): Encar price in
+  KRW, car cost, Autowini fee, duty+VAT, inland+buffer, landed cost (range when the two
+  customs scenarios differ), sale price and margin. `pricing.admin_range` was extended with
+  `price_krw / encar_eur / car_eur / autowini_fee_eur / duty / vat / domestic_total`.
+  Note: for cheap cars the USD 3,000 customs-value floor makes both scenarios equal, so the
+  landed cost and margin show as a single figure, not a range — that is correct, not a bug.
+- **Dark-mode control backgrounds**: make/model/submodel/trim selects, the band they sit in,
+  the sort select, the mobile filters/sort buttons and the filter panel + its inputs moved
+  from `bg-card` (12% L, lighter) to `bg-background` (8% L) so they match the page. No change
+  in light mode, where `--card` and `--background` are both white.
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY

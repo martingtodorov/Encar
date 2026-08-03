@@ -131,6 +131,13 @@ def admin_range(quote):
         return None
     lo, hi = (low, high) if low <= high else (high, low)
     return {
+        "price_krw": quote.get("price_krw"),
+        "encar_eur": round(quote.get("encar_eur") or 0, 2),
+        "car_eur": round(quote.get("car_eur") or 0, 2),
+        "autowini_fee_eur": round(quote.get("autowini_fee_eur") or 0, 2),
+        "duty": round(quote.get("duty") or 0, 2),
+        "vat": round(quote.get("vat") or 0, 2),
+        "domestic_total": round(quote.get("domestic_total") or 0, 2),
         "landed_low": round(lo, 2),
         "landed_high": round(hi, 2),
         "customs_base_low": round(quote.get("customs_base_secondary") or 0, 2),

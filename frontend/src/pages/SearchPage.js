@@ -442,7 +442,7 @@ export default function SearchPage() {
       {isHome && <TrustStrip />}
 
       {/* Cascading Make -> Model -> Submodel -> Trim replaces the old search box */}
-      <section className="bg-card">
+      <section className="bg-background">
         <div className="mx-auto max-w-[1280px] px-4 py-5 sm:px-6">
           <TaxonomySelects
             value={tax}
@@ -455,7 +455,7 @@ export default function SearchPage() {
                 data-testid="open-filters-button"
                 variant="outline"
                 onClick={() => setSheetOpen(true)}
-                className="h-11 w-full gap-2 rounded-[10px] border border-input bg-card px-4 text-sm shadow-sm"
+                className="h-11 w-full gap-2 rounded-[10px] border border-input bg-background px-4 text-sm shadow-sm"
               >
                 <SlidersHorizontal
                   className="h-4 w-4 text-[hsl(var(--primary))]"
@@ -543,7 +543,7 @@ export default function SearchPage() {
                   variant="outline"
                   disabled={!query || alreadySaved}
                   onClick={saveThis}
-                  className="h-11 gap-2 rounded-[10px] border border-input bg-card px-4 text-sm shadow-sm disabled:opacity-60"
+                  className="h-11 gap-2 rounded-[10px] border border-input bg-background px-4 text-sm shadow-sm disabled:opacity-60"
                 >
                   {alreadySaved ? (
                     <BookmarkCheck className="h-4 w-4 text-[hsl(var(--primary))]" aria-hidden="true" />

@@ -36,7 +36,7 @@ const Field = ({ id, label, items, current, onPick, disabled, busyKey, placehold
             items.find((i) => i.value === e.target.value)?.label || ""
           )
         }
-        className="h-11 w-full appearance-none truncate rounded-[10px] border border-input bg-card pl-3 pr-9 text-sm text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        className="h-11 w-full appearance-none truncate rounded-[10px] border border-input bg-background pl-3 pr-9 text-sm text-foreground shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
       >
         <option value={ANY}>{placeholder}</option>
         {items.map((i) => (

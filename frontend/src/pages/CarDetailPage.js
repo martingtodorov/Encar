@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  Calculator,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -332,6 +333,52 @@ export default function CarDetailPage() {
             </div>
 
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
+              {/* Cost and margin — only present in the payload for signed-in admins. */}
+              {car.admin && (
+                <Panel
+                  title="Cost & margin (admin only)"
+                  icon={Calculator}
+                  testId="detail-admin-pricing"
+                  tone="warning"
+                >
+                  <Row
+                    label="Encar price"
+                    value={`\u20a9${formatNumber(car.admin.price_krw, lang)}`}
+                    testId="admin-price-krw"
+                  />
+                  <Row label="Car cost (Encar)" value={money(car.admin.encar_eur)} />
+                  <Row label="Autowini fee" value={money(car.admin.autowini_fee_eur)} />
+                  <Row
+                    label={`Duty + VAT (${Math.round(
+                      (car.admin.customs_fraction_high || 0) * 100
+                    )}% customs base)`}
+                    value={money((car.admin.duty || 0) + (car.admin.vat || 0))}
+                  />
+                  <Row label="Inland + buffer" value={money(car.admin.domestic_total)} />
+                  <Row
+                    label="Landed cost"
+                    strong
+                    testId="admin-landed-cost"
+                    value={
+                      car.admin.landed_low === car.admin.landed_high
+                        ? money(car.admin.landed_high)
+                        : `${money(car.admin.landed_low)} \u2013 ${money(car.admin.landed_high)}`
+                    }
+                  />
+                  <Row label="Sale price" strong value={money(car.admin.sale_eur)} />
+                  <Row
+                    label="Margin"
+                    strong
+                    testId="admin-margin"
+                    value={
+                      car.admin.profit_min === car.admin.profit_max
+                        ? money(car.admin.profit_min)
+                        : `${money(car.admin.profit_min)} \u2013 ${money(car.admin.profit_max)}`
+                    }
+                  />
+                </Panel>
+              )}
+
               {/* specs */}
               <Panel title={t("specs")} icon={FileCheck2} testId="detail-specs" tone="info">
                 <Row label={t("year")} value={formatYearMonth(Number(car.year_month), car.form_year)} />
