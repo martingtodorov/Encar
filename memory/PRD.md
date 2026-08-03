@@ -166,6 +166,38 @@ that owns the Resend account.
   from `bg-card` (12% L, lighter) to `bg-background` (8% L) so they match the page. No change
   in light mode, where `--card` and `--background` are both white.
 
+- **Makes and models are never localised.** They are proper nouns, so both are always
+  resolved from the ENGLISH cache whatever the page language (BG was producing "Дайхацу",
+  "Серия 2 Gran Coupe"; RO produced "Seria 3"). `translate.LATIN_FIELDS` covers the listing
+  rows; `meta_taxonomy` uses English for levels 1-2; `meta_filters` uses English for makes;
+  `car_detail` resolves manufacturer/model in English. Submodel/trim is still localised —
+  question put to the owner, unanswered.
+- **Placeholder ads blocked and purged.** Dealers park listings with sentinel values
+  (Price 99,999 or 999,999 만원 = KRW 1bn+, Mileage 999,999 km), which priced out at
+  EUR 667,499 / EUR 6.6m in the grid. `sync.skip_row` now drops them at import in both
+  paths, and the 14 already indexed were deleted with their cached details.
+- **Car page first view: 8.0s -> 0.8-1.5s.** Upstream was never the problem (detail 0.9s +
+  4 documents in parallel 0.4s). The cost was the leftover-Korean pass calling Claude
+  synchronously: per-car freeform strings (dealer branch, address, plate) can NEVER be a
+  cache hit, so every first view paid ~6.5s of blocking LLM time. That pass is now
+  cache-only; misses are scheduled in the background, the payload carries
+  `translation_pending`, and the client refetches twice (4s, 8s) to pick them up. Repeat
+  views stay at ~0.13s.
+- **Photo swiper rebuilt on native CSS scroll-snap** (`PhotoSwiper.js`, ~150 lines, no
+  carousel library), to the owner's specification:
+  - scroller is `snap-x snap-mandatory` + `snap-start snap-always` per slide, so inertia,
+    momentum and the snap animation are the browser's own
+  - `touch-action: pan-x pan-y` (NOT `pan-x` alone, which kills vertical page scrolling as
+    soon as a finger lands on a photo in the result list)
+  - tap vs swipe: a 6px horizontal move marks the gesture as a swipe and the synthesised
+    click is swallowed in the CAPTURE phase, so a swipe never opens the car
+  - active slide from an `IntersectionObserver` at threshold 0.55 (no scroll listener, no
+    flickering dots mid-swipe)
+  - slide 0 loads eagerly (LCP), the rest wait for the first hover/touch/pointerdown
+  - `.no-scrollbar` utility added to `index.css`; arrows and the detail page's thumbnail
+    column drive the scroller with `scrollTo`/`scrollBy`, guarded by a 450ms lock so the
+    observer's updates cannot restart the animation
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **Price drop alerts** — agreed shape: the BUYER gets the email (no admin copy), on ANY

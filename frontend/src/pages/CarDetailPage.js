@@ -106,6 +106,7 @@ export default function CarDetailPage() {
   useEffect(() => {
     let cancelled = false;
     let retry = null;
+    let retries = 0;
     setLoading(true);
     setError(null);
 
@@ -114,10 +115,11 @@ export default function CarDetailPage() {
         .then((d) => {
           if (cancelled) return;
           setCar(d);
-          // A long dealer description is translated in the background so the page can
-          // render instantly; pick it up once it lands.
-          if (d?.description_pending && !isRetry) {
-            retry = setTimeout(() => load(true), 3500);
+          // Per-car freeform text (dealer branch, address, plate) is translated in the
+          // background so the page renders immediately; pick it up when it lands.
+          if ((d?.description_pending || d?.translation_pending) && retries < 2) {
+            retries += 1;
+            retry = setTimeout(() => load(true), retries * 4000);
           }
         })
         .catch((e) => !cancelled && setError(e?.response?.data?.detail || e.message))

@@ -175,6 +175,16 @@ code {
     background: hsl(var(--muted));
 }
 
+/* Native scroll-snap galleries: the scrollbar would sit across the photo. */
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+
 .line-clamp-2 {
     display: -webkit-box;
     -webkit-line-clamp: 2;

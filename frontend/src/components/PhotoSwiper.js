@@ -3,18 +3,27 @@ import { Camera, ChevronLeft, ChevronRight } from "lucide-react";
 import { ImageWithFallback } from "@/components/ImageWithFallback";
 
 /**
- * Finger-tracking photo swiper.
+ * Photo swiper built on NATIVE CSS scroll-snap.
  *
- * The track follows the pointer 1:1 while dragging (no snap-on-touch feeling), then
- * animates to the nearest slide on release. A short drag that barely moves counts as a
- * tap, so the same surface can still open the car.
+ * The gesture, inertia, momentum and the snap animation all come from the browser
+ * (`snap-x snap-mandatory` + `snap-start snap-always`), which is why it feels right on a
+ * phone and on a Mac trackpad without a single line of animation code. Only two things
+ * need JavaScript:
+ *   1. tap vs swipe — the browser synthesises a `click` where the finger lifts, so a
+ *      swipe would otherwise open the car. A 6px horizontal threshold marks the gesture
+ *      as a swipe and the click is swallowed in the CAPTURE phase, before it can reach
+ *      the card underneath.
+ *   2. which slide is showing — an IntersectionObserver at 0.55 instead of a scroll
+ *      listener, so the dot never flickers mid-swipe.
  *
- * `touch-action: pan-y` keeps vertical page scrolling working: only horizontal intent
- * is captured, which matters because these sit inside a long scrolling result list.
+ * `touch-action: pan-x pan-y` is deliberate: with `pan-x` alone the page stops scrolling
+ * vertically as soon as a finger lands on a photo, which in a long result list feels
+ * broken.
  */
 const DOT = 6;      // dot diameter in px
 const GAP = 6;      // gap between dots in px
 const WINDOW = 5;   // most dots ever shown at once
+const SWIPE_PX = 6; // below this a gesture is a tap, above it a swipe
 
 /**
  * Instagram-style dot rail: never more than five dots on screen. Longer galleries slide
@@ -73,67 +82,57 @@ export const PhotoSwiper = ({
   const slides = images.filter(Boolean);
   const [i, setI] = useState(0);
   const active = index === undefined ? i : index;
-  const setActive = (n) => {
+
+  const scroller = useRef(null);
+  const start = useRef(null);
+  const swiping = useRef(false);
+  // Suppresses the follow-the-index effect while our own smooth scroll is still running,
+  // otherwise the observer's updates would restart the scroll and it would stutter.
+  const lock = useRef(0);
+
+  // Only the first photo is fetched up front (it is the LCP candidate); the rest wait for
+  // a sign the visitor is actually interested in this car.
+  const [primed, setPrimed] = useState(false);
+  const prime = () => setPrimed(true);
+
+  const emit = (n) => {
     if (index === undefined) setI(n);
     onIndexChange?.(n);
   };
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
 
-  const box = useRef(null);
-  const drag = useRef(null);
-  const wheel = useRef({ acc: 0, last: 0, locked: false });
-  const [dx, setDx] = useState(0);
-  const [dragging, setDragging] = useState(false);
-
-  // The wheel listener is registered once, so it must read the current index and setter
-  // through refs rather than closing over a stale render.
-  const activeRef = useRef(active);
-  const setActiveRef = useRef(setActive);
-  activeRef.current = active;
-  setActiveRef.current = setActive;
-
-  // Guard against a parent handing us a shorter list than the current index.
   useEffect(() => {
-    if (active > slides.length - 1) setActive(Math.max(0, slides.length - 1));
+    const root = scroller.current;
+    if (!root || slides.length < 2) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        let best = null;
+        entries.forEach((e) => {
+          if (!best || e.intersectionRatio > best.intersectionRatio) best = e;
+        });
+        if (best && best.isIntersecting) {
+          emitRef.current(Number(best.target.getAttribute("data-slide-index")));
+        }
+      },
+      { root, threshold: [0.55] }
+    );
+    root.querySelectorAll("[data-slide-index]").forEach((c) => io.observe(c));
+    return () => io.disconnect();
   }, [slides.length]);
 
-  // Mac trackpads emit a horizontal wheel for a two-finger sideways swipe, so the same
-  // gesture that works on a phone works here. Registered natively because React's onWheel
-  // is passive and cannot preventDefault the browser's own sideways scroll. Deltas are
-  // accumulated to a threshold with a short cooldown, otherwise one flick would race
-  // through the whole gallery.
+  // Follow an index chosen from outside (the detail page's thumbnail column).
   useEffect(() => {
-    const el = box.current;
-    if (!el || slides.length < 2) return;
-
-    const onWheel = (e) => {
-      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;   // vertical: let the page scroll
-      e.preventDefault();
-      const w = wheel.current;
-      const now = Date.now();
-      // A quiet gap means fingers left the pad and came back: a brand new gesture.
-      const fresh = now - w.last > 140;
-      w.last = now;
-      if (fresh) {
-        w.acc = 0;
-        w.locked = false;
-      } else if (w.locked) {
-        return;   // still riding the momentum tail of a gesture we already handled
-      }
-      // A deliberate direction reversal also starts over.
-      if (w.acc !== 0 && Math.sign(e.deltaX) !== Math.sign(w.acc)) w.acc = 0;
-      w.acc += e.deltaX;
-      if (Math.abs(w.acc) < 45) return;
-      const step = w.acc > 0 ? 1 : -1;
-      w.acc = 0;
-      w.locked = true;
-      setActiveRef.current(
-        Math.min(slides.length - 1, Math.max(0, activeRef.current + step))
-      );
-    };
-
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [slides.length]);
+    const el = scroller.current;
+    if (!el) return;
+    if (active > 0) setPrimed(true);
+    if (Date.now() < lock.current) return;
+    const target = active * el.clientWidth;
+    if (Math.abs(el.scrollLeft - target) > el.clientWidth * 0.5) {
+      lock.current = Date.now() + 450;
+      el.scrollTo({ left: target, behavior: "smooth" });
+    }
+  }, [active]);
 
   if (slides.length === 0) {
     return (
@@ -143,77 +142,62 @@ export const PhotoSwiper = ({
     );
   }
 
-  const width = () => box.current?.offsetWidth || 1;
-
-  const down = (e) => {
-    if (e.pointerType === "mouse" && e.button !== 0) return;
-    drag.current = { x: e.clientX, y: e.clientY, t: Date.now(), axis: null };
-    setDragging(true);
-  };
-
-  const move = (e) => {
-    const d = drag.current;
-    if (!d) return;
-    const mx = e.clientX - d.x;
-    const my = e.clientY - d.y;
-    // Decide once whether this gesture is a horizontal swipe or a vertical scroll.
-    if (!d.axis) {
-      if (Math.abs(mx) < 6 && Math.abs(my) < 6) return;
-      d.axis = Math.abs(mx) > Math.abs(my) ? "x" : "y";
-      if (d.axis === "x") e.currentTarget.setPointerCapture?.(e.pointerId);
-    }
-    if (d.axis !== "x") return;
-    // Rubber-band at the ends so the list feels bounded rather than broken.
-    const atEdge = (mx > 0 && active === 0) || (mx < 0 && active === slides.length - 1);
-    setDx(atEdge ? mx * 0.35 : mx);
-  };
-
-  const up = (e) => {
-    const d = drag.current;
-    drag.current = null;
-    setDragging(false);
-    if (!d) return;
-
-    const moved = Math.abs(e.clientX - d.x) + Math.abs(e.clientY - d.y);
-    if (d.axis !== "x") {
-      setDx(0);
-      if (moved < 8 && Date.now() - d.t < 500) onTap?.();
-      return;
-    }
-
-    const travelled = e.clientX - d.x;
-    const fast = Math.abs(travelled) / Math.max(1, Date.now() - d.t) > 0.35;
-    const far = Math.abs(travelled) > width() * 0.18;
-    if ((fast || far) && travelled < 0 && active < slides.length - 1) setActive(active + 1);
-    else if ((fast || far) && travelled > 0 && active > 0) setActive(active - 1);
-    setDx(0);
+  const step = (dir) => {
+    const el = scroller.current;
+    if (!el) return;
+    setPrimed(true);
+    lock.current = Date.now() + 450;
+    el.scrollBy({ left: dir * el.clientWidth, behavior: "smooth" });
   };
 
   return (
     <div
-      ref={box}
       data-testid={testId}
       className={`relative h-full w-full overflow-hidden ${className}`}
-      style={{ touchAction: "pan-y" }}
-      onPointerDown={down}
-      onPointerMove={move}
-      onPointerUp={up}
-      onPointerCancel={up}
+      onMouseEnter={prime}
+      onPointerDown={prime}
     >
       <div
-        className="flex h-full w-full"
-        style={{
-          transform: `translate3d(calc(${-active * 100}% + ${dx}px), 0, 0)`,
-          transition: dragging ? "none" : "transform 320ms cubic-bezier(0.22, 1, 0.36, 1)",
+        ref={scroller}
+        data-testid={`${testId}-track`}
+        className="no-scrollbar absolute inset-0 flex snap-x snap-mandatory overflow-x-auto overflow-y-hidden"
+        style={{ touchAction: "pan-x pan-y", scrollbarWidth: "none" }}
+        onTouchStart={(e) => {
+          const t = e.touches[0];
+          start.current = { x: t.clientX, y: t.clientY };
+          swiping.current = false;
+          prime();
+        }}
+        onTouchMove={(e) => {
+          const s = start.current;
+          if (!s) return;
+          if (Math.abs(e.touches[0].clientX - s.x) > SWIPE_PX) swiping.current = true;
+        }}
+        onClickCapture={(e) => {
+          if (swiping.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            swiping.current = false;
+            return;
+          }
+          onTap?.();
         }}
       >
         {slides.map((src, n) => (
-          <div key={`${src}-${n}`} className="h-full w-full shrink-0">
-            <ImageWithFallback
-              src={src}
-              alt={alt}
-              testId={n === 0 ? `${testId}-image` : undefined}
-            />
+          <div
+            key={`${src}-${n}`}
+            data-slide-index={n}
+            className="h-full w-full shrink-0 snap-start snap-always"
+          >
+            {n === 0 || primed ? (
+              <ImageWithFallback
+                src={src}
+                alt={alt}
+                testId={n === 0 ? `${testId}-image` : undefined}
+              />
+            ) : (
+              <div className="h-full w-full bg-muted" aria-hidden="true" />
+            )}
           </div>
         ))}
       </div>
@@ -225,11 +209,9 @@ export const PhotoSwiper = ({
             data-testid={`${testId}-prev`}
             aria-label="Previous photo"
             disabled={active === 0}
-            onPointerDown={(e) => e.stopPropagation()}
-            onPointerUp={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              setActive(Math.max(0, active - 1));
+              step(-1);
             }}
             className="absolute left-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-opacity hover:bg-black/65 disabled:opacity-0 lg:flex"
           >
@@ -240,11 +222,9 @@ export const PhotoSwiper = ({
             data-testid={`${testId}-next`}
             aria-label="Next photo"
             disabled={active === slides.length - 1}
-            onPointerDown={(e) => e.stopPropagation()}
-            onPointerUp={(e) => e.stopPropagation()}
             onClick={(e) => {
               e.stopPropagation();
-              setActive(Math.min(slides.length - 1, active + 1));
+              step(1);
             }}
             className="absolute right-2 top-1/2 hidden h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm transition-opacity hover:bg-black/65 disabled:opacity-0 lg:flex"
           >
