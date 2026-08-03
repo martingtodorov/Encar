@@ -118,7 +118,8 @@ def listing_out(doc):
 def build_query(p):
     """Translate request filters into a Mongo query."""
     # duplicate ads for the same physical car are hidden (see sync.dedupe_pass)
-    q = {"active": True, "duplicate": {"$ne": True}}
+    # under contract on Encar means effectively sold: never shown, never crawled again
+    q = {"active": True, "duplicate": {"$ne": True}, "under_contract": {"$ne": True}}
 
     if p.get("makes"):
         q["manufacturer"] = {"$in": p["makes"]}
@@ -428,7 +429,7 @@ class SearchBody(BaseModel):
 
 
 @api.post("/search")
-async def search(body: SearchBody):
+async def search(body: SearchBody, request: Request):
     lang = norm_lang(body.lang)
     p = body.model_dump()
     query = build_query(p)
@@ -444,6 +445,22 @@ async def search(body: SearchBody):
 
     await translate_listings(db, rows, lang)
     items = [listing_out(d) for d in rows]
+
+    # Landed cost is business data: stripped for everyone, then handed back to signed-in
+    # admins as the two-scenario range they want to see on every ad.
+    if await _is_admin_request(request):
+        rates = await fx_mod.get_rates(db)
+        sdoc = await db.settings.find_one({"_id": "pricing"}) or {}
+        for it in items:
+            krw = it.get("price_krw")
+            if not krw:
+                continue
+            q = pricing.price_car(krw, rates["fx_krw_eur"], rates["usd_eur"],
+                                  sdoc.get("constants"))
+            it["admin"] = pricing.admin_range(q)
+    else:
+        for it in items:
+            it.pop("landed_eur", None)
 
     return {
         "total": total,
@@ -662,7 +679,8 @@ async def admin_taxonomy(x_admin_token: str = Header(default="")):
 
 
 @api.get("/car/{listing_id}")
-async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
+async def car_detail(listing_id: str, request: Request, lang: str = "bg",
+                     refresh: bool = False):
     """Everything for one car: all photos, spec, options, insurance history,
     inspection sheet, diagnosis and the landed-price breakdown.
 
@@ -915,7 +933,9 @@ async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
         "insurance": insurance,
         "inspection": inspection,
         "diagnosis": diagnosis,
-        "quote": quote,
+        # Public quote carries the customer-facing price only. Landed cost, margins and
+        # the two customs scenarios are business data and are added below for admins.
+        "quote": {"suggested_sale": (quote or {}).get("suggested_sale")},
         "fetched_at": cached.get("fetched_at"),
         "lang": lang,
     }
@@ -943,6 +963,9 @@ async def car_detail(listing_id: str, lang: str = "bg", refresh: bool = False):
             if tail:
                 schedule_translation(db, tail, lang)
         payload = apply_translations(payload, tmap)
+
+    if await _is_admin_request(request):
+        payload["admin"] = pricing.admin_range(quote)
 
     return jsonable(payload)
 
@@ -984,6 +1007,15 @@ def _panel_label(name):
 def _check_admin(token):
     if token != ADMIN_TOKEN:
         raise HTTPException(status_code=401, detail="bad admin token")
+
+
+async def _is_admin_request(request: Request):
+    """Soft check for read paths: is this a signed-in admin? Never raises."""
+    try:
+        user = await auth.optional_user(request)
+        return bool(user and user.get("is_admin"))
+    except Exception:
+        return False
 
 
 async def _require_admin(request: Request, token: str = ""):

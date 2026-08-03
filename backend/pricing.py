@@ -22,8 +22,8 @@ DEFAULT_SETTINGS = {
     "SHIPPING_USD": 0.0,
     "MARINE_INSURANCE": 0.0,
     "DOMESTIC_TOTAL": 1600.0,            # inland_transport_bg 900 + extra_cost_buffer 700
-    "MARGIN_PCT": 0.014,
-    "MARGIN_MIN_EUR": 500.0,
+    "MARGIN_PCT": 0.016,
+    "MARGIN_MIN_EUR": 600.0,
     "MARGIN_TIER_THRESHOLD_EUR": 50000.0,
     "MARGIN_TIER_PCT": 0.02,
 }
@@ -114,6 +114,32 @@ def price_car(price_krw, fx_krw_eur, usd_eur, settings=None):
         "customs_base_secondary": secondary["customs_base"],
         "profit_min": sale - primary["landed"],
         "profit_max": sale - secondary["landed"],
+    }
+
+
+def admin_range(quote):
+    """The landed-cost range an admin sees: the two customs-value scenarios.
+
+    Low  = duty and VAT on 10% of the car cost, High = on 18%, both with the USD 3,000
+    customs-value floor already applied by compute_landed().
+    """
+    if not quote:
+        return None
+    low = quote.get("landed_secondary")
+    high = quote.get("landed")
+    if low is None or high is None:
+        return None
+    lo, hi = (low, high) if low <= high else (high, low)
+    return {
+        "landed_low": round(lo, 2),
+        "landed_high": round(hi, 2),
+        "customs_base_low": round(quote.get("customs_base_secondary") or 0, 2),
+        "customs_base_high": round(quote.get("customs_base") or 0, 2),
+        "customs_fraction_low": DEFAULT_SETTINGS["CUSTOMS_BASE_FRACTION_SECONDARY"],
+        "customs_fraction_high": DEFAULT_SETTINGS["CUSTOMS_BASE_FRACTION"],
+        "sale_eur": round(quote.get("suggested_sale") or 0, 2),
+        "profit_min": round(quote.get("profit_min") or 0, 2),
+        "profit_max": round(quote.get("profit_max") or 0, 2),
     }
 
 

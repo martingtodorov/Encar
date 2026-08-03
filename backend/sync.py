@@ -103,7 +103,7 @@ async def run_full_sync(db, max_pages=None, page_size=PAGE):
                     ops = []
                     now = datetime.now(timezone.utc)
                     for i, row in enumerate(rows):
-                        if (row.get("SellType") or "") in EXCLUDED_SELL_TYPES:
+                        if skip_row(row):
                             continue
                         doc = normalise_row(row, recency=offset + i)
                         if not doc["_id"] or not doc["price_krw"]:
@@ -192,6 +192,14 @@ DEFAULT_RECENCY = 10_000_000
 # 리스 (lease) and 렌트 (rental) cars are owned by a finance/rental company, not the
 # seller, so they cannot be exported. They are dropped at import time, never indexed.
 EXCLUDED_SELL_TYPES = {"\ub9ac\uc2a4", "\ub80c\ud2b8"}
+
+
+def skip_row(row):
+    """Cars we never carry: lease, rental, and anything already under contract on Encar
+    (a contract means it is effectively sold, so listing it wastes a buyer's time)."""
+    if (row.get("SellType") or "") in EXCLUDED_SELL_TYPES:
+        return True
+    return (row.get("SalesStatus") or "").upper() == "CONTRACT"
 
 # Split order. Bounds only control bisection granularity: the lowest band is
 # emitted open-ended (`range(..hi)`) and the highest too (`range(lo..)`), so
@@ -316,7 +324,7 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
         ops = []
         now = datetime.now(timezone.utc)
         for row in rows:
-            if (row.get("SellType") or "") in EXCLUDED_SELL_TYPES:
+            if skip_row(row):
                 st["excluded_skipped"] += 1
                 continue
             doc = normalise_row(row)
