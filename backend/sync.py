@@ -192,12 +192,22 @@ DEFAULT_RECENCY = 10_000_000
 # 리스 (lease) and 렌트 (rental) cars are owned by a finance/rental company, not the
 # seller, so they cannot be exported. They are dropped at import time, never indexed.
 EXCLUDED_SELL_TYPES = {"\ub9ac\uc2a4", "\ub80c\ud2b8"}
+# Dealer placeholder ads: the car is real but the fields are sentinels (Price 99,999 or
+# 999,999 만원 = KRW 1bn+, Mileage 999,999 km) used to park a listing without a price.
+# They priced out at EUR 667,499 / EUR 6.6m in the grid, so they are dropped at import.
+PLACEHOLDER_PRICE_MANWON = 99_999      # KRW 999,990,000
+PLACEHOLDER_MILEAGE = 999_999
 
 
 def skip_row(row):
-    """Cars we never carry: lease, rental, and anything already under contract on Encar
-    (a contract means it is effectively sold, so listing it wastes a buyer's time)."""
+    """Cars we never carry: lease, rental, anything already under contract on Encar
+    (a contract means it is effectively sold, so listing it wastes a buyer's time), and
+    placeholder ads whose price or mileage is a sentinel value."""
     if (row.get("SellType") or "") in EXCLUDED_SELL_TYPES:
+        return True
+    if float(row.get("Price") or 0) >= PLACEHOLDER_PRICE_MANWON:
+        return True
+    if int(row.get("Mileage") or 0) >= PLACEHOLDER_MILEAGE:
         return True
     return (row.get("SalesStatus") or "").upper() == "CONTRACT"
 

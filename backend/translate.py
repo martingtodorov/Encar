@@ -432,6 +432,13 @@ def schedule_translation(db, texts, lang):
 
 ALWAYS_FIELDS = ("manufacturer", "model", "badge", "badge_detail")
 
+# Marque and model names are PROPER NOUNS: they stay in English (Latin script) in every
+# language, per the owner. Bulgarian was Cyrillicising some of them ("Дайхацу",
+# "Серия 2 Gran Coupe") and Romanian was translating "Series" to "Seria", which reads
+# wrong on a car and does not match what a buyer searches for.
+LATIN_FIELDS = ("manufacturer", "model")
+LATIN_LANG = "en"
+
 
 async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "badge",
                                                      "badge_detail", "fuel_type",
@@ -456,7 +463,8 @@ async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "b
         return rows
 
     lazy_fields = [f for f in fields if f not in ALWAYS_FIELDS]
-    always_fields = [f for f in fields if f in ALWAYS_FIELDS]
+    always_fields = [f for f in fields if f in ALWAYS_FIELDS and f not in LATIN_FIELDS]
+    latin_fields = [f for f in fields if f in LATIN_FIELDS]
 
     lazy_texts = [r.get(f) for r in rows for f in lazy_fields if r.get(f)]
     tmap = (await translate_cached_only(db, lazy_texts, lang) if background
@@ -466,6 +474,15 @@ async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "b
     if always_texts:
         try:
             tmap = {**tmap, **await translate_many(db, always_texts, lang)}
+        except Exception as e:
+            log.warning("submodel translation failed: %s", str(e)[:160])
+
+    # Kept in a separate map: these are resolved in English whatever the page language.
+    lmap = {}
+    latin_texts = [r.get(f) for r in rows for f in latin_fields if r.get(f)]
+    if latin_texts:
+        try:
+            lmap = await translate_many(db, latin_texts, LATIN_LANG)
         except Exception as e:
             log.warning("make/model translation failed: %s", str(e)[:160])
 
@@ -477,7 +494,7 @@ async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "b
                 r[f"{f}_t"] = v
                 continue
             key = v.strip()
-            hit = tmap.get(key)
+            hit = (lmap if f in LATIN_FIELDS else tmap).get(key)
             r[f"{f}_t"] = hit or v
             if not hit and f not in ALWAYS_FIELDS:
                 misses.append(key)

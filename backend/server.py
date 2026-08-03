@@ -554,6 +554,9 @@ async def meta_filters(lang: str = "bg", refresh: bool = False):
     labels += [x["value"] for x in cached.get("fuels", [])]
     labels += [x["value"] for x in cached.get("regions", [])]
     tmap = await translate_many(db, labels, lang)
+    # Marque names are proper nouns: English in every language.
+    make_labels = await translate_many(db, [x["value"] for x in cached.get("makes", [])], "en")
+    tmap = {**tmap, **make_labels}
 
     # Slugs let the query string read `?fuels=petrol` instead of percent-encoded Hangul.
     try:
@@ -644,14 +647,16 @@ async def meta_taxonomy(
         .limit(limit)
     ]
     values = [r["value"] for r in rows]
+    # Levels 1 and 2 are marques and model names: proper nouns, always English.
+    label_lang = "en" if level <= 2 else lang
     try:
-        tmap = await translate_many(db, values, lang)
+        tmap = await translate_many(db, values, label_lang)
     except Exception as e:
         log.warning("taxonomy translation failed: %s", str(e)[:160])
-        tmap = await translate_cached_only(db, values, lang)
+        tmap = await translate_cached_only(db, values, label_lang)
         missing = [v for v in values if v not in tmap]
         if missing:
-            schedule_translation(db, missing, lang)
+            schedule_translation(db, missing, label_lang)
 
     built = await db.sync_state.find_one({"_id": "taxonomy"})
     return {
@@ -810,10 +815,12 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     # Make and model must NEVER render as Korean, so unlike the rest of the page they
     # are translated synchronously on a cache miss. It is a tiny, bounded set (two
     # strings) and it is cached forever after the first car of that model.
+    # They are also always resolved in ENGLISH: a marque and a model name are proper
+    # nouns, so they must not be Cyrillicised or localised (see translate.LATIN_FIELDS).
     always = [v for v in (cat.get("manufacturerName"), cat.get("modelName")) if v]
     if always:
         try:
-            tr.update(await translate_many(db, always, lang))
+            tr.update(await translate_many(db, always, "en"))
         except Exception as e:
             log.warning("make/model translation failed: %s", str(e)[:160])
 
