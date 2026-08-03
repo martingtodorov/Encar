@@ -102,6 +102,21 @@ export async function getHealth() {
 }
 
 // ── admin ──────────────────────────────────────────────────────────────────
+export async function getCatalogueSync() {
+  const { data } = await http.get("/admin/catalogue-sync");
+  return data;
+}
+
+export async function startCatalogueSync() {
+  const { data } = await http.post("/admin/catalogue-sync/run");
+  return data;
+}
+
+export async function putSyncSchedule(body) {
+  const { data } = await http.put("/admin/catalogue-sync/schedule", body);
+  return data;
+}
+
 export async function getAdminOverview() {
   const { data } = await http.get("/admin/overview");
   return data;

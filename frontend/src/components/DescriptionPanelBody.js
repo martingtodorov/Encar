@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Languages, Loader2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -13,12 +13,17 @@ export const DescriptionPanelBody = ({ carId, original }) => {
   const [partial, setPartial] = useState("");
   const [showing, setShowing] = useState("original");
   const [busy, setBusy] = useState(false);
+  // The stream starts empty, so without a floor the panel collapsed to nothing and grew
+  // back line by line. Freeze the height it already had until the translation is in.
+  const boxRef = useRef(null);
+  const [floor, setFloor] = useState(null);
 
   const run = async () => {
     if (translated) {
       setShowing("translated");
       return;
     }
+    setFloor(boxRef.current?.offsetHeight || null);
     setBusy(true);
     setPartial("");
     setShowing("translated");
@@ -38,6 +43,7 @@ export const DescriptionPanelBody = ({ carId, original }) => {
     } finally {
       setBusy(false);
       setPartial("");
+      setFloor(null);
     }
   };
 
@@ -76,7 +82,9 @@ export const DescriptionPanelBody = ({ carId, original }) => {
       </div>
 
       <p
+        ref={boxRef}
         data-testid="description-text"
+        style={busy && floor ? { minHeight: floor } : undefined}
         className="whitespace-pre-line text-[13px] leading-relaxed text-foreground"
       >
         {body}

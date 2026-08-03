@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Activity, Inbox, PieChart } from "lucide-react";
+import { Activity, Inbox, PieChart, RefreshCcw } from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
@@ -10,11 +10,13 @@ import { Spinner } from "@/components/admin/AdminBits";
 import { AdminOverview } from "@/components/admin/AdminOverview";
 import { AdminCoverage } from "@/components/admin/AdminCoverage";
 import { AdminEnquiries } from "@/components/admin/AdminEnquiries";
+import { AdminCatalogueSync } from "@/components/admin/AdminCatalogueSync";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
   { id: "coverage", label: "Brand coverage", icon: PieChart },
   { id: "enquiries", label: "Enquiries", icon: Inbox },
+  { id: "sync", label: "Catalogue sync", icon: RefreshCcw },
 ];
 
 export default function AdminPage() {
@@ -86,6 +88,7 @@ export default function AdminPage() {
           {tab === "overview" && <AdminOverview />}
           {tab === "coverage" && <AdminCoverage />}
           {tab === "enquiries" && <AdminEnquiries />}
+          {tab === "sync" && <AdminCatalogueSync />}
         </div>
       </main>
     </div>

@@ -34,6 +34,7 @@ import fx as fx_mod          # noqa: E402
 import mailer                # noqa: E402
 import pricing               # noqa: E402
 import slugs as slugs_mod    # noqa: E402
+import syncjob as syncjob_mod  # noqa: E402
 import sync as sync_mod      # noqa: E402
 from encar import encar, image_url  # noqa: E402
 from translate import (LANGS, breaker_status, schedule_translation,  # noqa: E402
@@ -1134,6 +1135,37 @@ async def admin_sync_status():
                      "encar_stats": dict(encar.stats)})
 
 
+class SyncScheduleBody(BaseModel):
+    enabled: bool = False
+    time: str = "03:30"
+    tz: str = "Europe/Sofia"
+
+
+@api.get("/admin/catalogue-sync")
+async def catalogue_sync_state(request: Request, x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
+    return jsonable({"job": await syncjob_mod.get_job(db),
+                     "running": syncjob_mod.is_running(),
+                     "schedule": await syncjob_mod.get_schedule(db)})
+
+
+@api.post("/admin/catalogue-sync/run")
+async def catalogue_sync_run(request: Request, x_admin_token: str = Header(default="")):
+    """Start a whole-catalogue crawl. Returns at once: the job outlives the request."""
+    await _require_admin(request, x_admin_token)
+    return jsonable(await syncjob_mod.start(db, trigger="manual"))
+
+
+@api.put("/admin/catalogue-sync/schedule")
+async def catalogue_sync_schedule(body: SyncScheduleBody, request: Request,
+                                  x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
+    try:
+        return jsonable(await syncjob_mod.set_schedule(db, body.enabled, body.time, body.tz))
+    except Exception as e:
+        raise HTTPException(400, str(e)[:200])
+
+
 @api.post("/admin/reprice")
 async def admin_reprice(x_admin_token: str = Header(default="")):
     _check_admin(x_admin_token)
@@ -1228,6 +1260,7 @@ async def on_startup():
                       "created_at": datetime.now(timezone.utc)}},
             upsert=True)
     asyncio.get_running_loop().create_task(_fx_watchdog())
+    asyncio.get_running_loop().create_task(syncjob_mod.scheduler(db))
     log.info("startup complete: %s listings in index",
              await db.listings.count_documents({}))
 
