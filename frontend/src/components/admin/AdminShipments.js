@@ -7,6 +7,7 @@ import {
   assignShipment,
   deleteShipment,
   getAdminShipments,
+  getTrackingQuota,
   refreshShipment,
 } from "@/lib/api";
 import { Spinner, ago } from "@/components/admin/AdminBits";
@@ -33,9 +34,11 @@ export const AdminShipments = () => {
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState("");
   const [result, setResult] = useState(null);
+  const [quota, setQuota] = useState(null);
 
   const load = useCallback(async () => {
     setRows(await getAdminShipments());
+    setQuota(await getTrackingQuota().catch(() => null));
   }, []);
 
   useEffect(() => {
@@ -98,10 +101,22 @@ export const AdminShipments = () => {
           Assign a tracking reference
         </h2>
         <p className="mt-2 text-[12.5px] leading-relaxed text-muted-foreground">
-          The reference appears on the customer&apos;s Track page straight away. Milestones are
-          read from Maersk&apos;s public track page (and from the EDI feed once it is
-          delivering); anything you fill in here is kept on top of whatever the carrier says.
+          The reference appears on the customer&apos;s Track page straight away. Milestones and
+          the live ship position come from the tracking provider (and from the EDI feed once
+          it is delivering); anything you fill in here is kept on top of whatever the carrier
+          says.
         </p>
+
+        {quota?.configured && (
+          <p
+            data-testid="tracking-quota"
+            className="tnum mt-2 text-[12px] font-medium text-muted-foreground"
+          >
+            {quota.error
+              ? quota.error
+              : `Provider plan ${quota.plan}: ${quota.requests_available} of ${quota.requests_total} lookups left this month`}
+          </p>
+        )}
 
         <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={submit}>
           <div className="sm:col-span-2 inline-flex w-fit rounded-[10px] border border-border bg-muted p-0.5">

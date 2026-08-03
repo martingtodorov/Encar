@@ -181,7 +181,7 @@ export const QuickViewDialog = ({ car, open, onOpenChange }) => {
             <Button
               data-testid="quick-view-save"
               variant="outline"
-              onClick={() => toggleFavourite(car.id)}
+              onClick={() => toggleFavourite(car.id, car)}
               className="h-11 gap-2 border-border bg-card px-4 text-sm hover:bg-muted"
             >
               <Heart

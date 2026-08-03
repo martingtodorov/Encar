@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 import httpx
 
 import edi
+import jsoncargo
 import maersk_public
 import ports
 
@@ -287,6 +288,27 @@ async def _public(db, ref, refresh=False):
     return await _public_read(db, ref)
 
 
+async def _cargo(db, ref, by, refresh=False):
+    """Milestones + route from JSONCargo. A B/L is resolved to its container first."""
+    if not jsoncargo.configured():
+        return None
+    number = ref
+    try:
+        if by == "bol":
+            numbers = await jsoncargo.containers_for_bol(db, ref, refresh)
+            if not numbers:
+                return None
+            number = numbers[0]
+        snap = await jsoncargo.container(db, number, refresh)
+    except RuntimeError as e:
+        log.warning("jsoncargo lookup for %s failed: %s", ref, str(e)[:160])
+        return None
+    if not snap:
+        return None
+    return {"container": number, "events": jsoncargo.to_events(snap),
+            "route": jsoncargo.route(snap), "snapshot": snap}
+
+
 async def track(db, ref, by="container", refresh=False):
     """Normalised tracking view for one container or bill of lading.
 
@@ -305,7 +327,11 @@ async def track(db, ref, by="container", refresh=False):
 
     stones = await edi.events_for(db, ref, by)
     source = "edi"
-    asked_carrier, checking = False, False
+    asked_carrier, checking, cargo = False, False, None
+    if not stones:
+        cargo = await _cargo(db, ref, by, refresh)
+        if cargo and cargo["events"]:
+            stones, source = cargo["events"], "jsoncargo"
     if not stones:
         pub = await _public(db, ref, refresh)
         checking = bool(pub and pub.get("pending"))
@@ -334,15 +360,27 @@ async def track(db, ref, by="container", refresh=False):
             vessel = {"imo": sailing.get("vessel_imo") or "", "name": sailing["vessel_name"],
                       "voyage": sailing.get("voyage") or "",
                       "position": await vessel_position(db, sailing.get("vessel_imo"))}
+            # The snapshot gives a vessel NAME only, so the AIS position is resolved through
+            # the same provider (name -> IMO once, then the live position).
+            if not vessel["position"] and source == "jsoncargo":
+                live = await jsoncargo.vessel(db, name=vessel["name"],
+                                              imo=vessel["imo"], refresh=refresh)
+                if live:
+                    vessel["imo"] = vessel["imo"] or live["imo"]
+                    vessel["mmsi"] = live["mmsi"]
+                    vessel["position"] = live["position"]
         if manual:
             vessel = vessel or {"imo": "", "name": "", "voyage": "", "position": None}
             vessel["name"] = manual.get("vessel_name") or vessel["name"]
             vessel["imo"] = manual.get("vessel_imo") or vessel["imo"]
-            vessel["mmsi"] = manual.get("vessel_mmsi") or ""
+            vessel["mmsi"] = manual.get("vessel_mmsi") or vessel.get("mmsi", "")
             if not vessel["position"]:
                 vessel["position"] = await vessel_position(db, vessel["imo"],
                                                            vessel.get("mmsi", ""))
         view = _view(ref, by, stones, source, vessel=vessel)
+        if cargo:
+            view["route"] = cargo["route"]
+            view["container"] = cargo["container"]
         if manual:
             view["note"] = manual.get("note") or ""
         return view

@@ -37,6 +37,7 @@ import pricing               # noqa: E402
 import slugs as slugs_mod    # noqa: E402
 import syncjob as syncjob_mod  # noqa: E402
 import edi                  # noqa: E402
+import jsoncargo            # noqa: E402
 import maersk_public        # noqa: E402
 import tracking             # noqa: E402
 import sync as sync_mod      # noqa: E402
@@ -501,6 +502,116 @@ async def search(body: SearchBody, request: Request):
         "items": items,
         "lang": lang,
     }
+
+
+class TasteBody(BaseModel):
+    """What a visitor's browser learned about them. Sent per request, never stored."""
+    makes: dict[str, float] = Field(default_factory=dict)
+    models: dict[str, float] = Field(default_factory=dict)
+    fuels: dict[str, float] = Field(default_factory=dict)
+    price: float | None = None
+    year: int | None = None
+    exclude: list[str] = Field(default_factory=list)
+    limit: int = 12
+    lang: str = "bg"
+
+
+def _weights(raw, keep=6):
+    """Trust nothing from the client: cap the size and clamp every weight."""
+    clean = {}
+    for key, value in list(raw.items())[:24]:
+        name = str(key).strip()[:60]
+        try:
+            weight = float(value)
+        except (TypeError, ValueError):
+            continue
+        if name and 0 < weight:
+            clean[name] = min(weight, 50.0)
+    return dict(sorted(clean.items(), key=lambda kv: -kv[1])[:keep])
+
+
+@api.post("/recommendations")
+async def recommendations(body: TasteBody, request: Request):
+    """Cars this visitor is most likely to want next.
+
+    The profile is a bag of weighted makes, models and fuels plus the price and year the
+    visitor keeps circling. Candidates are anything sharing a favoured make or model, then
+    each one is scored: a model match counts for far more than its make, the fuel is a mild
+    preference, and distance from the visitor's price and year is a penalty rather than a
+    filter, so a slightly dearer or older car can still win on the rest of its merits.
+    """
+    lang = norm_lang(body.lang)
+    makes = _weights(body.makes, 4)
+    models = _weights(body.models, 6)
+    fuels = _weights(body.fuels, 4)
+    if not makes and not models:
+        return {"items": [], "lang": lang}
+
+    query = build_query({})
+    ors = []
+    if makes:
+        ors.append({"manufacturer": {"$in": list(makes)}})
+    if models:
+        ors.append({"model": {"$in": list(models)}})
+    query["$or"] = ors
+    if body.exclude:
+        query["_id"] = {"$nin": [str(x)[:64] for x in body.exclude[:60]]}
+    # A generous price window, so the scoring has room to prefer the closest ones.
+    if body.price and body.price > 0:
+        query["sale_eur"] = {"$gte": body.price * 0.5, "$lte": body.price * 1.8}
+
+    rows = [d async for d in db.listings.find(query).sort(SORTS["newest"]).limit(300)]
+    if not rows:
+        return {"items": [], "lang": lang}
+
+    top_make = max(makes, key=makes.get) if makes else ""
+    scale_make = makes.get(top_make, 1) or 1
+    scale_model = max(models.values()) if models else 1
+    scale_fuel = max(fuels.values()) if fuels else 1
+
+    scored = []
+    for doc in rows:
+        model_w = models.get(doc.get("model") or "", 0) / scale_model
+        make_w = makes.get(doc.get("manufacturer") or "", 0) / scale_make
+        fuel_w = fuels.get(doc.get("fuel_type") or "", 0) / scale_fuel
+        score = 6 * model_w + 3 * make_w + 1.5 * fuel_w
+
+        if body.price and doc.get("sale_eur"):
+            score -= 2.5 * min(1.0, abs(doc["sale_eur"] - body.price) / body.price)
+        if body.year and doc.get("form_year"):
+            score -= 1.5 * min(1.0, abs(doc["form_year"] - body.year) / 8)
+        # A nudge for the freshest ads, never enough to outrank a real preference.
+        score += 0.4 if (doc.get("recency") or 999) < 50 else 0
+
+        scored.append((score, "model" if model_w else "make" if make_w else "", doc))
+
+    scored.sort(key=lambda s: -s[0])
+
+    # A shelf of twelve near-identical cars is not a choice. Three per model keeps the row
+    # varied without letting a weaker match jump the queue.
+    limit = max(1, min(body.limit, 24))
+    best, per_model = [], {}
+    for row in scored:
+        key = row[2].get("model") or ""
+        if per_model.get(key, 0) >= 3:
+            continue
+        per_model[key] = per_model.get(key, 0) + 1
+        best.append(row)
+        if len(best) >= limit:
+            break
+
+    docs = [d for _, _, d in best]
+    await translate_listings(db, docs, lang)
+    items = []
+    for (_, why, _), doc in zip(best, docs):
+        out = listing_out(doc)
+        out.pop("landed_eur", None)
+        # Built AFTER translation, or the reason would name the car in Korean.
+        out["why_label"] = (out.get("model_t") or out.get("model") or "") if why == "model" \
+            else (out.get("manufacturer_t") or out.get("manufacturer") or "") if why else ""
+        items.append(out)
+    await publish_prices(items)
+    return {"items": items, "lang": lang}
 
 
 @api.get("/meta/filters")
@@ -1453,6 +1564,20 @@ async def admin_shipment_refresh(ref: str, request: Request, by: str = "containe
         raise HTTPException(400, str(e))
     except RuntimeError as e:
         raise HTTPException(502, str(e))
+
+
+@api.get("/admin/tracking-quota")
+async def admin_tracking_quota(request: Request, refresh: bool = False,
+                              x_admin_token: str = Header(default="")):
+    """Provider plan usage. Cached, because asking is itself a billable request."""
+    await _require_admin(request, x_admin_token)
+    if not jsoncargo.configured():
+        return {"configured": False}
+    try:
+        data = await jsoncargo.stats(db, refresh)
+    except RuntimeError as e:
+        return {"configured": True, "error": str(e)}
+    return {"configured": True, **(data or {})}
 
 
 @api.delete("/admin/shipments/{ref}")

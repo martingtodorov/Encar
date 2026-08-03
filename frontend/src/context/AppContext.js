@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { getFx } from "@/lib/api";
+import { noteFavourite } from "@/lib/taste";
 import { t as translate, CURRENCIES } from "@/i18n";
 
 /** A currency we retired (e.g. BGN) can still be sitting in a returning visitor's
@@ -89,10 +90,14 @@ export function AppProvider({ children }) {
     setThemeState((p) => (p === "dark" ? "light" : "dark"));
   }, []);
 
-  const toggleFavourite = useCallback((id) => {
+  const toggleFavourite = useCallback((id, car = null) => {
     setFavourites((prev) => {
-      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      const adding = !prev.includes(id);
+      const next = adding ? [...prev, id] : prev.filter((x) => x !== id);
       localStorage.setItem(LS_FAV, JSON.stringify(next));
+      // Favouriting is the strongest taste signal there is, so it feeds the profile that
+      // drives the landing recommendations.
+      if (adding && car) noteFavourite(car);
       return next;
     });
   }, []);

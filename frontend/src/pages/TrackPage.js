@@ -18,6 +18,7 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useSeo } from "@/lib/seo";
 import { carTitle, formatMileage, formatMoney, formatYearMonth } from "@/lib/format";
+import { readJsonCookie, writeJsonCookie } from "@/lib/cookies";
 import {
   getListingsByIds,
   getTrackedShipments,
@@ -30,6 +31,8 @@ import {
  * Milestone copy. These are DCSA event codes the carrier returns; they are shipping terms
  * rather than app copy, so they live with the page instead of bloating the i18n files.
  */
+const RECENT_COOKIE = "ab_track";
+
 const EVENTS = {
   bg: {
     GTIN: "Приет в терминала", STUF: "Натоварен в контейнера",
@@ -144,6 +147,12 @@ export default function TrackPage() {
   const [cars, setCars] = useState([]);
   const polls = useRef(0);
   const [params] = useSearchParams();
+  // Numbers this browser has looked up before, kept in a 90-day cookie so a returning
+  // buyer never has to dig the reference out of an email again.
+  const [recent, setRecent] = useState(() => {
+    const rows = readJsonCookie(RECENT_COOKIE, []);
+    return Array.isArray(rows) ? rows.filter((r) => r?.ref).slice(0, 6) : [];
+  });
 
   useSeo({ lang, title: `${t("trackTitle")} · Encar`, description: t("seoTrackDesc") });
 
@@ -177,6 +186,12 @@ export default function TrackPage() {
         setBusy(true);
         setError("");
         setData(null);
+        setRecent((prev) => {
+          const item = { ref: r.toUpperCase(), by: mode };
+          const next = [item, ...prev.filter((x) => x.ref !== item.ref)].slice(0, 6);
+          writeJsonCookie(RECENT_COOKIE, next, 90);
+          return next;
+        });
       }
       trackShipment(r, mode)
         .then(setData)
@@ -189,6 +204,13 @@ export default function TrackPage() {
     },
     []
   );
+
+  const forget = (r) =>
+    setRecent((prev) => {
+      const next = prev.filter((x) => x.ref !== r);
+      writeJsonCookie(RECENT_COOKIE, next, 90);
+      return next;
+    });
 
   // The first lookup for a reference schedules a read of the carrier's public page in the
   // background (a real browser, ~30s), so the answer comes back marked "checking". Pick the
@@ -290,6 +312,41 @@ export default function TrackPage() {
           </Button>
         </form>
 
+        {/* Numbers this browser looked up before. Kept only in a cookie on the visitor's own
+            machine, so it works signed out too — which is how most buyers arrive. */}
+        {recent.length > 0 && (
+          <div className="mt-4" data-testid="track-recent">
+            <div className="text-[12px] uppercase tracking-wide text-muted-foreground">
+              {t("trackRecent")}
+            </div>
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {recent.map((r) => (
+                <span
+                  key={r.ref}
+                  className="inline-flex items-center gap-1 rounded-full border border-border bg-card py-1 pl-3 pr-1 text-[12px]"
+                >
+                  <button
+                    type="button"
+                    className="tnum font-medium text-foreground"
+                    onClick={() => openSaved(r)}
+                    data-testid={`track-recent-${r.ref}`}
+                  >
+                    {r.ref}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t("trackRemove")}
+                    onClick={() => forget(r.ref)}
+                    data-testid={`track-recent-forget-${r.ref}`}
+                    className="rounded-full p-1 text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="h-3 w-3" aria-hidden="true" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
         {saved.length > 0 && (
           <div className="mt-4 flex flex-wrap gap-2" data-testid="track-saved-list">
             {saved.map((s) => (
@@ -353,6 +410,15 @@ export default function TrackPage() {
                   <div className="tnum mt-1 text-2xl font-semibold text-foreground">
                     {data.reference}
                   </div>
+                  {data.container && data.container !== data.reference && (
+                    <div
+                      data-testid="track-container-no"
+                      className="tnum mt-0.5 text-[12.5px] text-muted-foreground"
+                    >
+                      {t("trackByContainer")} {data.container}
+                      {data.route?.type ? ` · ${data.route.type}` : ""}
+                    </div>
+                  )}
                   <div className="mt-1 text-sm font-medium text-primary">{status}</div>
                   {data.checking && (
                     <div
@@ -378,6 +444,23 @@ export default function TrackPage() {
               </div>
 
               <div className="mt-4 grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
+                {data.route?.from && data.route?.to && (
+                  <div data-testid="track-route" className="sm:col-span-2">
+                    <div className="text-[12px] uppercase tracking-wide text-muted-foreground">
+                      {t("trackRoute")}
+                    </div>
+                    <div className="mt-0.5 text-sm font-semibold text-foreground">
+                      {data.route.from} → {data.route.to}
+                    </div>
+                    {(data.route.from_terminal || data.route.to_terminal) && (
+                      <div className="mt-0.5 text-[12px] text-muted-foreground">
+                        {[data.route.from_terminal, data.route.to_terminal]
+                          .filter(Boolean)
+                          .join(" → ")}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {data.eta && (
                   <div data-testid="track-eta">
                     <div className="text-[12px] uppercase tracking-wide text-muted-foreground">

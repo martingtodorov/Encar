@@ -163,7 +163,7 @@ export const CarRow = ({ car, onOpen }) => {
           data-testid="car-row-save-button"
           onClick={(e) => {
             e.stopPropagation();
-            toggleFavourite(car.id);
+            toggleFavourite(car.id, car);
           }}
           aria-label={saved ? t("saved") : t("save")}
           aria-pressed={saved}

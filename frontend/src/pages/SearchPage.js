@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/sheet";
 import { HeaderBar } from "@/components/HeaderBar";
 import { Hero } from "@/components/Hero";
+import { Recommended } from "@/components/Recommended";
 import { TrustStrip } from "@/components/TrustStrip";
 import { TaxonomySelects } from "@/components/TaxonomySelects";
 import { FilterSidebar } from "@/components/FilterSidebar";
@@ -23,6 +24,7 @@ import { useApp } from "@/context/AppContext";
 import { useLangNav } from "@/hooks/useLangNav";
 import { getCatalogueSize, getFilters, resolveSlugs, searchCars } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
+import { noteSearch } from "@/lib/taste";
 import { useScrollDirection } from "@/hooks/useScrollDirection";
 import { useSeo } from "@/lib/seo";
 import {
@@ -230,6 +232,8 @@ export default function SearchPage() {
     setError(null);
     try {
       setResult(await searchCars(body));
+      // A filtered search is the clearest thing a visitor ever tells us about their taste.
+      noteSearch(body);
     } catch (e) {
       setError(e?.response?.data?.detail || e.message || "request failed");
       setResult({ items: [], total: 0, pages: 0 });
@@ -440,6 +444,8 @@ export default function SearchPage() {
       {isHome && <Hero totalUpstream={catalogueSize} onStart={scrollToResults} />}
 
       {isHome && <TrustStrip />}
+
+      {isHome && <Recommended onOpen={openCar} />}
 
       {/* Cascading Make -> Model -> Submodel -> Trim replaces the old search box */}
       <section className="bg-background">

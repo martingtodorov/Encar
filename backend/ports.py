@@ -67,6 +67,25 @@ PORTS = {
 # Reverse lookup for messages that name the port but omit the code.
 _BY_NAME = {name.lower(): (code, lat, lon) for code, (name, lat, lon) in PORTS.items()}
 
+# Carriers spell ports their own way ("INCHON" for Incheon) and name inland terminals the
+# code table has no entry for. Aliases keep those on the map instead of dropping the leg.
+ALIASES = {
+    "inchon": "KRINC", "incheon": "KRINC", "busan new port": "KRPUS", "pusan": "KRPUS",
+    "kwangyang": "KRKAN", "gwangyang": "KRKAN",
+    "rotterdam maasvlakte": "NLRTM", "antwerpen": "BEANR", "antwerp": "BEANR",
+    "constanta": "ROCND", "constantza": "ROCND", "varna west": "BGVAR",
+    "piraeus (perama)": "GRPIR", "salonika": "GRSKG",
+}
+
+EXTRA = {
+    "NLBZM": ("Bergen op Zoom", 51.49, 4.29),
+    "NLMOE": ("Moerdijk", 51.70, 4.61),
+    "DEDUI": ("Duisburg", 51.44, 6.73),
+    "BEZEE": ("Zeebrugge", 51.34, 3.20),
+}
+PORTS.update(EXTRA)
+_BY_NAME.update({name.lower(): (code, lat, lon) for code, (name, lat, lon) in EXTRA.items()})
+
 
 def locate(unloc="", name=""):
     """Coordinates for a port, by UN/LOCODE first and then by name. None when unknown."""
@@ -74,6 +93,9 @@ def locate(unloc="", name=""):
     if hit:
         return {"port": hit[0], "lat": hit[1], "lon": hit[2]}
     n = (name or "").strip().lower()
+    if n in ALIASES:
+        code = ALIASES[n]
+        return {"port": PORTS[code][0], "lat": PORTS[code][1], "lon": PORTS[code][2]}
     if n in _BY_NAME:
         code, lat, lon = _BY_NAME[n]
         return {"port": PORTS[code][0], "lat": lat, "lon": lon}

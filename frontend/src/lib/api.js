@@ -286,6 +286,16 @@ export async function refreshShipment(ref, by = "container") {
   return data;
 }
 
+export async function getRecommendations(profile) {
+  const { data } = await http.post("/recommendations", profile);
+  return data;
+}
+
+export async function getTrackingQuota() {
+  const { data } = await http.get("/admin/tracking-quota");
+  return data;
+}
+
 export async function deleteShipment(ref) {
   const { data } = await http.delete(`/admin/shipments/${encodeURIComponent(ref)}`);
   return data;

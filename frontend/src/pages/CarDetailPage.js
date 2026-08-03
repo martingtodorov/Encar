@@ -26,6 +26,7 @@ import { EnquiryDialog } from "@/components/EnquiryDialog";
 import { DescriptionPanelBody } from "@/components/DescriptionPanelBody";
 import { useLangNav } from "@/hooks/useLangNav";
 import { getCar, warmCar, forgetCar } from "@/lib/api";
+import { noteView } from "@/lib/taste";
 import { useSeo } from "@/lib/seo";
 import { formatMileage, formatMoney, formatNumber, formatYearMonth } from "@/lib/format";
 
@@ -118,6 +119,7 @@ export default function CarDetailPage() {
         .then((d) => {
           if (cancelled) return;
           setCar(d);
+          noteView(d);
           // Per-car freeform text (dealer branch, address, plate) is translated in the
           // background so the page renders immediately; pick it up when it lands.
           if ((d?.description_pending || d?.translation_pending) && retries < 2) {
@@ -169,7 +171,7 @@ export default function CarDetailPage() {
         car={car}
         price={money(q?.suggested_sale ?? 0)}
         saved={saved}
-        onToggleSave={() => toggleFavourite(id)}
+        onToggleSave={() => toggleFavourite(id, car)}
       />
 
       {/* Mobile clears the always-visible car bar; desktop only needs the normal gap. */}
@@ -254,7 +256,7 @@ export default function CarDetailPage() {
                 <Button
                   data-testid="detail-save-button"
                   variant="outline"
-                  onClick={() => toggleFavourite(id)}
+                  onClick={() => toggleFavourite(id, car)}
                   aria-label={saved ? t("saved") : t("save")}
                   title={saved ? t("saved") : t("save")}
                   className="h-11 w-11 border-border bg-card p-0 hover:bg-muted"

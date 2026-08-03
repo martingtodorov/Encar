@@ -1,0 +1,31 @@
+{
+  "summary": "Full-stack review of the new HeaderNav (words-only, one-line, hover-dropdown), the ab_track / ab_taste / ab_vid 90-day cookies, the client-side taste profile + POST /api/recommendations shelf, and JSONCargo live-tracking regression. All 9 review items pass; 6/6 new pytest cases green. No regressions on RO/EN landing, mobile drawer or Admin -> Shipments.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_recommendations.py",
+    "/app/test_reports/pytest/iter22_recs.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "HeaderNav.js: main desktop links are text-only (0 SVGs inside header-nav-link-search/track/how-it-works), each label sits on ONE line (whitespace-nowrap), and items are evenly spaced with gap-6/xl:gap-8. Verified header text contains 'Любими' and NOT 'Запазени'.",
+    "Favourites dropdown: opens on hover AND on click (aria-expanded toggles true/false), reachable via keyboard by focus-within, closes after navigation. Both destinations (/bg/saved and /bg/searches) render their pages with H1 'Любими обяви' and 'Любими търсения'. Badge shows favourites+searches count; hovering shows per-row count when >0 (e.g. Любими обяви '1' after favouriting one card).",
+    "Tracking cookie: for ref 271191199 + 'Товарителница', the 'Скоро проследявани' block (data-testid=track-recent) renders a chip data-testid=track-recent-271191199. The ab_track cookie is written with SameSite=Lax and expires in ~89 days (i.e. 90 minus a few hours). After full reload the chip is still there, clicking it re-runs the lookup and repopulates track-route, and the bin data-testid=track-recent-forget-271191199 removes the chip. All while signed out.",
+    "JSONCargo live tracking for 271191199 (bol): source=jsoncargo, container MRSU5757040, route INCHON -> BERGEN OP ZOOM (via HANJIN INCHON CONTAINER TERMINAL -> BTT MULTIMODAL BERGEN OP ZOOM), 4 milestones rendered, vessel card GENOVA EXPRESS with IMO 9943906, MMSI 211130180 and Leaflet position 51.956/4.003. ETA 09.08.2026 to Bergen Op Zoom.",
+    "Recommended shelf: with no cookies the landing page renders NO data-testid=recommended (verified 0 elements before any browsing). After viewing three BMW cars (42174778, 41436676, 41836861), returning to /bg renders 'Подбрани за теб' with BMW 5 Series (G30) and 6 Series GT (G32) cards; each 'Защото гледаше …' label is Latin/translated (e.g. 'Защото гледаше BMW', 'Защото гледаше 5 Series (G30)'), never Korean 5시리즈 -- confirmed with a seeded ab_taste containing raw Korean model name; the shelf translated it to '5 Series (G30)'. Cookies ab_taste and ab_vid are written, both ~89 days out, SameSite=Lax.",
+    "Recommended shelf horizontally scrollable (scrollWidth 3776 > clientWidth 1232) and clicking a card CTA navigates to /bg/car/{id} (verified 42174778).",
+    "POST /api/recommendations pytest (6/6): (a) profile with makes/models returns items capped by limit and <=3 per model, no landed_eur leak, why_label present; (b) empty profile returns {items:[]}; (c) rubbish inputs (500 makes, negative weights, non-numeric weights, huge limit, negative limit, 500 excludes, 500-char key) never 500 -- server responds 200 with list or 422; (d) price window respected -- all results within 0.5x-1.8x of profile price; (e) why_label is translated (no Hangul in bg output).",
+    "Regressions: RO landing renders 'Mașini din Coreea cu preț final livrat', EN landing renders 'Korean cars with a final landed price'. Mobile 390x844 drawer contains 'Любими обяви' and 'Любими търсения' (new labels) and NOT 'Запазени'. Admin login + Admin -> Shipments tab still renders (data-testid=admin-shipments present)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_recommendations.py",
+    "/app/test_reports/iteration_22.json"
+  ],
+  "success_rate": {"backend": "100% (6/6 pytest)", "frontend": "100% (all 9 review items verified)"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! (used); x-admin-token: encar-admin",
+  "seed_data_creation": "None persisted. Test used cookies only (ab_track, ab_taste, ab_vid) on the browser side. No backend state written for the anonymous-visitor flow (as designed).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend URL from REACT_APP_BACKEND_URL. New cookies to inspect: ab_taste (JSON profile), ab_vid (UUID), ab_track (list of {ref,by}); all 90 days, path=/, SameSite=Lax, no HttpOnly. Recommended row testids: recommended, recommended-strip, recommended-card-{id}. Header nav testids: header-nav, header-nav-link-search, header-nav-favourites (button, opens dropdown on hover+click), header-favourites-menu, header-nav-link-saved, header-nav-link-searches, header-nav-link-track, header-nav-link-how-it-works. Do NOT hammer /api/tracking with new refs — MARINER key is metered; 271191199 stays cached.",
+  "rca of the issue": "n/a — no bugs found."
+}
