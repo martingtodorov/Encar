@@ -113,10 +113,26 @@ export const PhotoSwiper = ({
   const target = useRef(null);
   const timer = useRef(null);
 
-  // Only the first photo is fetched up front (it is the LCP candidate); the rest wait for
-  // a sign the visitor is actually interested in this car.
-  const [primed, setPrimed] = useState(false);
-  const prime = () => setPrimed(true);
+  // Only the first photo is fetched up front (it is the LCP candidate). From then on we
+  // keep exactly ONE photo ahead of the visitor warm: standing on 14 downloads 15, so the
+  // next swipe paints instantly instead of flashing a placeholder. Slides already seen stay
+  // mounted, so going back is free, but a 24-photo car never downloads all 24 at once.
+  const [reach, setReach] = useState(0);
+  const prime = () => setReach((r) => Math.max(r, 1));
+
+  useEffect(() => {
+    setReach((r) => Math.max(r, active + 1));
+  }, [active]);
+
+  // The images are `loading="lazy"`, so mounting the next slide is not enough — an
+  // off-screen one waits until it is nearly in view. This starts the fetch for real.
+  const nextSrc = photos[active + 1];
+  useEffect(() => {
+    if (!nextSrc) return;
+    const img = new Image();
+    img.decoding = "async";
+    img.src = nextSrc;
+  }, [nextSrc]);
 
   const emit = (n) => {
     if (index === undefined) setI(n);
@@ -158,7 +174,7 @@ export const PhotoSwiper = ({
   const glide = (n) => {
     const el = scroller.current;
     if (!el) return;
-    setPrimed(true);
+    setReach((r) => Math.max(r, n + 1));
     target.current = n;
     driving.current = true;
     el.scrollTo({ left: n * el.clientWidth, behavior: "smooth" });
@@ -176,7 +192,6 @@ export const PhotoSwiper = ({
   useEffect(() => {
     const el = scroller.current;
     if (!el || driving.current) return;
-    if (active > 0) setPrimed(true);
     if (Math.abs(el.scrollLeft - active * el.clientWidth) > el.clientWidth * 0.5) {
       glide(active);
     }
@@ -244,7 +259,7 @@ export const PhotoSwiper = ({
             data-slide-index={n}
             className="h-full w-full shrink-0 snap-start snap-always"
           >
-            {n === 0 || primed ? (
+            {n === 0 || n <= reach ? (
               <ImageWithFallback
                 src={src}
                 alt={alt}

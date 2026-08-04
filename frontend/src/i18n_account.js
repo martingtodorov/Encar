@@ -38,7 +38,7 @@ const ACCOUNT = {
     mfaContinue: "Продължи",
     depositTitle: "Резервирай този автомобил",
     depositBlurb:
-      "С този депозит купуваме автомобила за вас, затова той не се възстановява, ако се откажете. Когато платите остатъка по банков път, ви връщаме депозита и задържаме {sum} комисиона.",
+      "С този депозит купуваме автомобила за вас, затова той не се възстановява, ако се откажете. Когато платите остатъка по банков път, ви връщаме депозита и задържаме {sum} комисиона, която вече е включена в крайната цена.",
     depositTerms:
       "Разбирам, че с този депозит автомобилът се купува за мен и сумата не се възстановява, ако се откажа.",
     depositReserve: "Плати депозит",
@@ -50,7 +50,7 @@ const ACCOUNT = {
     payPending: "Проверяваме плащането…",
     payPaid: "Плащането е получено — автомобилът е купен за вас",
     payDepositNext:
-      "Свързваме се с вас за остатъка по банков път. След като той бъде платен, ви връщаме депозита и задържаме {sum} комисиона.",
+      "Свързваме се с вас за остатъка по банков път. След като той бъде платен, ви връщаме депозита и задържаме {sum} комисиона, която вече е включена в крайната цена.",
     payFailed: "Плащането не беше завършено",
     payCancelled: "Плащането е прекратено",
     payBackToCar: "Обратно към автомобила",
@@ -93,7 +93,7 @@ const ACCOUNT = {
     mfaContinue: "Continuă",
     depositTitle: "Rezervă acest automobil",
     depositBlurb:
-      "Cu acest depozit cumpărăm automobilul pentru tine, de aceea nu se restituie dacă te retragi. După ce plătești restul prin transfer bancar, îți returnăm depozitul și reținem {sum} comision.",
+      "Cu acest depozit cumpărăm automobilul pentru tine, de aceea nu se restituie dacă te retragi. După ce plătești restul prin transfer bancar, îți returnăm depozitul și reținem {sum} comision, care este deja inclus în prețul final.",
     depositTerms:
       "Înțeleg că automobilul este cumpărat pentru mine cu acest depozit și că suma nu se restituie dacă mă retrag.",
     depositReserve: "Plătește depozitul",
@@ -105,7 +105,7 @@ const ACCOUNT = {
     payPending: "Verificăm plata…",
     payPaid: "Plata a fost primită — automobilul este cumpărat pentru tine",
     payDepositNext:
-      "Te contactăm pentru restul de plată prin transfer bancar. După ce este achitat, îți returnăm depozitul și reținem {sum} comision.",
+      "Te contactăm pentru restul de plată prin transfer bancar. După ce este achitat, îți returnăm depozitul și reținem {sum} comision, care este deja inclus în prețul final.",
     payFailed: "Plata nu a fost finalizată",
     payCancelled: "Plata a fost anulată",
     payBackToCar: "Înapoi la automobil",
@@ -147,7 +147,7 @@ const ACCOUNT = {
     mfaContinue: "Continue",
     depositTitle: "Reserve this car",
     depositBlurb:
-      "We buy the car for you with this deposit, so it is not refundable if you change your mind. Once you pay the balance by bank transfer we return the deposit and keep {sum} as our commission.",
+      "We buy the car for you with this deposit, so it is not refundable if you change your mind. Once you pay the balance by bank transfer we return the deposit and keep {sum} as our commission, which is already included in the final price.",
     depositTerms:
       "I understand the car is bought for me with this deposit and that the money is not refundable if I withdraw.",
     depositReserve: "Pay the deposit",
@@ -159,7 +159,7 @@ const ACCOUNT = {
     payPending: "Checking your payment…",
     payPaid: "Payment received — the car is bought for you",
     payDepositNext:
-      "We will be in touch about the balance by bank transfer. Once it is paid we return the deposit and keep {sum} as our commission.",
+      "We will be in touch about the balance by bank transfer. Once it is paid we return the deposit and keep {sum} as our commission, which is already included in the final price.",
     payFailed: "That payment did not go through",
     payCancelled: "Payment cancelled",
     payBackToCar: "Back to the car",

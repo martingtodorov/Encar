@@ -25,7 +25,7 @@ const STATUS = {
 };
 
 const STATUS_LABELS = {
-  bg: { X: "Сменен", W: "Изправян или заваряван", C: "Корозия", A: "Драскотина",
+  bg: { X: "Сменен", W: "Изправян", C: "Корозия", A: "Драскотина",
         U: "Вдлъбнатина", T: "Повреда" },
   ro: { X: "Înlocuit", W: "Îndreptat sau sudat", C: "Coroziune", A: "Zgârietură",
         U: "Adâncitură", T: "Deteriorare" },

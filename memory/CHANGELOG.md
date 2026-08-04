@@ -474,3 +474,66 @@ Verified (iteration_9): 100% both.
   list and My Purchases) now stores the English form too.
   Verified against Stripe: "Reservation deposit — Peugeot 5008 2nd Generation", no Hangul.
   Note: deposits created BEFORE this fix keep their Korean `car_title`.
+
+## 2026-06-04 (evening) — Deposit is a purchase, not a holding fee + body damage diagram
+Owner's clarification: the deposit BUYS the car, so it is not refundable if the buyer
+withdraws; once the buyer wires the balance we return the deposit less a EUR 300 commission.
+- `deposits.COMMISSION_EUR` (env `DEPOSIT_COMMISSION_EUR`, default 300). `refund()` now
+  returns `max(0, amount - commission)` as a PARTIAL Stripe refund and records
+  `returned_eur` / `commission_eur`. When the commission swallows the deposit it skips
+  Stripe entirely (a zero refund is rejected) but still releases the car.
+- Admin Deposits: button is "Return and release", the confirm dialog quotes what goes back
+  and what is kept, and a refunded row reads "returned X (kept EUR 300)".
+- Copy rewritten in BG/RO/EN in four places: under the deposit button, the payment success
+  screen (`payDepositNext`), the FAQ and the fees page. The clause promising a full refund
+  when WE cannot deliver was deliberately KEPT, scoped to our own failure.
+- New mandatory acknowledgement checkbox before paying (`detail-reserve-terms`): the button
+  is disabled until it is ticked. With a non-refundable deposit that explicit tick is the
+  best defence in a card dispute.
+- CAUSED AND FIXED A LIVE BUG in the same batch: the `COMMISSION_EUR` definition never
+  landed in the file while three usages did, so `/api/deposit/car/{id}` threw NameError,
+  the quote fetch failed and `ReserveCar` returned null - the owner noticed the buy button
+  had vanished. Lesson: when adding a constant plus its usages, verify the DEFINITION
+  landed, not just the usages.
+- Body damage diagram (`BodyDiagram.js`, section "Body condition" on the car page).
+  `server._body_panels()` normalises two overlapping upstream sources: the inspection sheet
+  (`inspection.outers[].statusTypes[].code`, the letters X replaced / W beaten or welded /
+  C corrosion / A scratch / U dent / T damage, listing only panels WITH a finding) and,
+  as a fallback, Encar's own outer-skin diagnosis. P-codes and diagnosis enums map to our
+  own slugs, so the drawing is our own schematic and every word comes from our own
+  BG/RO/EN maps - no Korean reaches the page. A car with neither source shows no section at
+  all, because an empty diagram would read as "every panel is fine".
+  Verified live on car 42179408 (bonnet X, both right doors X, rear door left W, rear
+  quarter left W, radiator support X as a structural chip) in BG/RO/EN, and on 42379471
+  which correctly says "No panel findings recorded". Silhouette is neutral grey after the
+  owner pointed out `fill-secondary` gave it a reddish tint that read as damage.
+
+## 2026-06-04 (night) — copy corrections, autoscroll, next-image prefetch
+- Verified iteration_29: PARTIAL refund (deposit - EUR 300) 100% backend (9/9) and 100%
+  frontend across three languages, two real Stripe deposits paid and refunded, including
+  the commission-swallows-deposit branch. Zero defects.
+- BG label for status W is now just "Изправян" (was "Изправян или заваряван"), at the
+  owner's request. RO and EN keep the fuller wording.
+- Deposit copy now states the EUR 300 commission is ALREADY INCLUDED in the final price,
+  in all three languages and in all four places (button blurb, payment success screen, FAQ,
+  fees page).
+- `changeTax` scrolls to the top. Choosing a make or model collapses the hero, the trust
+  strip and the picked-for-you shelf, so the page shortened under the visitor and left them
+  stranded mid-page. Instant, not smooth: those sections unmount as it scrolls, which a
+  smooth scroll would chase. Verified 1600 -> 0 on make and 1400 -> 0 on model.
+- Gallery prefetch: `PhotoSwiper` used to mount ALL photos once the visitor interacted
+  (24+ downloads at once). It now keeps a watermark of the highest slide reached and mounts
+  up to `active + 1`, so slides already seen stay mounted (going back is free) while only
+  ONE photo is pulled ahead. Because `ImageWithFallback` is `loading="lazy"`, mounting the
+  next slide is not enough - an off-screen image waits until it is nearly in view - so the
+  fetch is kicked off explicitly with `new Image()` on the next src.
+  Verified: 2 images mounted on load, 6 after four advances, counter 5/31, no regression.
+- PANEL COVERAGE ANSWER (owner asked whether we take everything Encar offers): every one of
+  the 22 distinct panel codes Encar actually returns across our cached details is mapped -
+  zero unknown codes - and the map carries 34, so unseen ones are already covered. That
+  includes the underbody and structure: front/rear side members, front/rear wheelhouses,
+  inner panels, sills, cross member, boot floor, rear panel, A/B/C pillars and the radiator
+  support, rendered as "marked on the structure" chips under the diagram. NOT included, and
+  the obvious next step: the sheet's self-diagnosis sections (engine, transmission,
+  drivetrain, steering, braking, electrics, fuel, high-voltage system) - mechanical, not
+  panels, so they do not belong on a body diagram.

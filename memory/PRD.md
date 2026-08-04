@@ -7,8 +7,10 @@ and resumes after any number of server restarts. Bill-of-lading customer assignm
 finished (the picker was breaking because it sat inside a <label>). The deposit -> archive
 -> My Purchases pipeline is now verified end to end in a browser through real Stripe test
 checkout (iteration_27.json, 0 defects). Admins can refund a deposit in one click from the
-new Deposits tab, which also releases the car for other buyers (iteration_28.json, 0
-defects). See CHANGELOG.md for detail. -->
+new Deposits tab, which also releases the car for other buyers (iteration_28.json). The
+deposit is a PURCHASE, not a holding fee: non-refundable on withdrawal, returned less a
+EUR 300 commission once the buyer wires the balance (iteration_29.json, 0 defects). Car
+pages carry a body-damage diagram built from Encar's inspection sheet. See CHANGELOG.md. -->
 
 ## Original problem statement
 Create a fully translated skin for encar.com in Bulgarian, Romanian and English.

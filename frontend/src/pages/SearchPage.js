@@ -275,6 +275,12 @@ export default function SearchPage() {
   const changeTax = useCallback((next) => {
     setTax(next);
     setPage(1);
+    // Choosing a make or a model collapses the hero, the trust strip and the picked-for-you
+    // shelf, so the page shortens underneath the visitor. Going back to the top leaves them
+    // looking at the results instead of stranded in the middle of a page that just changed
+    // height. Instant, not smooth: the layout shifts as those sections unmount, which a
+    // smooth scroll would chase.
+    window.scrollTo(0, 0);
   }, []);
 
   // Mirror the live search into the query string. `replace` so we do not push a history
