@@ -418,3 +418,31 @@ Verified (iteration_9): 100% both.
   Verified: cheapest car in the catalogue (EUR 6,099) quotes EUR 610 on the detail page
   with no "minimum" wording anywhere, and `amount_for(500)` is EUR 50 - proof the floor is
   gone, since the old rule would have charged EUR 300.
+
+## 2026-06-04 (later still) — One-click deposit refund
+- New admin "Deposits" tab (`AdminDeposits.js`, `/en/admin?tab=deposits`): every deposit
+  that reached Stripe, newest first, with stat cards (cars held, deposits held, refunded)
+  and a single "Refund and release" button behind a confirm dialog.
+- `deposits.refund(session_id, admin_email)` does both halves in one call: a FULL Stripe
+  refund (`stripe.Refund.create(payment_intent=...)`, per the integration playbook) and
+  `_free_car()`, which unsets `reserved / reserved_by / reserved_at` so the car goes back
+  on the market. The existing `charge.refunded` webhook makes the same two writes, so the
+  operation is idempotent either way, and a refund issued straight from the Stripe
+  dashboard now settles our record instead of leaving the car held for ever (we catch
+  InvalidRequestError "already been refunded" and reconcile).
+- Double-click safety: Stripe idempotency key `deposit-refund-<session_id>`, plus a 409 on
+  an already-refunded record. Verified only ONE Refund object is ever created.
+- New routes: `GET /api/admin/deposits`, `POST /api/admin/deposits/{session_id}/refund`,
+  both behind `_require_admin`.
+- A refunded deposit drops out of My Purchases for free, because `/api/purchases` only
+  lists `payment_status: "paid"`. The archive (`purchased_listings` + the photo files) is
+  deliberately KEPT after a refund.
+- The list also surfaces the `archive_ok: false` flag as a red "not archived" pill, so the
+  backlog item about spotting broken archives is partly covered already.
+- Tested end to end (iteration_28.json, 0 defects, 15/15 backend): real Stripe test
+  payment of EUR 609.90 on car 42317775, refunded from the admin panel, after which a
+  DIFFERENT buyer could reserve the same car (it had returned 409 before). I independently
+  confirmed against Stripe: charge 60990 cents, exactly one refund of 60990 cents, status
+  succeeded, fully refunded. (The test report's "6099000 cents" was a typo in the writeup.)
+- Guard paths I checked myself: 401 anonymous, 401 signed-in non-admin, 404 unknown
+  session, 409 on a pending deposit.

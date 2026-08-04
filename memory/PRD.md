@@ -6,7 +6,9 @@ picks themselves is respected for the session. Catalogue sync is checkpointed pe
 and resumes after any number of server restarts. Bill-of-lading customer assignment is
 finished (the picker was breaking because it sat inside a <label>). The deposit -> archive
 -> My Purchases pipeline is now verified end to end in a browser through real Stripe test
-checkout (iteration_27.json, 0 defects). See CHANGELOG.md for detail. -->
+checkout (iteration_27.json, 0 defects). Admins can refund a deposit in one click from the
+new Deposits tab, which also releases the car for other buyers (iteration_28.json, 0
+defects). See CHANGELOG.md for detail. -->
 
 ## Original problem statement
 Create a fully translated skin for encar.com in Bulgarian, Romanian and English.
