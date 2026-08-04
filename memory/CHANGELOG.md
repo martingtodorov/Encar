@@ -409,3 +409,12 @@ Verified (iteration_9): 100% both.
 - "Подбрани за теб" cards no longer show the Korean city. `CarCard` takes `showRegion`
   (default true) and `Recommended.js` passes false, so the search grid and rows keep the
   region. Verified: 0 map pins in the shelf, 32 still on `/bg?make=BMW`.
+- Reservation deposit is now 10% of the car with NO floor (was 1% with a EUR 300 minimum).
+  `DEPOSIT_RATE` default 0.10 and `DEPOSIT_MIN_EUR` default 0 in `deposits.py`; the quote
+  endpoint returns `rate: 0.1, minimum_eur: 0`. The rule is quoted in three places besides
+  the code, all updated: `i18n_account.js` (`depositWhy`, 3 languages), the FAQ and the
+  fees page in `content/help.js` (3 languages x 2 entries), and the module docstring.
+  `test_security_deposit.py::test_deposit_is_ten_percent_with_no_floor` rewritten.
+  Verified: cheapest car in the catalogue (EUR 6,099) quotes EUR 610 on the detail page
+  with no "minimum" wording anywhere, and `amount_for(500)` is EUR 50 - proof the floor is
+  gone, since the old rule would have charged EUR 300.

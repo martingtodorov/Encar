@@ -109,7 +109,7 @@ def test_two_factor_and_sessions():
     assert s.get(f"{BASE}/auth/me").json()["user"]["twofa"] is False
 
 
-def test_deposit_is_one_percent_with_a_floor():
+def test_deposit_is_ten_percent_with_no_floor():
     s = session()
     assert s.post(f"{BASE}/auth/register", json={"email": f"dep-{EMAIL}",
                                                  "password": PASSWORD}).status_code == 200
@@ -118,17 +118,17 @@ def test_deposit_is_one_percent_with_a_floor():
     cheap = min(rows, key=lambda r: r["sale_eur"])
     dear = max(rows, key=lambda r: r["sale_eur"])
 
-    for car, expected in ((cheap, max(300.0, round(cheap["sale_eur"] * 0.01, 2))),
-                          (dear, max(300.0, round(dear["sale_eur"] * 0.01, 2)))):
+    for car in (cheap, dear):
+        expected = round(car["sale_eur"] * 0.10, 2)
         quote = s.get(f"{BASE}/deposit/car/{car['id']}").json()
         assert quote["amount_eur"] == expected, (car["id"], quote)
-        assert quote["minimum_eur"] == 300.0 and quote["rate"] == 0.01
+        assert quote["minimum_eur"] == 0.0 and quote["rate"] == 0.10
 
     started = s.post(f"{BASE}/deposit/checkout",
                     json={"car_id": dear["id"], "origin_url": "https://example.com/en"})
     assert started.status_code == 200, started.text
     out = started.json()
-    assert out["amount_eur"] == max(300.0, round(dear["sale_eur"] * 0.01, 2))
+    assert out["amount_eur"] == round(dear["sale_eur"] * 0.10, 2)
     assert re.match(r"^https://checkout\.stripe\.com/", out["checkout_url"]), out
 
     status = s.get(f"{BASE}/deposit/status/{out['session_id']}").json()

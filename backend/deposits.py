@@ -1,6 +1,6 @@
 """Reservation deposits: a buyer holds a car so it stops being shopped around.
 
-The amount is 1% of the car's published EUR price with a EUR 300 floor, and it is computed
+The amount is 10% of the car's published EUR price with no floor, and it is computed
 HERE, never accepted from the browser. Stripe Checkout takes the payment; the card is kept
 with the buyer's Stripe customer (`setup_future_usage`) so a second deposit does not need
 the card typed again.
@@ -23,8 +23,9 @@ import auth
 log = logging.getLogger("deposits")
 router = APIRouter()
 
-DEPOSIT_RATE = float(os.environ.get("DEPOSIT_RATE", "0.01"))
-DEPOSIT_MIN_EUR = float(os.environ.get("DEPOSIT_MIN_EUR", "300"))
+DEPOSIT_RATE = float(os.environ.get("DEPOSIT_RATE", "0.10"))
+# No floor: the deposit is purely proportional to the car.
+DEPOSIT_MIN_EUR = float(os.environ.get("DEPOSIT_MIN_EUR", "0"))
 
 _db = None
 
@@ -40,7 +41,7 @@ def _now():
 
 
 def amount_for(price_eur):
-    """1% of the car, never less than EUR 300, to the cent."""
+    """10% of the car, to the cent. DEPOSIT_MIN_EUR is 0, so there is no floor."""
     return round(max(DEPOSIT_MIN_EUR, (float(price_eur or 0) * DEPOSIT_RATE)), 2)
 
 

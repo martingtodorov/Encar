@@ -9,7 +9,7 @@ import { formatMoney } from "@/lib/format";
 import http from "@/lib/api";
 
 /**
- * Reservation deposit: 1% of the car, EUR 300 minimum, taken through Stripe Checkout.
+ * Reservation deposit: 10% of the car, no floor, taken through Stripe Checkout.
  *
  * Shaped as a single action so it can sit beside the enquiry button under the photos. The
  * amount is quoted by the backend, never computed here — a price in the browser is a price
