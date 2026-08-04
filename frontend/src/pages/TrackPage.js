@@ -398,15 +398,8 @@ export default function TrackPage() {
                   <div className="tnum mt-1 text-2xl font-semibold text-foreground">
                     {data.reference}
                   </div>
-                  {data.container && data.container !== data.reference && (
-                    <div
-                      data-testid="track-container-no"
-                      className="tnum mt-0.5 text-[12.5px] text-muted-foreground"
-                    >
-                      {t("trackByContainer")} {data.container}
-                      {data.route?.type ? ` · ${data.route.type}` : ""}
-                    </div>
-                  )}
+                  {/* The container number is ours to look up with, not the buyer's to read:
+                      only the bill of lading is shown. */}
                   <div className="mt-1 text-sm font-medium text-primary">{status}</div>
                   {data.checking && (
                     <div

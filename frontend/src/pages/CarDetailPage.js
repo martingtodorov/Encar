@@ -11,6 +11,7 @@ import {
   XCircle,
   Loader2,
   Calculator,
+  SearchX,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import { HeaderBar } from "@/components/HeaderBar";
 import { DetailStickyBar } from "@/components/DetailStickyBar";
 import { ImageWithFallback } from "@/components/ImageWithFallback";
 import { PhotoSwiper } from "@/components/PhotoSwiper";
+import { CarGrid } from "@/components/CarGrid";
 import { useApp } from "@/context/AppContext";
 import { EnquiryDialog } from "@/components/EnquiryDialog";
 import { DescriptionPanelBody } from "@/components/DescriptionPanelBody";
@@ -96,6 +98,7 @@ export default function CarDetailPage() {
   const [car, setCar] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [sold, setSold] = useState(null);
   const [active, setActive] = useState(0);
   const [lightbox, setLightbox] = useState(false);
   // Desktop opens the full lightbox; the phone keeps the vertical photo column, which
@@ -119,6 +122,7 @@ export default function CarDetailPage() {
     let retries = 0;
     setLoading(true);
     setError(null);
+    setSold(null);
 
     const load = (isRetry) => {
       // A row the visitor hovered has already been warmed, so this resolves instantly.
@@ -137,7 +141,17 @@ export default function CarDetailPage() {
             retry = setTimeout(() => load(true), retries * 4000);
           }
         })
-        .catch((e) => !cancelled && setError(e?.response?.data?.detail || e.message))
+        .catch((e) => {
+          if (cancelled) return;
+          // 410 Gone: Encar has retired the ad. Not an error to apologise for — offer the
+          // cars the backend already picked out instead.
+          if (e?.response?.status === 410 && e.response.data?.sold) {
+            forgetCar(id, lang);
+            setSold(e.response.data);
+            return;
+          }
+          setError(e?.response?.data?.detail || e.message);
+        })
         .finally(() => !cancelled && setLoading(false));
     };
 
@@ -213,6 +227,52 @@ export default function CarDetailPage() {
               <Skeleton className="h-48 rounded-[16px] bg-muted" />
               <Skeleton className="h-48 rounded-[16px] bg-muted" />
             </div>
+          </div>
+        )}
+
+        {/* The ad is gone from Encar. Nobody wants a dead end, so the page says what
+            happened and offers the same make and model instead. */}
+        {!loading && sold && (
+          <div data-testid="detail-sold">
+            <div className="rounded-[18px] border border-border bg-card px-6 py-10 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-secondary">
+                <SearchX className="h-7 w-7 text-[hsl(var(--primary))]" aria-hidden="true" />
+              </div>
+              <h1
+                data-testid="detail-sold-title"
+                className="mt-4 text-2xl font-semibold text-foreground sm:text-3xl"
+              >
+                {t("soldTitle")}
+              </h1>
+              <p className="mx-auto mt-2 max-w-lg text-base leading-relaxed text-muted-foreground">
+                {t("soldBody")}
+              </p>
+              {(sold.make || sold.model) && (
+                <div className="mt-3 text-sm font-medium text-foreground">
+                  {[sold.make, sold.model].filter(Boolean).join(" ")}
+                </div>
+              )}
+              <Button
+                data-testid="detail-sold-browse"
+                variant="secondary"
+                onClick={() => navigate(path("/"))}
+                className="mt-5 h-10 rounded-[10px] bg-secondary px-5 text-[hsl(var(--primary))] hover:brightness-95"
+              >
+                {t("soldBrowseAll")}
+              </Button>
+            </div>
+
+            {sold.similar?.length > 0 && (
+              <div className="mt-8">
+                <h2 className="mb-3 text-base font-semibold text-foreground md:text-lg">
+                  {t("soldSimilar")}
+                </h2>
+                <CarGrid
+                  items={sold.similar}
+                  onOpen={(c) => navigate(path(`/car/${c.id}`))}
+                />
+              </div>
+            )}
           </div>
         )}
 

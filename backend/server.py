@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 from fastapi import (APIRouter, Depends, FastAPI, Header, HTTPException, Query,
                      Request)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
@@ -982,6 +982,46 @@ async def admin_taxonomy(x_admin_token: str = Header(default="")):
     return await sync_mod.build_taxonomy(db)
 
 
+async def _gone(listing, listing_id, lang):
+    """Encar has nothing for this ad any more — it sold, or the dealer pulled it.
+
+    A bare "not found" is a dead end for a buyer who followed a link, so the ad is retired
+    from our index and the same make and model are offered in its place. 410 Gone rather
+    than 404: the car existed, it simply is not coming back.
+    """
+    if not listing:
+        raise HTTPException(status_code=404, detail="listing not found upstream")
+    await db.listings.update_one(
+        {"_id": listing_id},
+        {"$set": {"active": False, "sold": True,
+                  "sold_at": datetime.now(timezone.utc)}})
+
+    query = build_query({})
+    query["_id"] = {"$ne": listing_id}
+    if listing.get("manufacturer"):
+        query["manufacturer"] = listing["manufacturer"]
+    if listing.get("model"):
+        query["model"] = listing["model"]
+    rows = [d async for d in db.listings.find(query).sort(SORTS["newest"]).limit(12)]
+    if len(rows) < 4 and query.pop("model", None):
+        # Nothing left of that exact model: the make is still the closest thing we have.
+        rows = [d async for d in db.listings.find(query).sort(SORTS["newest"]).limit(12)]
+
+    await translate_listings(db, rows + [listing], lang)
+    items = [listing_out(d) for d in rows]
+    await publish_prices(items)
+    for it in items:
+        it.pop("landed_eur", None)
+    return JSONResponse(status_code=410, content=jsonable({
+        "sold": True,
+        "id": listing_id,
+        "lang": lang,
+        "make": listing.get("manufacturer_t") or listing.get("manufacturer") or "",
+        "model": listing.get("model_t") or listing.get("model") or "",
+        "similar": items,
+    }))
+
+
 @api.get("/car/{listing_id}")
 async def car_detail(listing_id: str, request: Request, lang: str = "bg",
                      refresh: bool = False):
@@ -998,7 +1038,7 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     if not cached:
         detail = await encar.detail(listing_id)
         if not detail:
-            raise HTTPException(status_code=404, detail="listing not found upstream")
+            return await _gone(listing, listing_id, lang)
         vid = detail.get("vehicleId") or listing_id
         vno = detail.get("vehicleNo") or ""
         # all four documents in parallel - previously sequential, which cost
