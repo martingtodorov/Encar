@@ -351,3 +351,31 @@ Verified (iteration_9): 100% both.
   now appears at 1010px instead of 1227px on a phone.
 - `color-scheme: dark` added to the dark theme so native controls — the make/model selects,
   their option lists and the time picker — stop rendering in the browser's light chrome.
+
+## 2026-06-04 — Sort default and resumable sync checkpoints
+- "Подходящи" (relevant) is now the sort for EVERY search. The auto-switching rules
+  (make -> newest, model/submodel -> cheapest) were removed from `SearchPage.js`, along
+  with the `autoSort` helper. A sort the visitor picks themselves sticks for the session,
+  including while they keep changing make/model; only "Clear all" returns to relevant.
+  Verified live: `/en?make=bmw` lands on Relevant (it used to force Newest).
+- Catalogue sync no longer loses progress on a server restart:
+  - `syncjob.find_resumable()` reads the per-slice checkpoint
+    (`sync_state/catalogue_partition_resume`) and, when the crawl had already finished,
+    the live doc, and reports the run_id to continue from. The freshness window is now
+    measured from the LAST checkpoint write (12h) instead of the start of the run.
+  - The one-shot `resumed` flag is gone. Automatic resumes are capped by
+    `resume_attempts` < MAX_AUTO_RESUMES (40) so a crash loop cannot crawl for ever,
+    while an ordinary restart is always resumed.
+  - `start()` continues the checkpoint by default, so the operator pressing Sync after a
+    restart no longer re-crawls the ~210k cars already indexed. `POST
+    /api/admin/catalogue-sync/run?fresh=true` forces a clean run.
+  - `crawl_partitioned` force-flushes the checkpoint in a `finally`, so a cancellation
+    loses at most the slice in flight (flush interval also 3s -> 1s), and the progress bar
+    now reports cumulative slices (`len(done)`) rather than per-process ones.
+  - Admin panel shows the checkpoint ("interrupted with N slices already indexed"), the
+    primary button becomes "Resume the interrupted sync", and a "Start from scratch"
+    button (confirm dialog) sits next to it.
+  - Verified live on the running sync: three consecutive `supervisorctl restart backend`
+    each resumed run 20260804023420 with monotonically growing progress
+    (63 -> 92 -> 103 slices; 11.4k -> 15.5k -> 17.4k cars), and the job doc showed
+    `trigger: resume`, `resume_attempts: 5`.

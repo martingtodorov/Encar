@@ -1581,10 +1581,14 @@ async def catalogue_sync_state(request: Request, x_admin_token: str = Header(def
 
 
 @api.post("/admin/catalogue-sync/run")
-async def catalogue_sync_run(request: Request, x_admin_token: str = Header(default="")):
-    """Start a whole-catalogue crawl. Returns at once: the job outlives the request."""
+async def catalogue_sync_run(request: Request, fresh: bool = False,
+                             x_admin_token: str = Header(default="")):
+    """Start a whole-catalogue crawl. Returns at once: the job outlives the request.
+
+    Continues the last checkpoint by default; `fresh=true` re-crawls from scratch.
+    """
     await _require_admin(request, x_admin_token)
-    return jsonable(await syncjob_mod.start(db, trigger="manual"))
+    return jsonable(await syncjob_mod.start(db, trigger="manual", fresh=fresh))
 
 
 @api.put("/admin/catalogue-sync/schedule")

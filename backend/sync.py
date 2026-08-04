@@ -365,7 +365,7 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
             {"_id": live_id},
             {"$set": {"phase": phase, "run_id": run_id, "upstream": live["upstream"],
                       "seen": already + len(seen), "written": already + st["written"],
-                      "leaves": st["leaves"],
+                      "leaves": len(done) or st["leaves"],
                       "probes": st["probes"], "excluded": st["excluded_skipped"],
                       "updated_at": datetime.now(timezone.utc)}},
             upsert=True)
@@ -401,7 +401,7 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
 
     async def flush_resume(force=False):
         now = time.monotonic()
-        if not force and now - rstate["last"] < 3:
+        if not force and now - rstate["last"] < 1:
             return
         rstate["last"] = now
         await db.sync_state.update_one(
@@ -431,7 +431,12 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
         await _set(db, **{f"{progress_key}_current": mfr or "ALL"})
         log.info("partition crawl start: %s upstream=%s", mfr or "ALL", total)
 
-        await _crawl_node(base, _fresh_dims(), total, sink, st, ctx)
+        try:
+            await _crawl_node(base, _fresh_dims(), total, sink, st, ctx)
+        finally:
+            # Checkpoint whatever landed, including when the crawl is cancelled by a
+            # shutdown: without this the last few seconds of slices are crawled again.
+            await flush_resume(force=True)
 
         got = len(seen) - before
         excluded = st["excluded_skipped"] - before_excluded

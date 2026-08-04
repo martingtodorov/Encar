@@ -43,6 +43,7 @@ async def get_job(db):
     doc = await db.sync_state.find_one({"_id": JOB_ID}) or {}
     job = {k: v for k, v in doc.items() if k != "_id"} or {"status": "idle"}
     job["progress"] = await get_progress(db, job)
+    job["checkpoint"] = None if is_running() else await find_resumable(db)
     return job
 
 
@@ -123,9 +124,47 @@ def is_running(db=None):
     return _task is not None and not _task.done()
 
 
-# A sync interrupted longer ago than this is not worth resuming automatically: the
-# catalogue has moved on and the operator can start a fresh one.
-RESUME_WINDOW_S = 6 * 3600
+RESUME_ID = "catalogue_partition_resume"
+# A checkpoint older than this is not worth continuing from: the catalogue has moved on,
+# so the next run starts clean. Measured from the LAST checkpoint write, not from the
+# start of the run - a long crawl is still resumable seconds after it was interrupted.
+RESUME_WINDOW_S = 12 * 3600
+# A crash loop must not turn into an endless crawl, so automatic resumes are capped.
+# The counter resets whenever a run is started by hand or by the schedule.
+MAX_AUTO_RESUMES = 40
+
+
+def _aware(dt):
+    if dt is None:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+async def find_resumable(db):
+    """The checkpoint a new run should continue from, or None to start clean.
+
+    Two kinds exist. `crawl_partitioned` keeps a per-slice checkpoint while it walks
+    Encar (deleted the moment the walk completes), and the live doc tells us when only
+    the post-crawl passes are left. Either way the run_id is what matters: it is what
+    marks indexed cars, and the retire pass keys off it.
+    """
+    ck = await db.sync_state.find_one({"_id": RESUME_ID}) or {}
+    updated = _aware(ck.get("updated_at"))
+    if ck.get("run_id") and updated and (_now() - updated).total_seconds() <= RESUME_WINDOW_S:
+        return {"run_id": ck["run_id"], "slices": len(ck.get("done") or []),
+                "counts_cached": len(ck.get("plan") or []),
+                "updated_at": updated, "crawl_done": False}
+
+    live = await db.sync_state.find_one({"_id": LIVE_ID}) or {}
+    lupdated = _aware(live.get("updated_at"))
+    phase = live.get("phase")
+    job = await db.sync_state.find_one({"_id": JOB_ID}) or {}
+    if (live.get("run_id") and phase not in (None, "crawl")
+            and job.get("status") in ("interrupted", "cancelled", "error")
+            and lupdated and (_now() - lupdated).total_seconds() <= RESUME_WINDOW_S):
+        return {"run_id": live["run_id"], "slices": live.get("leaves") or 0,
+                "counts_cached": 0, "updated_at": lupdated, "crawl_done": True}
+    return None
 
 
 async def stop(db, timeout=20):
@@ -149,26 +188,25 @@ async def stop(db, timeout=20):
 
 
 async def resume_if_interrupted(db):
-    """Pick a restart-interrupted sync back up, once.
+    """Pick a restart-interrupted sync back up from its last checkpoint.
 
-    The crawl upserts, so starting it again converges on the same index; what matters is
-    that a restart in the middle of a sync does not silently leave the catalogue
-    half-refreshed. `resumed` bounds this to a single automatic attempt, so a crash loop
-    cannot turn into an endless crawl.
+    The crawl checkpoints every slice it indexes, so a restart costs at most the slice in
+    flight instead of the whole run. Repeated restarts each get their own resume - only a
+    crash loop (MAX_AUTO_RESUMES) or a stale checkpoint stops it.
     """
     doc = await db.sync_state.find_one({"_id": JOB_ID}) or {}
-    if doc.get("status") != "interrupted" or doc.get("resumed") or is_running():
+    if doc.get("status") not in ("interrupted", "cancelled") or is_running():
         return False
-    started = doc.get("started_at")
-    if started:
-        if started.tzinfo is None:
-            started = started.replace(tzinfo=timezone.utc)
-        if (_now() - started).total_seconds() > RESUME_WINDOW_S:
-            return False
-    live = await db.sync_state.find_one({"_id": LIVE_ID}) or {}
-    run_id = live.get("run_id")
-    log.info("resuming the catalogue sync the restart interrupted (run %s)", run_id)
-    await start(db, trigger="resume", resume_run_id=run_id)
+    if (doc.get("resume_attempts") or 0) >= MAX_AUTO_RESUMES:
+        log.warning("not resuming the catalogue sync: %s automatic resumes already",
+                    doc.get("resume_attempts"))
+        return False
+    ck = await find_resumable(db)
+    if not ck:
+        return False
+    log.info("resuming the catalogue sync the restart interrupted (run %s, %s slices "
+             "already indexed)", ck["run_id"], ck["slices"])
+    await start(db, trigger="resume", resume_run_id=ck["run_id"])
     return True
 
 
@@ -182,26 +220,40 @@ async def clear_stale(db):
                       "error": "the server restarted while this sync was running"}})
 
 
-async def start(db, trigger="manual", resume_run_id=None):
-    """Kick off the crawl detached. Returns immediately."""
+async def start(db, trigger="manual", resume_run_id=None, fresh=False):
+    """Kick off the crawl detached. Returns immediately.
+
+    Unless `fresh`, a start continues the last checkpoint instead of re-crawling the
+    ~210k cars an interrupted run had already indexed.
+    """
     global _task
     if is_running():
         return {"started": False, "reason": "a catalogue sync is already running"}
+    if not fresh and not resume_run_id:
+        ck = await find_resumable(db)
+        if ck:
+            resume_run_id = ck["run_id"]
+            log.info("%s start continues run %s (%s slices already indexed)",
+                     trigger, ck["run_id"], ck["slices"])
     _task = asyncio.get_running_loop().create_task(_run(db, trigger, resume_run_id))
     return {"started": True, "trigger": trigger, "resumed_run": resume_run_id}
 
 
 async def _run(db, trigger, resume_run_id=None):
     started = _now()
+    attempts = 0
+    if trigger == "resume":
+        doc = await db.sync_state.find_one({"_id": JOB_ID}) or {}
+        attempts = (doc.get("resume_attempts") or 0) + 1
     await db.sync_state.update_one(
         {"_id": JOB_ID},
         {"$set": {"status": "running", "trigger": trigger, "started_at": started,
-                  "finished_at": None, "error": None, "result": None}},
+                  "finished_at": None, "error": None, "result": None,
+                  "resumed": bool(resume_run_id), "resumed_run": resume_run_id,
+                  "resume_attempts": attempts}},
         upsert=True)
     result = {}
     try:
-        await db.sync_state.update_one(
-            {"_id": JOB_ID}, {"$set": {"resumed": trigger == "resume"}})
         await sync_mod.ensure_indexes(db)
         # A resumed run keeps the ORIGINAL run_id. The retire pass deactivates anything
         # whose last_crawl is not this run, so a fresh id would retire everything the

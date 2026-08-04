@@ -1,5 +1,10 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-06-04: "подходящи" (relevant) is now the DEFAULT SORT on every search — the old
+auto-switch rules (make -> newest, model -> cheapest) were removed; a sort the visitor
+picks themselves is respected for the session. Catalogue sync is checkpointed per slice
+and resumes after any number of server restarts. See CHANGELOG.md for detail. -->
+
 ## Original problem statement
 Create a fully translated skin for encar.com in Bulgarian, Romanian and English.
 All current encar.com ads must be present. Do NOT proxy the Encar connection through our

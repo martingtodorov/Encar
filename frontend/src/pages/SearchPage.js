@@ -17,7 +17,7 @@ import { TrustStrip } from "@/components/TrustStrip";
 import { TaxonomySelects } from "@/components/TaxonomySelects";
 import { FilterSidebar } from "@/components/FilterSidebar";
 import { AppliedFiltersChips } from "@/components/AppliedFiltersChips";
-import { SortControl, DEFAULT_SORT_BROWSE, DEFAULT_SORT_FILTERED } from "@/components/SortControl";
+import { SortControl, DEFAULT_SORT_BROWSE } from "@/components/SortControl";
 import { CarGrid } from "@/components/CarGrid";
 import { ResultsPagination } from "@/components/ResultsPagination";
 import { useApp } from "@/context/AppContext";
@@ -44,17 +44,9 @@ const PAGE_SIZE = 16;
 // Scroll offset handed back by a car page, read on the next mount of this one.
 let pendingRestore = null;
 
-// Sorting follows what the visitor has narrowed to:
-//  * nothing chosen -> "relevant": still browsing, so lead with what suits them.
-//  * a make alone -> "newest": they are looking over a brand, and the interesting thing
-//    about a brand's shelf is what has just landed on it.
-//  * a model or a trim below it -> "price_asc": the question has become "what is the
-//    cheapest one of THESE?"
-const autoSort = (tax) => {
-  if (tax.model || tax.badge || tax.badgeDetail) return DEFAULT_SORT_FILTERED;
-  if (tax.make) return "newest";
-  return DEFAULT_SORT_BROWSE;
-};
+// "Relevant" is the sort for every search - browsing or narrowed down to a trim. The
+// visitor can pick another one from the dropdown and that choice is then respected for
+// the rest of the session, including while they change make/model.
 
 export default function SearchPage() {
   const { t, lang, currency, rates, saveSearch, isSearchSaved } = useApp();
@@ -70,14 +62,10 @@ export default function SearchPage() {
   // so the applied-filter chips never show raw Korean values.
   const [taxLabels, setTaxLabels] = useState(EMPTY_TAX);
   const [sort, setSort] = useState(initial.sort || DEFAULT_SORT_BROWSE);
-  // Once the visitor picks a sort themselves we stop overriding it. A sort in the URL
-  // counts as a deliberate choice, so returning via Back keeps it.
-  // A sort in the URL only counts as a deliberate choice if it differs from the one the
-  // rule above would have picked. Otherwise coming back from a car (or switching
-  // language) would freeze the sort, and clearing back to a make-only search would keep
-  // showing cheapest first instead of newest.
+  // A non-default sort in the URL is a deliberate choice, so returning via Back or
+  // sharing a link keeps it.
   const [sortTouched, setSortTouched] = useState(
-    !!initial.sort && initial.sort !== autoSort(initial.tax)
+    !!initial.sort && initial.sort !== DEFAULT_SORT_BROWSE
   );
   const [page, setPage] = useState(initial.page);
 
@@ -288,16 +276,6 @@ export default function SearchPage() {
     setTax(next);
     setPage(1);
   }, []);
-
-  // Relevant while browsing, newest once a make is picked, cheapest once a model or trim
-  // narrows the list. Skipped entirely once the visitor has chosen a sort themselves.
-  useEffect(() => {
-    if (sortTouched) return;
-    setSort(autoSort(tax));
-    // No page reset here. Picking a different car already resets it in changeTax, whereas
-    // this effect also runs on mount and on slug resolution - and doing it here is what
-    // sent anyone reloading or sharing a ?page=2 link back to the first page.
-  }, [tax.make, tax.model, tax.badge, tax.badgeDetail, sortTouched]);
 
   // Mirror the live search into the query string. `replace` so we do not push a history
   // entry per keystroke - the entry that exists when a car is opened already carries

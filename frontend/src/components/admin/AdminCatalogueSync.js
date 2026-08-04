@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CalendarClock, Loader2, Play, RefreshCw } from "lucide-react";
+import { CalendarClock, Loader2, Play, RefreshCw, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -46,6 +46,7 @@ export const AdminCatalogueSync = () => {
   const job = data.job || {};
   const running = data.running || job.status === "running";
   const res = job.result || {};
+  const checkpoint = !running ? job.checkpoint : null;
 
   const run = async () => {
     setBusy(true);
@@ -136,19 +137,44 @@ export const AdminCatalogueSync = () => {
       ) : null}
 
       <div className="rounded-[14px] border border-border bg-card p-4">
-        <Button
-          data-testid="catalogue-sync-run"
-          onClick={run}
-          disabled={busy || running}
-          className="h-11 gap-2 rounded-[10px] bg-[hsl(var(--primary))] px-5 text-[14px] font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-60"
-        >
-          {busy || running ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <Play className="h-4 w-4" aria-hidden="true" />
-          )}
-          {running ? "Sync in progress…" : "Synchronise all cars from Encar"}
-        </Button>
+        {checkpoint ? (
+          <p data-testid="sync-checkpoint" className="mb-3 text-[12.5px] text-muted-foreground">
+            {checkpoint.crawl_done
+              ? "The last run was interrupted after the crawl finished. Starting it will pick up at the remaining passes."
+              : `The last run was interrupted with ${num(checkpoint.slices)} slices already indexed (${ago(checkpoint.updated_at)}). Starting it will carry on from there.`}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            data-testid="catalogue-sync-run"
+            onClick={() => run(false)}
+            disabled={busy || running}
+            className="h-11 gap-2 rounded-[10px] bg-[hsl(var(--primary))] px-5 text-[14px] font-semibold text-primary-foreground hover:brightness-110 disabled:opacity-60"
+          >
+            {busy || running ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+            ) : (
+              <Play className="h-4 w-4" aria-hidden="true" />
+            )}
+            {running
+              ? "Sync in progress…"
+              : checkpoint
+                ? "Resume the interrupted sync"
+                : "Synchronise all cars from Encar"}
+          </Button>
+          {checkpoint ? (
+            <Button
+              data-testid="catalogue-sync-fresh"
+              variant="outline"
+              onClick={() => run(true)}
+              disabled={busy || running}
+              className="h-11 gap-2 rounded-[10px] border-border bg-card px-4 text-[13.5px]"
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              Start from scratch
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <div className="rounded-[14px] border border-border bg-card p-4">

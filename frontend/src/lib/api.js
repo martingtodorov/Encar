@@ -151,8 +151,8 @@ export async function getCatalogueSync() {
   return data;
 }
 
-export async function startCatalogueSync() {
-  const { data } = await http.post("/admin/catalogue-sync/run");
+export async function startCatalogueSync({ fresh = false } = {}) {
+  const { data } = await http.post(`/admin/catalogue-sync/run${fresh ? "?fresh=true" : ""}`);
   return data;
 }
 
