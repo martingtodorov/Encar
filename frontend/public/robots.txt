@@ -1,9 +1,8 @@
 User-agent: *
 Allow: /
-Disallow: /*/login
-Disallow: /*/account
-Disallow: /*/admin
-Disallow: /*/saved
-Disallow: /*/searches
+
+# Nothing public is blocked. The account, admin and payment pages carry a noindex meta tag
+# instead of a Disallow: a crawler that is not allowed to fetch a page can never see the
+# noindex on it, and a robots.txt full of private paths is a map of them.
 
 Sitemap: https://encar-multi-lang.preview.emergentagent.com/sitemap.xml

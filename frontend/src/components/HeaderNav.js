@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { ChevronDown, Moon, Sun, Gauge } from "lucide-react";
+import { ChevronDown, Moon, Sun } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
-import { LANGS } from "@/i18n";
+import { LanguageMenu } from "@/components/LanguageMenu";
+import { ProfileMenu } from "@/components/ProfileMenu";
+import { useNavItems } from "@/lib/nav";
 
 /**
  * Desktop navigation, always visible in the header.
@@ -20,22 +22,19 @@ const LINK =
   "inline-flex h-10 items-center whitespace-nowrap rounded-[10px] px-2 text-[14px] font-medium transition-colors";
 
 export const HeaderNav = () => {
-  const { t, favourites, lang, theme, toggleTheme, searches } = useApp();
+  const { t, favourites, theme, toggleTheme, searches } = useApp();
   const { user } = useAuth();
   const { pathname } = useLocation();
-  const { path, switchLang } = useLangNav();
+  const { path } = useLangNav();
   const [openFav, setOpenFav] = useState(false);
 
-  const items = [
-    { to: "/", label: t("navSearch") },
-    { to: "/track", label: t("navTrack") },
-    { to: "/how-it-works", label: t("navHowItWorks") },
-  ];
+  const items = useNavItems();
+  const primary = items.find((i) => i.to === "/");
+  const rest = items.filter(
+    (i) => !["/", "/saved", "/searches"].includes(i.to)
+  );
 
-  const favItems = [
-    { to: "/saved", label: t("savedCars"), count: favourites.length },
-    { to: "/searches", label: t("savedSearches"), count: searches.length },
-  ];
+  const favItems = items.filter((i) => ["/saved", "/searches"].includes(i.to));
   const favActive = favItems.some((f) => pathname === path(f.to));
   const favCount = favourites.length + searches.length;
 
@@ -47,12 +46,12 @@ export const HeaderNav = () => {
   return (
     <nav data-testid="header-nav" className="flex flex-1 items-center gap-5">
       <Link
-        to={path(items[0].to)}
+        to={path(primary.to)}
         data-testid="header-nav-link-search"
         aria-current={pathname === path("/") ? "page" : undefined}
         className={cls(pathname === path("/"))}
       >
-        {items[0].label}
+        {primary.label}
       </Link>
 
       {/* Favourites: one word in the bar, both lists a hover away. `focus-within` keeps it
@@ -113,7 +112,7 @@ export const HeaderNav = () => {
         </div>
       </div>
 
-      {items.slice(1).map(({ to, label }) => (
+      {rest.map(({ to, label }) => (
         <Link
           key={to}
           to={path(to)}
@@ -128,24 +127,7 @@ export const HeaderNav = () => {
       {/* Everything that is not navigation lives on the right: language, theme and the
           account actions. With only sign-in/register over there the bar read lopsided. */}
       <div className="ml-auto flex items-center gap-2">
-        <div className="inline-flex rounded-[10px] border border-input bg-muted p-0.5 shadow-sm">
-          {LANGS.map((l) => (
-            <button
-              key={l.code}
-              type="button"
-              data-testid={`header-language-${l.code}`}
-              onClick={() => switchLang(l.code)}
-              aria-pressed={l.code === lang}
-              className={`h-8 rounded-[8px] px-2.5 text-[12px] font-semibold uppercase transition-colors ${
-                l.code === lang
-                  ? "bg-card text-[hsl(var(--primary))] shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {l.short}
-            </button>
-          ))}
-        </div>
+        <LanguageMenu />
 
         <Button
           data-testid="theme-toggle-desktop"
@@ -164,28 +146,7 @@ export const HeaderNav = () => {
 
       <div className="flex items-center gap-2">
         {user ? (
-          <>
-            {user.is_admin && (
-              <Link
-                to={path("/admin")}
-                data-testid="header-admin-link"
-                className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-[10px] px-3 text-[13.5px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              >
-                <Gauge className="h-4 w-4" aria-hidden="true" />
-                Operations
-              </Link>
-            )}
-            <Link
-              to={path("/account")}
-              data-testid="header-account-link"
-              className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-[10px] border border-input bg-card px-3 text-[13.5px] font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
-            >
-              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-secondary text-[11px] font-semibold text-[hsl(var(--primary))]">
-                {(user.email || "?").slice(0, 1).toUpperCase()}
-              </span>
-              {t("myAccount")}
-            </Link>
-          </>
+          <ProfileMenu />
         ) : (
           <>
             <Link

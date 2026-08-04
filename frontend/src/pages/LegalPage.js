@@ -3,13 +3,14 @@ import { HeaderBar } from "@/components/HeaderBar";
 import { useApp } from "@/context/AppContext";
 import { useSeo } from "@/lib/seo";
 import { legalDoc } from "@/content/legal";
+import { helpDoc } from "@/content/help";
 import { COMPANY } from "@/content/company";
 
 /** One page for every legal document: the route decides which one. */
 export default function LegalPage({ slug }) {
   const { lang } = useApp();
   const { lang: urlLang } = useParams();
-  const doc = legalDoc(urlLang || lang, slug);
+  const doc = helpDoc(urlLang || lang, slug) || legalDoc(urlLang || lang, slug);
 
   useSeo({ title: `${doc.title} · ${COMPANY.name}`, description: doc.intro });
 

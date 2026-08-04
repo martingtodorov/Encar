@@ -47,7 +47,8 @@ export default function SavedSearchesPage() {
   const { path, go } = useLangNav();
   const [states, setStates] = useState({});
 
-  useSeo({ lang, title: `${t("savedSearches")} · Encar`, description: t("seoSearchesDesc") });
+  useSeo({ lang, title: `${t("savedSearches")} · Encar`,
+           description: t("seoSearchesDesc"), noindex: true });
 
   useEffect(() => {
     let cancelled = false;

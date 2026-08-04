@@ -13,7 +13,7 @@ import {
 import { Spinner, ago } from "@/components/admin/AdminBits";
 import { CustomerPicker } from "@/components/admin/CustomerPicker";
 
-const BLANK = { email: "", ref: "", by: "container" };
+const BLANK = { email: "", ref: "", by: "bol" };
 
 export const AdminShipments = () => {
   const [rows, setRows] = useState(null);
@@ -105,25 +105,9 @@ export const AdminShipments = () => {
           </p>
         )}
 
+        {/* Bill of lading only: the container number is our lookup key, never something the
+            buyer is shown, so there is nothing for an operator to choose here. */}
         <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={submit}>
-          <div className="sm:col-span-2 inline-flex w-fit rounded-[10px] border border-border bg-muted p-0.5">
-            {["container", "bol"].map((m) => (
-              <button
-                key={m}
-                type="button"
-                data-testid={`shipment-by-${m}`}
-                onClick={() => setForm((f) => ({ ...f, by: m }))}
-                className={`rounded-[8px] px-3 py-1.5 text-[12.5px] font-medium transition-colors ${
-                  form.by === m
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {m === "container" ? "Container" : "Bill of lading"}
-              </button>
-            ))}
-          </div>
-
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-muted-foreground">Customer</span>
             <CustomerPicker
@@ -134,13 +118,13 @@ export const AdminShipments = () => {
 
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-muted-foreground">
-              {form.by === "bol" ? "Bill of lading" : "Container number"}
+              Bill of lading
             </span>
             <Input
               data-testid="shipment-ref"
               value={form.ref}
               onChange={set("ref")}
-              placeholder={form.by === "bol" ? "9-character B/L" : "MSKU1234567"}
+              placeholder="9-character B/L"
               className="h-10 bg-background"
             />
           </label>

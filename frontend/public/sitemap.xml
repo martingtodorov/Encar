@@ -6,7 +6,8 @@
     <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg"/>
     <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en"/>
-    <lastmod>2026-08-02</lastmod>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en"/>
+    <lastmod>2026-08-04</lastmod>
     <changefreq>hourly</changefreq>
     <priority>1.0</priority>
   </url>
@@ -15,7 +16,8 @@
     <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg"/>
     <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en"/>
-    <lastmod>2026-08-02</lastmod>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en"/>
+    <lastmod>2026-08-04</lastmod>
     <changefreq>hourly</changefreq>
     <priority>1.0</priority>
   </url>
@@ -24,7 +26,8 @@
     <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg"/>
     <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en"/>
-    <lastmod>2026-08-02</lastmod>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en"/>
+    <lastmod>2026-08-04</lastmod>
     <changefreq>hourly</changefreq>
     <priority>1.0</priority>
   </url>
@@ -33,26 +36,239 @@
     <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/how-it-works"/>
     <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/how-it-works"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/how-it-works"/>
-    <lastmod>2026-08-02</lastmod>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/how-it-works"/>
+    <lastmod>2026-08-04</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
+    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://encar-multi-lang.preview.emergentagent.com/ro/how-it-works</loc>
     <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/how-it-works"/>
     <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/how-it-works"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/how-it-works"/>
-    <lastmod>2026-08-02</lastmod>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/how-it-works"/>
+    <lastmod>2026-08-04</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
+    <priority>0.8</priority>
   </url>
   <url>
     <loc>https://encar-multi-lang.preview.emergentagent.com/en/how-it-works</loc>
     <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/how-it-works"/>
     <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/how-it-works"/>
     <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/how-it-works"/>
-    <lastmod>2026-08-02</lastmod>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/how-it-works"/>
+    <lastmod>2026-08-04</lastmod>
     <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/bg/faq</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/faq"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/faq"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/faq"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/faq"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/ro/faq</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/faq"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/faq"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/faq"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/faq"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/en/faq</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/faq"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/faq"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/faq"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/faq"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/bg/fees</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/fees"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/fees"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/fees"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/fees"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/ro/fees</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/fees"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/fees"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/fees"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/fees"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/en/fees</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/fees"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/fees"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/fees"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/fees"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/bg/track</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/track"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/track"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/track"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/track"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>weekly</changefreq>
     <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/ro/track</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/track"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/track"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/track"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/track"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/en/track</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/track"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/track"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/track"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/track"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/bg/contact</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/contact"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/contact"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/contact"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/contact"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/ro/contact</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/contact"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/contact"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/contact"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/contact"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/en/contact</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/contact"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/contact"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/contact"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/contact"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/bg/terms</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/terms"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/terms"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/terms"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/terms"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/ro/terms</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/terms"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/terms"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/terms"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/terms"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/en/terms</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/terms"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/terms"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/terms"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/terms"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/bg/privacy</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/privacy"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/privacy"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/privacy"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/privacy"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/ro/privacy</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/privacy"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/privacy"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/privacy"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/privacy"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/en/privacy</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/privacy"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/privacy"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/privacy"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/privacy"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/bg/cookies</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/cookies"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/cookies"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/cookies"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/cookies"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/ro/cookies</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/cookies"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/cookies"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/cookies"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/cookies"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
+    <loc>https://encar-multi-lang.preview.emergentagent.com/en/cookies</loc>
+    <xhtml:link rel="alternate" hreflang="bg" href="https://encar-multi-lang.preview.emergentagent.com/bg/cookies"/>
+    <xhtml:link rel="alternate" hreflang="ro" href="https://encar-multi-lang.preview.emergentagent.com/ro/cookies"/>
+    <xhtml:link rel="alternate" hreflang="en" href="https://encar-multi-lang.preview.emergentagent.com/en/cookies"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://encar-multi-lang.preview.emergentagent.com/en/cookies"/>
+    <lastmod>2026-08-04</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
   </url>
 </urlset>

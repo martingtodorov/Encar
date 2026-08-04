@@ -25,6 +25,7 @@ from fastapi import (APIRouter, Depends, FastAPI, Header, HTTPException, Query,
                      Request)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
 
@@ -32,7 +33,9 @@ ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
 
 import auth                  # noqa: E402
+import archive                # noqa: E402
 import deposits              # noqa: E402
+import notify                # noqa: E402
 import fx as fx_mod          # noqa: E402
 import mailer                # noqa: E402
 import pricing               # noqa: E402
@@ -43,7 +46,7 @@ import jsoncargo            # noqa: E402
 import maersk_public        # noqa: E402
 import tracking             # noqa: E402
 import sync as sync_mod      # noqa: E402
-from encar import encar, image_url  # noqa: E402
+from encar import encar, image_url, detail_photo_paths  # noqa: E402
 from translate import (LANGS, breaker_status, schedule_translation,  # noqa: E402
                        stream_description, translate_cached_only,
                        translate_listings, translate_many, translate_one)
@@ -166,13 +169,16 @@ def build_query(p):
     if p.get("transmissions"):
         q["transmission"] = {"$in": p["transmissions"]}
 
+    # Filter on the REGISTRATION date (year_month), not Encar's model year: a car sold as a
+    # 2015 model can be registered 12/2014, and the cards show the registration date. With
+    # form_year here, "from 2015" was listing cars that display 12/2014.
     year = {}
     if p.get("year_min"):
-        year["$gte"] = int(p["year_min"])
+        year["$gte"] = int(p["year_min"]) * 100 + 1
     if p.get("year_max"):
-        year["$lte"] = int(p["year_max"])
+        year["$lte"] = int(p["year_max"]) * 100 + 12
     if year:
-        q["form_year"] = year
+        q["year_month"] = year
 
     mil = {}
     if p.get("mileage_min") is not None:
@@ -214,7 +220,7 @@ SORTS = {
     "price_asc": [("sale_eur", 1)],
     "price_desc": [("sale_eur", -1)],
     "mileage_asc": [("mileage", 1)],
-    "year_desc": [("form_year", -1)],
+    "year_desc": [("year_month", -1)],
 }
 
 
@@ -565,13 +571,26 @@ async def search(body: SearchBody, request: Request):
                     db.listings.find(query).sort(SORTS["newest"]).limit(RELEVANT_POOL)]
             price, _, _ = _centre(samples, 0)
             mileage, _, _ = _centre(samples, 1)
-            # Two per model, at most a quarter of a page from any one brand, then
-            # round-robined by make so the same badge never repeats back to back.
-            ranked = _space(
-                _spread(_rank_by_taste(pool, makes, models, fuels, price, mileage),
-                        RELEVANT_POOL, per_model=2, per_make=max(2, size // 4)))
-            rows = [d for _, _, d in ranked][skip:skip + size]
-        elif skip < RELEVANT_POOL:
+            scored = _rank_by_taste(pool, makes, models, fuels, price, mileage)
+            # Diversity decides the ORDER, never the contents. The per-model and per-make
+            # caps used to DROP the cars they rejected, so a search showed only a slice of
+            # its own results; those cars now simply queue up behind the picked ones.
+            picked = _space(_spread(scored, len(scored), per_model=2,
+                                    per_make=max(2, size // 4)))
+            taken = {d["_id"] for _, _, d in picked}
+            head = ([d for _, _, d in picked]
+                    + [d for _, _, d in scored if d["_id"] not in taken])
+            rows = head[skip:skip + size]
+            if len(rows) < size and len(head) >= RELEVANT_POOL:
+                # The pool is exactly the newest RELEVANT_POOL matches, so the rest of the
+                # result set continues right after it — no risk of repeating a car.
+                fill = db.listings.find(query).sort(SORTS["newest"]) \
+                    .skip(len(head)).limit(size - len(rows))
+                rows += [d async for d in fill]
+        elif skip >= RELEVANT_POOL:
+            cursor = db.listings.find(query).sort(SORTS["newest"]).skip(skip).limit(size)
+            rows = [d async for d in cursor]
+        else:
             # Nothing known about this visitor yet: show what everyone else has been
             # opening for the last two weeks instead of a bare "newest" list.
             ids = await popular_ids()
@@ -725,6 +744,30 @@ def _space(scored, gap=2):
     return out
 
 
+async def _popular_shelf(lang, exclude, limit):
+    """What to show someone we know nothing about yet: the most opened ads of the fortnight.
+
+    The profile lives in a cookie, so a buyer who browsed on a laptop arrives on their phone
+    with an empty one. An empty shelf there reads as a broken page, and the popular list is
+    an honest answer to "what should I look at".
+    """
+    ids = [i for i in await popular_ids() if i not in set(exclude or [])]
+    if not ids:
+        return []
+    query = build_query({})
+    query["_id"] = {"$in": ids[:limit * 3]}
+    rows = [d async for d in db.listings.find(query).limit(limit * 3)]
+    order = {car_id: n for n, car_id in enumerate(ids)}
+    rows.sort(key=lambda d: order.get(d["_id"], 10**6))
+    rows = rows[:limit]
+    await translate_listings(db, rows, lang)
+    items = [listing_out(d) for d in rows]
+    await publish_prices(items)
+    for it in items:
+        it.pop("landed_eur", None)
+    return items
+
+
 @api.post("/recommendations")
 async def recommendations(body: TasteBody, request: Request):
     """Cars this visitor is most likely to want next."""
@@ -732,8 +775,10 @@ async def recommendations(body: TasteBody, request: Request):
     makes = _weights(body.makes, 4)
     models = _weights(body.models, 6)
     fuels = _weights(body.fuels, 4)
+    limit = max(1, min(body.limit, 24))
     if not makes and not models:
-        return {"items": [], "lang": lang}
+        return {"items": await _popular_shelf(lang, body.exclude, limit),
+                "lang": lang, "source": "popular"}
 
     price, price_low, price_high = _centre(body.samples, 0)
     mileage, _, _ = _centre(body.samples, 1)
@@ -754,7 +799,8 @@ async def recommendations(body: TasteBody, request: Request):
 
     rows = [d async for d in db.listings.find(query).sort(SORTS["newest"]).limit(300)]
     if not rows:
-        return {"items": [], "lang": lang}
+        return {"items": await _popular_shelf(lang, body.exclude, limit),
+                "lang": lang, "source": "popular"}
 
     best = _space(_spread(_rank_by_taste(rows, makes, models, fuels, price, mileage),
                           max(1, min(body.limit, 24)), per_model=2, per_make=4))
@@ -803,8 +849,8 @@ async def meta_filters(lang: str = "bg", refresh: bool = False):
             {"$match": {"active": True, "duplicate": {"$ne": True}}},
             {"$group": {
                 "_id": None,
-                "year_min": {"$min": "$form_year"},
-                "year_max": {"$max": "$form_year"},
+                "year_min": {"$min": "$year_month"},
+                "year_max": {"$max": "$year_month"},
                 "mileage_max": {"$max": "$mileage"},
                 "price_min": {"$min": "$sale_eur"},
                 "price_max": {"$max": "$sale_eur"},
@@ -813,6 +859,10 @@ async def meta_filters(lang: str = "bg", refresh: bool = False):
         bounds = {}
         async for d in db.listings.aggregate(bounds_pipe):
             bounds = {k: v for k, v in d.items() if k != "_id"}
+        # The year bounds come out as YYYYMM; the slider wants plain years.
+        for key in ("year_min", "year_max"):
+            if bounds.get(key):
+                bounds[key] = int(bounds[key]) // 100
 
         cached = {
             "_id": "filters", "computed_at": now, "makes": makes, "fuels": fuels,
@@ -1073,24 +1123,12 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
 
     # ── photos: every one, at gallery and thumbnail size ─────────────────────────
     photos = []
-    raw_photos = sorted(
-        (detail.get("photos") or []),
-        # Encar returns these shuffled; ascending code matches the real ad order. Within one
-        # code a THUMBNAIL row repeats a photo that is already in the deck (the ad with 24
-        # pictures really has 18), so it sorts last and is dropped by the dedupe below.
-        key=lambda x: (int(str(x.get("code") or "999").strip() or 999),
-                       (x.get("type") or "") == "THUMBNAIL"),
-    )
-    seen_paths = set()
-    for p in raw_photos:
-        path = p.get("path")
-        if not path or path in seen_paths:
-            continue
-        seen_paths.add(path)
+    for path in detail_photo_paths(detail):
         photos.append({
             "full": image_url(path, 1280, 720),
-            "thumb": image_url(path, 256, 144),
-            "type": p.get("type"),
+            # 640x360, not 256x144: the thumbnail rail is 276px wide on desktop, so the
+            # smaller file was being upscaled and looked soft.
+            "thumb": image_url(path, 640, 360),
         })
 
     # ── options resolved from the dictionaries and grouped by category ───────────
@@ -1631,6 +1669,7 @@ async def create_enquiry(body: EnquiryBody, request: Request):
 
 auth.set_db(db)
 deposits.set_db(db)
+notify.set_db(db)
 # ── shipment tracking ---------------------------------------------------------
 class TrackBody(BaseModel):
     ref: str
@@ -1709,6 +1748,51 @@ class ShipmentBody(BaseModel):
     vessel_mmsi: str = ""
     eta: str = ""
     note: str = ""
+
+
+@api.get("/purchases")
+async def my_purchases(user=Depends(auth.current_user)):
+    """The cars this buyer holds with a paid deposit, read from OUR archive.
+
+    Encar is never touched here: the whole point of copying a listing at payment time is
+    that a withdrawn ad still has a page and its pictures. The shipment is matched by car,
+    so the Track button knows the bill of lading as soon as an operator assigns one.
+    """
+    paid = await db.deposits.find(
+        {"user_id": user["_id"], "payment_status": "paid"}
+    ).sort("updated_at", -1).to_list(100)
+
+    car_ids = [d["car_id"] for d in paid]
+    archives = {a["_id"]: a async for a in db.purchased_listings.find(
+        {"_id": {"$in": car_ids}},
+        {"photos": 1, "photo_count": 1, "listing": 1, "archived_at": 1})}
+    shipments = {s.get("car_id"): s async for s in db.shipments.find(
+        {"user_id": user["_id"]}, {"car_id": 1, "ref": 1, "by": 1})}
+
+    items = []
+    for row in paid:
+        car_id = row["car_id"]
+        archived = archives.get(car_id) or {}
+        listing = archived.get("listing") or await db.listings.find_one({"_id": car_id}) or {}
+        await translate_listings(db, [listing], norm_lang("en"))
+        ship = shipments.get(car_id) or {}
+        photos = archived.get("photos") or []
+        items.append({
+            "car_id": car_id,
+            "title": row.get("car_title") or " ".join(
+                str(x) for x in [listing.get("manufacturer_t") or listing.get("manufacturer"),
+                                 listing.get("model_t") or listing.get("model")] if x),
+            "subtitle": listing.get("badge_t") or listing.get("badge") or "",
+            "photo": photos[0] if photos else None,
+            "photo_count": archived.get("photo_count") or 0,
+            "archived": bool(photos),
+            "price_eur": listing.get("sale_eur") or row.get("car_price_eur") or 0,
+            "deposit_eur": row.get("amount") or 0,
+            "paid_at": jsonable(row.get("updated_at") or row.get("created_at")),
+            "ref": ship.get("ref") or "",
+            "by": ship.get("by") or "bol",
+        })
+    return {"items": items}
 
 
 @api.get("/admin/customers")
@@ -1858,7 +1942,12 @@ async def admin_shipment_remove(ref: str, request: Request,
 
 api.include_router(auth.router)
 api.include_router(deposits.router)
+api.include_router(notify.router)
 app.include_router(api)
+
+# The archived photos of purchased cars, served from our own disk so a withdrawn ad still
+# has pictures. Mounted under /api so the ingress routes it to this service.
+app.mount("/api/media", StaticFiles(directory=os.environ["MEDIA_ROOT"]), name="media")
 
 app.add_middleware(
     CORSMiddleware,

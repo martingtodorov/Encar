@@ -1,9 +1,9 @@
 import { Link } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
 import { useLangNav } from "@/hooks/useLangNav";
-import { COMPANY, LEGAL_LINKS } from "@/content/company";
+import { COMPANY, FOOTER_COLUMNS } from "@/content/company";
 
-/** Who we are and where the legal documents live. On every page. */
+/** Who we are, and every page on the site in three columns. On every page. */
 export const SiteFooter = () => {
   const { t } = useApp();
   const { path } = useLangNav();
@@ -17,7 +17,7 @@ export const SiteFooter = () => {
 
   return (
     <footer data-testid="site-footer" className="border-t border-border bg-card">
-      <div className="mx-auto flex max-w-[1280px] flex-col gap-6 px-4 py-9 sm:px-6 lg:flex-row lg:justify-between">
+      <div className="mx-auto grid max-w-[1280px] gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(0,1fr))]">
         <div className="max-w-md">
           <div className="text-[13.5px] font-semibold text-foreground">{facts[0]}</div>
           <div className="mt-1 flex flex-col gap-0.5">
@@ -39,21 +39,28 @@ export const SiteFooter = () => {
           </p>
         </div>
 
-        <nav className="flex flex-col gap-2" aria-label={t("legalTitle")}>
-          <div className="text-[12px] uppercase tracking-wide text-muted-foreground">
-            {t("legalTitle")}
-          </div>
-          {LEGAL_LINKS.map(({ to, key }) => (
-            <Link
-              key={to}
-              to={path(to)}
-              data-testid={`footer-link-${to.slice(1)}`}
-              className="w-fit whitespace-nowrap text-[13px] font-medium text-foreground hover:text-primary hover:underline"
-            >
-              {t(key)}
-            </Link>
-          ))}
-        </nav>
+        {FOOTER_COLUMNS.map((column) => (
+          <nav
+            key={column.key}
+            data-testid={`footer-column-${column.key}`}
+            aria-label={t(column.key)}
+            className="flex flex-col gap-2.5"
+          >
+            <div className="text-[12px] uppercase tracking-wide text-muted-foreground">
+              {t(column.key)}
+            </div>
+            {column.links.map(({ to, key }) => (
+              <Link
+                key={to}
+                to={path(to)}
+                data-testid={`footer-link-${key}`}
+                className="w-fit text-[13px] font-medium text-foreground transition-colors hover:text-primary hover:underline"
+              >
+                {t(key)}
+              </Link>
+            ))}
+          </nav>
+        ))}
       </div>
 
       <div className="border-t border-border">

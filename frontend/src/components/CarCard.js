@@ -17,21 +17,23 @@ export const CarCard = ({ car, onOpen }) => {
   const saved = isFavourite(car.id);
   const [warm, warmNow] = useCarWarm(car.id);
 
+  // Three steps of the site's own palette instead of yellow/blue/green: darker grey for the
+  // diagnosis, brand red for the inspection, light grey for the insurance history.
   const badges = [];
   if (car.diagnosed)
     badges.push({
       label: t("diagnosed"),
-      cls: "bg-[hsl(var(--warning-soft))] text-[hsl(var(--warning))]",
+      cls: "bg-foreground/10 text-foreground",
     });
   if (car.has_inspection)
     badges.push({
       label: t("inspected"),
-      cls: "bg-[hsl(var(--info-soft))] text-[hsl(var(--info))]",
+      cls: "bg-secondary text-[hsl(var(--primary))]",
     });
   if (car.has_record)
     badges.push({
       label: t("insured"),
-      cls: "bg-[hsl(var(--success-soft))] text-[hsl(var(--success))]",
+      cls: "bg-muted text-muted-foreground",
     });
 
   const subtitle = [carSubtitle(car), car.badge_detail_t || car.badge_detail]

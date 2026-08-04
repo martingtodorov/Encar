@@ -20,7 +20,7 @@ export default function LoginPage() {
           errorMessage } = useAuth();
   const { path, go } = useLangNav();
 
-  useSeo({ lang, title: `${t("login")} \u00b7 Encar` });
+  useSeo({ lang, title: `${t("login")} \u00b7 Encar`, noindex: true });
   const [params] = useSearchParams();
 
   const [mode, setMode] = useState(params.get("mode") === "register" ? "register" : "login");

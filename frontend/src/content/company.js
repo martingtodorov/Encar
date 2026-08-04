@@ -22,3 +22,35 @@ export const LEGAL_LINKS = [
   { to: "/cookies", key: "legalCookies" },
   { to: "/contact", key: "legalContact" },
 ];
+
+/** The footer sitemap, three columns wide. Column titles are i18n keys like the links. */
+export const FOOTER_COLUMNS = [
+  {
+    key: "footerExplore",
+    links: [
+      { to: "/", key: "navSearch" },
+      { to: "/saved", key: "savedCars" },
+      { to: "/searches", key: "savedSearches" },
+      { to: "/track", key: "navTrack" },
+    ],
+  },
+  {
+    key: "footerHelp",
+    links: [
+      { to: "/how-it-works", key: "navHowItWorks" },
+      { to: "/faq", key: "navFaq" },
+      { to: "/fees", key: "navFees" },
+      { to: "/contact", key: "legalContact" },
+    ],
+  },
+  {
+    key: "footerAccountCol",
+    links: [
+      { to: "/login", key: "login" },
+      { to: "/login?mode=register", key: "register" },
+      { to: "/terms", key: "legalTerms" },
+      { to: "/privacy", key: "legalPrivacy" },
+      { to: "/cookies", key: "legalCookies" },
+    ],
+  },
+];

@@ -102,7 +102,7 @@ export const TwoFactorPanel = () => {
           data-testid="account-2fa-state"
           className={`rounded-full px-2.5 py-1 text-[11.5px] font-semibold uppercase tracking-wide ${
             on
-              ? "bg-[hsl(var(--success-soft))] text-[hsl(var(--success))]"
+              ? "bg-secondary text-[hsl(var(--primary))]"
               : "bg-muted text-muted-foreground"
           }`}
         >

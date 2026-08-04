@@ -8,7 +8,15 @@ import { LANGS } from "@/i18n";
  * Each language has its own address (/bg, /ro, /en), so every page needs a canonical
  * URL and hreflang alternates pointing at its siblings - that is what lets Google index
  * all three versions instead of treating two of them as duplicates.
+ *
+ * Nothing public is ever blocked from crawling. Private pages (an account, a payment
+ * receipt) carry a `noindex` META tag instead of a robots.txt rule: a Disallow stops a
+ * crawler from even LOOKING, which also stops it from seeing the noindex, and it leaks the
+ * URL shape to anyone who reads robots.txt.
  */
+
+const SITE_NAME = "Auto&Bid";
+const OG_LOCALE = { bg: "bg_BG", ro: "ro_RO", en: "en_GB" };
 
 function upsert(selector, make) {
   let el = document.head.querySelector(selector);
@@ -58,7 +66,7 @@ export function stripLang(pathname) {
   return parts.length ? `/${parts.join("/")}` : "";
 }
 
-export function useSeo({ lang, title, description }) {
+export function useSeo({ lang, title, description, image, noindex = false }) {
   const { pathname } = useLocation();
 
   useEffect(() => {
@@ -68,14 +76,49 @@ export function useSeo({ lang, title, description }) {
     const origin = window.location.origin;
     const rest = stripLang(pathname);
     const self = `${origin}/${lang}${rest}`;
+    const picture = image || `${origin}/icons/icon-512.png`;
+
+    // Private pages are kept out of the index, but never out of a crawler's reach.
+    meta("robots", noindex ? "noindex, nofollow" : "index, follow, max-image-preview:large");
 
     link("canonical", null, self);
     LANGS.forEach((l) => link("alternate", l.code, `${origin}/${l.code}${rest}`));
     link("alternate", "x-default", `${origin}/en${rest}`);
 
+    property("og:site_name", SITE_NAME);
     property("og:title", title || document.title);
     property("og:url", self);
     property("og:type", "website");
+    property("og:image", picture);
+    property("og:locale", OG_LOCALE[lang] || OG_LOCALE.en);
     if (description) property("og:description", description);
-  }, [lang, title, description, pathname]);
+
+    meta("twitter:card", "summary_large_image");
+    meta("twitter:title", title || document.title);
+    meta("twitter:image", picture);
+    if (description) meta("twitter:description", description);
+  }, [lang, title, description, image, noindex, pathname]);
+}
+
+/**
+ * Structured data. Google reads this to show a car as a rich result with its price and
+ * mileage, which a plain page cannot earn on its own.
+ */
+export function useJsonLd(data, id = "page-jsonld") {
+  useEffect(() => {
+    const existing = document.getElementById(id);
+    if (!data) {
+      if (existing) existing.remove();
+      return undefined;
+    }
+    const script = existing || document.createElement("script");
+    script.id = id;
+    script.type = "application/ld+json";
+    script.textContent = JSON.stringify(data);
+    if (!existing) document.head.appendChild(script);
+    return () => {
+      const node = document.getElementById(id);
+      if (node) node.remove();
+    };
+  }, [JSON.stringify(data || null), id]);
 }

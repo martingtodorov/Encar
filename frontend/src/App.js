@@ -16,6 +16,7 @@ import AccountPage from "@/pages/AccountPage";
 import AdminPage from "@/pages/AdminPage";
 import LegalPage from "@/pages/LegalPage";
 import PaymentResultPage from "@/pages/PaymentResultPage";
+import MyPurchasesPage from "@/pages/MyPurchasesPage";
 
 function App() {
   return (
@@ -38,6 +39,9 @@ function App() {
               <Route path="privacy" element={<LegalPage slug="privacy" />} />
               <Route path="cookies" element={<LegalPage slug="cookies" />} />
               <Route path="contact" element={<LegalPage slug="contact" />} />
+              <Route path="faq" element={<LegalPage slug="faq" />} />
+              <Route path="fees" element={<LegalPage slug="fees" />} />
+              <Route path="purchases" element={<MyPurchasesPage />} />
               <Route path="payment/success" element={<PaymentResultPage outcome="success" />} />
               <Route path="payment/cancel" element={<PaymentResultPage outcome="cancel" />} />
             </Route>

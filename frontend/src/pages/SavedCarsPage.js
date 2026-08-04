@@ -16,7 +16,8 @@ export default function SavedCarsPage() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useSeo({ lang, title: `${t("savedCars")} · Encar`, description: t("seoSavedDesc") });
+  useSeo({ lang, title: `${t("savedCars")} · Encar`, description: t("seoSavedDesc"),
+           noindex: true });
 
   useEffect(() => {
     let cancelled = false;

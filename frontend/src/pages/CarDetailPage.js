@@ -31,9 +31,12 @@ import { useLangNav } from "@/hooks/useLangNav";
 import { getCar, warmCar, forgetCar, countView } from "@/lib/api";
 import { noteView, WEIGHT } from "@/lib/taste";
 import Lightbox from "@/components/Lightbox";
-import { useSeo } from "@/lib/seo";
+import { useSeo, useJsonLd } from "@/lib/seo";
 import { formatMileage, formatMoney, formatNumber, formatYearMonth } from "@/lib/format";
 
+// Panels stay in the site's palette: white card, grey tile, red only where something is
+// actually wrong. Coloured tiles (blue/amber/green) fought with the rest of the page, so any
+// legacy tone falls through to neutral.
 const Panel = ({ title, icon: Icon, children, testId, tone = "info" }) => (
   <section
     data-testid={testId}
@@ -181,7 +184,50 @@ export default function CarDetailPage() {
     lang,
     title: car?.title ? `${car.title} \u00b7 Encar` : "Encar",
     description: car?.title ? `${car.title} \u2014 ${t("seoCarDesc")}` : t("seoHomeDesc"),
+    image: photos[0]?.full,
   });
+
+  // Structured data: this is what earns a car a rich result with its price and mileage
+  // instead of a plain blue link. Only the facts we actually hold are declared.
+  useJsonLd(
+    car
+      ? {
+          "@context": "https://schema.org",
+          "@type": "Car",
+          name: car.title,
+          image: photos.slice(0, 8).map((p) => p.full),
+          ...(car.manufacturer_t || car.manufacturer
+            ? { brand: { "@type": "Brand", name: car.manufacturer_t || car.manufacturer } }
+            : {}),
+          ...(car.model_t || car.model ? { model: car.model_t || car.model } : {}),
+          ...(car.form_year ? { vehicleModelDate: String(car.form_year) } : {}),
+          ...(car.mileage
+            ? {
+                mileageFromOdometer: {
+                  "@type": "QuantitativeValue",
+                  value: car.mileage,
+                  unitCode: "KMT",
+                },
+              }
+            : {}),
+          ...(car.fuel_t || car.fuel_type ? { fuelType: car.fuel_t || car.fuel_type } : {}),
+          ...(car.transmission_t ? { vehicleTransmission: car.transmission_t } : {}),
+          itemCondition: "https://schema.org/UsedCondition",
+          ...(q?.sale_eur
+            ? {
+                offers: {
+                  "@type": "Offer",
+                  price: q.sale_eur,
+                  priceCurrency: "EUR",
+                  availability: "https://schema.org/InStock",
+                  url: window.location.href,
+                },
+              }
+            : {}),
+        }
+      : null,
+    "car-jsonld"
+  );
 
   // "Back to results" must land on the SAME result set the visitor came from. The
   // search page hands us its query string; otherwise step back through history, and
@@ -674,8 +720,7 @@ export default function CarDetailPage() {
                   title={t("optionsTitle")}
                   icon={FileCheck2}
                   testId="detail-options"
-                  tone="info"
-                >
+                  >
                   {(car.options.groups || []).map((g) => (
                     <div key={g.category} className="mb-3 last:mb-0">
                       <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -744,8 +789,7 @@ export default function CarDetailPage() {
                   title={t("descriptionTitle")}
                   icon={FileCheck2}
                   testId="detail-description"
-                  tone="info"
-                >
+                  >
                   <DescriptionPanelBody carId={id} original={car.description} />
                 </Panel>
               </div>

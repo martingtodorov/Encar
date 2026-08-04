@@ -9,6 +9,9 @@ import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
 import { useSeo } from "@/lib/seo";
 import { AccountShipments } from "@/components/AccountShipments";
+import { NotificationsPanel } from "@/components/NotificationsPanel";
+import { PhonePanel } from "@/components/PhonePanel";
+import { DeleteAccountPanel } from "@/components/DeleteAccountPanel";
 import { TwoFactorPanel } from "@/components/TwoFactorPanel";
 import { SessionsPanel } from "@/components/SessionsPanel";
 import { BLANK_BILLING, BillingFields } from "@/components/BillingFields";
@@ -20,7 +23,7 @@ export default function AccountPage() {
           updateBilling } = useAuth();
   const { go } = useLangNav();
 
-  useSeo({ lang, title: `${t("myAccount")} \u00b7 Encar` });
+  useSeo({ lang, title: `${t("myAccount")} \u00b7 Encar`, noindex: true });
 
   const [passkeys, setPasskeys] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -190,6 +193,8 @@ export default function AccountPage() {
 
         <TwoFactorPanel />
         <SessionsPanel />
+        <NotificationsPanel />
+        <PhonePanel />
 
         <AccountShipments />
 
@@ -213,6 +218,8 @@ export default function AccountPage() {
             {t("billingSave")}
           </Button>
         </section>
+
+        <DeleteAccountPanel />
 
         <Button
           data-testid="account-logout-button"

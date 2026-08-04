@@ -27,21 +27,23 @@ export const CarRow = ({ car, onOpen }) => {
   const saved = isFavourite(car.id);
   const [warm, warmNow] = useCarWarm(car.id);
 
+  // Same three steps of the site palette as the grid card, so a row and a card never
+  // disagree about what a pill means.
   const badges = [];
   if (car.diagnosed)
     badges.push({
       label: t("diagnosed"),
-      cls: "bg-[hsl(var(--warning-soft))] text-[hsl(var(--warning))]",
+      cls: "bg-foreground/10 text-foreground",
     });
   if (car.has_inspection)
     badges.push({
       label: t("inspected"),
-      cls: "bg-[hsl(var(--info-soft))] text-[hsl(var(--info))]",
+      cls: "bg-secondary text-[hsl(var(--primary))]",
     });
   if (car.has_record)
     badges.push({
       label: t("insured"),
-      cls: "bg-[hsl(var(--success-soft))] text-[hsl(var(--success))]",
+      cls: "bg-muted text-muted-foreground",
     });
 
   const subtitle = [carSubtitle(car), car.badge_detail_t || car.badge_detail]

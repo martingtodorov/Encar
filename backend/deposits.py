@@ -17,6 +17,7 @@ import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+import archive
 import auth
 
 log = logging.getLogger("deposits")
@@ -146,6 +147,9 @@ async def _mark_paid(session_id, payment_intent="", payment_status="paid"):
                 {"_id": record["car_id"]},
                 {"$set": {"reserved": True, "reserved_by": record["user_id"],
                           "reserved_at": _now()}})
+            # The buyer now owns a claim on this car, so the ad becomes ours to keep: the
+            # listing and every photo are copied to our disk before Encar can withdraw it.
+            archive.archive_later(_db, record["car_id"])
 
 
 @router.get("/deposit/status/{session_id}")

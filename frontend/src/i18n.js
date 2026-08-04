@@ -4,6 +4,8 @@
 
 import EXTRA from "@/i18n_extra";
 import ACCOUNT from "@/i18n_account";
+import PAGES from "@/i18n_pages";
+import NOTIFY from "@/i18n_notify";
 
 export const LANGS = [
   { code: "bg", label: "\u0411\u044a\u043b\u0433\u0430\u0440\u0441\u043a\u0438", short: "BG" },
@@ -277,7 +279,8 @@ const STRINGS = {
 const MERGED = Object.fromEntries(
   Object.keys(STRINGS).map((k) => [
     k,
-    { ...STRINGS[k], ...(EXTRA[k] || {}), ...(ACCOUNT[k] || {}) },
+    { ...STRINGS[k], ...(EXTRA[k] || {}), ...(ACCOUNT[k] || {}), ...(PAGES[k] || {}),
+      ...(NOTIFY[k] || {}) },
   ])
 );
 

@@ -1,17 +1,12 @@
 import {
   Menu,
-  Search,
-  Heart,
-  HelpCircle,
   LogIn,
   UserPlus,
   LogOut,
   Gauge,
   ShieldCheck,
-  Bookmark,
   Sun,
   Moon,
-  Ship,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -22,6 +17,7 @@ import { Separator } from "@/components/ui/separator";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
+import { useNavItems } from "@/lib/nav";
 import { LANGS, CURRENCIES } from "@/i18n";
 
 export const NavDrawer = () => {
@@ -31,13 +27,7 @@ export const NavDrawer = () => {
   const { path, go, switchLang } = useLangNav();
   const [open, setOpen] = useState(false);
 
-  const items = [
-    { to: "/", label: t("navSearch"), icon: Search },
-    { to: "/saved", label: t("savedCars"), icon: Heart, count: favourites.length },
-    { to: "/searches", label: t("savedSearches"), icon: Bookmark, count: searches.length },
-    { to: "/track", label: t("navTrack"), icon: Ship },
-    { to: "/how-it-works", label: t("navHowItWorks"), icon: HelpCircle },
-  ];
+  const items = useNavItems();
 
   const navTo = (to) => {
     setOpen(false);

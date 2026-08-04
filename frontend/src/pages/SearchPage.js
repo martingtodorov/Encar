@@ -26,7 +26,7 @@ import { getCatalogueSize, getFilters, resolveSlugs, searchCars } from "@/lib/ap
 import { formatNumber } from "@/lib/format";
 import { noteSearch, getTaste } from "@/lib/taste";
 import { useScrollDirection } from "@/hooks/useScrollDirection";
-import { useSeo } from "@/lib/seo";
+import { useSeo, useJsonLd } from "@/lib/seo";
 import {
   EMPTY,
   EMPTY_TAX,
@@ -44,10 +44,17 @@ const PAGE_SIZE = 16;
 // Scroll offset handed back by a car page, read on the next mount of this one.
 let pendingRestore = null;
 
-// Make alone is still browsing, so newest first. Once a model (or a trim below it) narrows
-// the list the visitor is comparing like with like, so cheapest first.
-const autoSort = (tax) =>
-  tax.model || tax.badge || tax.badgeDetail ? DEFAULT_SORT_FILTERED : DEFAULT_SORT_BROWSE;
+// Sorting follows what the visitor has narrowed to:
+//  * nothing chosen -> "relevant": still browsing, so lead with what suits them.
+//  * a make alone -> "newest": they are looking over a brand, and the interesting thing
+//    about a brand's shelf is what has just landed on it.
+//  * a model or a trim below it -> "price_asc": the question has become "what is the
+//    cheapest one of THESE?"
+const autoSort = (tax) => {
+  if (tax.model || tax.badge || tax.badgeDetail) return DEFAULT_SORT_FILTERED;
+  if (tax.make) return "newest";
+  return DEFAULT_SORT_BROWSE;
+};
 
 export default function SearchPage() {
   const { t, lang, currency, rates, saveSearch, isSearchSaved } = useApp();
@@ -91,6 +98,7 @@ export default function SearchPage() {
   const headerHidden = useScrollDirection(140);
 
   useSeo({ lang, title: t("seoHomeTitle"), description: t("seoHomeDesc") });
+
 
   // The floating bar exists only to replace the in-page Filters button once that button
   // has scrolled off the top of the screen - so watch the button itself rather than
@@ -281,15 +289,15 @@ export default function SearchPage() {
     setPage(1);
   }, []);
 
-  // Newest first while browsing (including make-only); lowest price first once a model
-  // or trim narrows the list. Skipped entirely once the visitor has chosen a sort.
+  // Relevant while browsing, newest once a make is picked, cheapest once a model or trim
+  // narrows the list. Skipped entirely once the visitor has chosen a sort themselves.
   useEffect(() => {
     if (sortTouched) return;
     setSort(autoSort(tax));
     // No page reset here. Picking a different car already resets it in changeTax, whereas
     // this effect also runs on mount and on slug resolution - and doing it here is what
     // sent anyone reloading or sharing a ?page=2 link back to the first page.
-  }, [tax.model, tax.badge, tax.badgeDetail, sortTouched]);
+  }, [tax.make, tax.model, tax.badge, tax.badgeDetail, sortTouched]);
 
   // Mirror the live search into the query string. `replace` so we do not push a history
   // entry per keystroke - the entry that exists when a car is opened already carries
@@ -396,6 +404,36 @@ export default function SearchPage() {
   // Any narrowing at all earns the red dot on the floating bar - and hides the hero.
   const anyFilterActive = !!query;
   const isHome = !anyFilterActive && page <= 1;
+
+  // The site itself, plus its search entry point: this is what lets Google offer a search
+  // box for the site and attribute pages to the company running it.
+  useJsonLd(
+    isHome
+      ? {
+          "@context": "https://schema.org",
+          "@graph": [
+            {
+              "@type": "Organization",
+              name: "Auto&Bid",
+              url: `${window.location.origin}/${lang}`,
+              logo: `${window.location.origin}/icons/icon-512.png`,
+            },
+            {
+              "@type": "WebSite",
+              name: "Auto&Bid",
+              url: `${window.location.origin}/${lang}`,
+              inLanguage: lang,
+              potentialAction: {
+                "@type": "SearchAction",
+                target: `${window.location.origin}/${lang}?q={search_term_string}`,
+                "query-input": "required name=search_term_string",
+              },
+            },
+          ],
+        }
+      : null,
+    "site-jsonld"
+  );
   const barVisible = triggerOffscreen;
 
   const countLabel =

@@ -65,7 +65,8 @@
   "scripts": {
     "start": "craco start",
     "build": "craco build",
-    "test": "craco test"
+    "test": "craco test",
+    "prebuild": "node scripts/gen-seo-files.js"
   },
   "browserslist": {
     "production": [

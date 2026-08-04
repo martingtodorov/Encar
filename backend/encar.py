@@ -208,6 +208,29 @@ def photo_paths(row, limit=6):
     return out
 
 
+def detail_photo_paths(detail):
+    """The gallery of one ad, in the ad's own order and without repeats.
+
+    Encar returns the deck shuffled, and within a single `code` it repeats a picture as a
+    THUMBNAIL row pointing at the SAME path — which is why an 18-photo ad looked like 24.
+    Ascending code restores the real order and the THUMBNAIL copy sorts last, so the dedupe
+    keeps the original.
+    """
+    rows = sorted(
+        (detail.get("photos") or []),
+        key=lambda x: (int(str(x.get("code") or "999").strip() or 999),
+                       (x.get("type") or "") == "THUMBNAIL"),
+    )
+    out, seen = [], set()
+    for p in rows:
+        path = p.get("path")
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        out.append(path)
+    return out
+
+
 def image_url(path, w=640, h=480):
     if not path:
         return None
