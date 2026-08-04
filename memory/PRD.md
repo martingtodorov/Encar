@@ -29,7 +29,10 @@ Share previews: `GET /api/share/car/{id}?lang=` returns a tiny HTML page carryin
 tags with the ad's LEAD PHOTO at 1200x630 (make/model resolved through the English cache) and
 forwards a human to `/{lang}/car/{id}` — chat apps never run our JS, so the runtime og tags
 on the car page are invisible to them. The owner explicitly does NOT want a Share button in
-the UI, so nothing links to it; the endpoint exists for links pasted by hand. -->
+the UI, so nothing links to it; the endpoint exists for links pasted by hand.
+Equipment panel: `Panel` now takes a `className`, and the options block carries
+`lg:col-span-2` with its categories in a `sm:grid-cols-2 lg:grid-cols-3` grid — full page
+width on desktop, height down from ~1100px to 583px. -->
 
 
 

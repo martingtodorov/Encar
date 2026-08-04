@@ -39,10 +39,10 @@ import { formatMileage, formatMoney, formatNumber, formatYearMonth } from "@/lib
 // Panels stay in the site's palette: white card, grey tile, red only where something is
 // actually wrong. Coloured tiles (blue/amber/green) fought with the rest of the page, so any
 // legacy tone falls through to neutral.
-const Panel = ({ title, icon: Icon, children, testId, tone = "info" }) => (
+const Panel = ({ title, icon: Icon, children, testId, tone = "info", className = "" }) => (
   <section
     data-testid={testId}
-    className="overflow-hidden rounded-[16px] border border-border bg-card shadow-sm"
+    className={`overflow-hidden rounded-[16px] border border-border bg-card shadow-sm ${className}`}
   >
     <header className="flex items-center gap-2.5 border-b border-border px-4 py-3">
       <span
@@ -728,29 +728,35 @@ export default function CarDetailPage() {
                   title={t("optionsTitle")}
                   icon={FileCheck2}
                   testId="detail-options"
+                  // The equipment list is the tallest block on the page. Across the full
+                  // width its categories sit side by side, which halves its height.
+                  className="lg:col-span-2"
                   >
-                  {(car.options.groups || []).map((g) => (
-                    <div key={g.category} className="mb-3 last:mb-0">
-                      <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        {g.category}
-                      </h3>
-                      <div className="flex flex-wrap gap-1.5">
-                        {g.items.map((x) => (
-                          <span
-                            key={x}
-                            className="rounded-full bg-muted px-2.5 py-1 text-[12px] text-foreground"
-                          >
-                            {x}
-                          </span>
-                        ))}
+                  <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+                    {(car.options.groups || []).map((g) => (
+                      <div key={g.category}>
+                        <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          {g.category}
+                        </h3>
+                        <div className="flex flex-wrap gap-1.5">
+                          {g.items.map((x) => (
+                            <span
+                              key={x}
+                              className="rounded-full bg-muted px-2.5 py-1 text-[12px] text-foreground"
+                            >
+                              {x}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                   {(car.options.factory || []).length > 0 && (
-                    <div className="mt-3">
+                    <div className="mt-4">
                       <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
                         {t("factoryOptions")}
                       </h3>
+                      <div className="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
                       {car.options.factory.map((f) => (
                         <Row
                           key={f.name}
@@ -767,6 +773,7 @@ export default function CarDetailPage() {
                           }
                         />
                       ))}
+                      </div>
                     </div>
                   )}
                   {(car.options.tuning || []).length > 0 && (
