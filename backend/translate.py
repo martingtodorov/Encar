@@ -261,6 +261,21 @@ async def _llm_translate(chunk, lang):
     return {}
 
 
+# Wording the owner has fixed by hand, which must survive a cache rebuild and must never be
+# handed to the LLM again. "가솔린+전기" literally reads "petrol + electricity"; buyers call
+# that car a hybrid, so that is what it is called on every page in every language.
+OVERRIDES = {
+    "가솔린+전기": {"bg": "Хибрид", "ro": "Hibrid", "en": "Hybrid"},
+}
+
+
+def _apply_overrides(out, sources, lang):
+    for src in sources:
+        fixed = OVERRIDES.get(src, {}).get(lang)
+        if fixed:
+            out[src] = fixed
+
+
 async def translate_many(db, texts, lang):
     """Cache-around-LLM batch translate. Returns {source: translated}.
 
@@ -283,6 +298,8 @@ async def translate_many(db, texts, lang):
     keys = {cache_key(t, lang): t for t in uniq}
     async for doc in db.translations.find({"_id": {"$in": list(keys)}}):
         out[keys[doc["_id"]]] = doc["target"]
+
+    _apply_overrides(out, uniq, lang)
 
     todo = [t for t in uniq if t not in out]
     if not todo:
@@ -410,6 +427,7 @@ async def translate_cached_only(db, texts, lang):
     out = {}
     async for doc in db.translations.find({"_id": {"$in": list(keys)}}):
         out[keys[doc["_id"]]] = doc["target"]
+    _apply_overrides(out, uniq, lang)
     return out
 
 

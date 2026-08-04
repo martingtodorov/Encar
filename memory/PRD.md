@@ -56,7 +56,12 @@ region is still shown on the card and in quick view.
 Follow-up: the Korean region was then removed from the UI ENTIRELY — the spec chip on the
 desktop row, the chip on the mobile card and the row in QuickViewDialog (the car page never
 had one). `showRegion` on `CarCard` is now a no-op kept only so callers need no change; the
-backend still returns and filters on `region`. -->
+backend still returns and filters on `region`.
+Wording overrides: `translate.OVERRIDES` is the place for copy the owner has fixed by hand —
+it beats the cache and is never sent to the LLM, so a cache rebuild cannot undo it. First
+entry: "가솔린+전기" reads "Хибрид" / "Hibrid" / "Hybrid" instead of "Бензин + Електричество".
+Applied in BOTH `translate_many` and `translate_cached_only`, so filters, rows and car pages
+all agree. -->
 
 
 
