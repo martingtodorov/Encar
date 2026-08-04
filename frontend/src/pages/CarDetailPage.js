@@ -141,10 +141,12 @@ export default function CarDetailPage() {
           noteView(d);
           countView(id);
           // Per-car freeform text (dealer branch, address, plate) is translated in the
-          // background so the page renders immediately; pick it up when it lands.
-          if ((d?.description_pending || d?.translation_pending) && retries < 2) {
+          // background so the page renders immediately; pick it up when it lands. The
+          // diagnosis comment can take the LLM a while, so we wait it out rather than
+          // leaving the buyer with a paragraph of Korean: 4s, 7s, 11s, 16s.
+          if ((d?.description_pending || d?.translation_pending) && retries < 4) {
             retries += 1;
-            retry = setTimeout(() => load(true), retries * 4000);
+            retry = setTimeout(() => load(true), 1000 + retries * 3500);
           }
         })
         .catch((e) => {

@@ -1104,8 +1104,35 @@ async def _gone(listing, listing_id, lang):
     }))
 
 
+_DEALER_NOISE = re.compile(
+    r"계좌|예금주|접수처|납부|보험료|입금|송금|문의|상담|전화|\d{2,4}-\d{2,4}-\d{3,4}"
+    r"|1533|1588|☎")
+
+
+def _diag_comment_parts(text):
+    """The diagnosis comment, split into sentences and stripped of the dealer's own notes.
+
+    Encar's comment is a few boilerplate sentences that repeat on thousands of cars, and
+    then whatever the dealer pasted after them: a credit-union account for the warranty
+    premium, an insurer's hotline, a ♣ or two. That tail is what made the WHOLE paragraph a
+    unique string, so it could never be a cache hit and the buyer was left reading Korean.
+    Sentence by sentence the boilerplate comes straight from the cache, and the payment
+    details are dropped — nobody in Europe is wiring money to a Korean credit union.
+    """
+    cleaned = re.sub(r"[♣♠◆■※★]+", "\n", str(text or ""))
+    cleaned = re.sub(r"《[^》]*》|\([^)]*접수[^)]*\)", "\n", cleaned)
+    parts, seen = [], set()
+    for line in cleaned.split("\n"):
+        for seg in re.split(r"(?<=다\.)\s*|(?<=[.!?])\s+", line):
+            seg = (seg or "").strip().strip("·-–,").strip()
+            if len(seg) < 4 or _DEALER_NOISE.search(seg) or seg in seen:
+                continue
+            seen.add(seg)
+            parts.append(seg)
+    return parts
+
+
 def _attr(s):
-    """Escape for an HTML attribute — an ad title can carry quotes and ampersands."""
     return (str(s or "").replace("&", "&amp;").replace('"', "&quot;")
             .replace("<", "&lt;").replace(">", "&gt;"))
 
@@ -1339,16 +1366,16 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
         items = diag["items"]
         panels = [i for i in items if not str(i.get("name") or "").endswith("_COMMENT")]
         comments = [i for i in items if str(i.get("name") or "").endswith("_COMMENT")]
-        for c in comments:                      # queue comment text for translation
-            if c.get("result"):
-                ko_names.append(c["result"].strip())
-        if comments:
-            tr.update(await translate_cached_only(
-                db, [c["result"].strip() for c in comments if c.get("result")], lang))
-            miss2 = [c["result"].strip() for c in comments
-                     if c.get("result") and c["result"].strip() not in tr]
+        # The comment is boilerplate plus whatever the dealer pasted after it, so it is
+        # split into sentences and cleaned before translating (see _diag_comment_parts).
+        parted = [(c, _diag_comment_parts(c.get("result"))) for c in comments]
+        flat = [s for _, parts in parted for s in parts]
+        if flat:
+            ko_names.extend(flat)
+            tr.update(await translate_cached_only(db, flat, lang))
+            miss2 = [s for s in flat if s not in tr]
             if miss2:
-                schedule_translation(db, miss2, lang)
+                schedule_translation(db, list(dict.fromkeys(miss2)), lang)
         diagnosis = {
             "available": True,
             "date": diag.get("diagnosisDate"),
@@ -1358,7 +1385,7 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
             "items": [{"panel": _panel_label(i.get("name")),
                        "result_code": i.get("resultCode"),
                        "result": T(i.get("result"))} for i in panels],
-            "comments": [T(c["result"].strip()) for c in comments if c.get("result")],
+            "comments": [" ".join(T(s) for s in parts) for _, parts in parted if parts],
         }
 
     body_panels = _body_panels(insp, diag)

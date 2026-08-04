@@ -83,7 +83,20 @@ panels, a viewBox and no fixed width/height.
 Admin buyer interests (`GET /admin/buyers`): makes, models and fuels were showing the raw
 Korean, and the same make appeared TWICE when a profile had both "아우디" and "Audi". Keys are
 now resolved through the English cache (`translate_cached_only`, never the LLM), counts are
-merged under the English name and only then is the top 3 / top 2 taken. -->
+merged under the English name and only then is the top 3 / top 2 taken. It also now carries
+the buyer's PHONE (billing.phone, a tel: link in the table) and their LAST SEARCH:
+`_remember_search` stores `users.last_search` on every page-1 search by a signed-in buyer,
+and the admin endpoint renders it as one line ("E-Class W213 · €30 000–80 000 · 2019+ · up
+to 90 000 km · Petrol"). NOTE: `users.billing` is only ever written at REGISTER time — there
+is no `PUT /auth/billing` despite the comment in auth.py claiming otherwise.
+DIAGNOSIS COMMENT staying Korean — root cause and fix: Encar's comment is boilerplate plus
+whatever the dealer pasted after it (credit-union account for the warranty premium, insurer
+hotline, ♣ markers), which made the WHOLE paragraph a unique string that could never be a
+cache hit; the buyer got Korean and the frontend gave up after 2 retries (12s). Now
+`_diag_comment_parts` splits it into sentences, drops the payment/contact noise and caches
+per sentence, so the boilerplate is already translated on the FIRST view of a car (verified:
+a second car sharing the boilerplate came back in Bulgarian immediately), and the car page
+retries up to 4 times (4s/7s/11s/16s) for whatever tail is genuinely new. -->
 
 
 
