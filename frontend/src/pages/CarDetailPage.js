@@ -300,7 +300,7 @@ export default function CarDetailPage() {
                   the thumbnail column is pinned to that height so it scrolls internally
                   instead of stretching the layout or cropping the photo. */}
               <div className="relative flex flex-col gap-2 lg:block">
-                <div className="aspect-[16/9] w-full cursor-zoom-in overflow-hidden rounded-[16px] border border-border lg:w-[calc(100%-226px)]">
+                <div className="aspect-[16/9] w-full cursor-zoom-in overflow-hidden rounded-[16px] border border-border lg:w-[calc(100%-286px)]">
                   <PhotoSwiper
                     images={photos.map((p) => p.full)}
                     alt={car.title}
@@ -317,7 +317,7 @@ export default function CarDetailPage() {
                 {photos.length > 1 && (
                   <div
                     data-testid="detail-thumb-strip"
-                    className="thin-scroll flex gap-2 overflow-x-auto pb-2 lg:absolute lg:inset-y-0 lg:right-0 lg:w-[218px] lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 lg:pr-1"
+                    className="thin-scroll flex gap-2 overflow-x-auto pb-2 lg:absolute lg:inset-y-0 lg:right-0 lg:w-[276px] lg:flex-col lg:overflow-x-hidden lg:overflow-y-auto lg:pb-0 lg:pr-1"
                   >
                     {photos.map((p, i) => (
                       <button
@@ -328,7 +328,7 @@ export default function CarDetailPage() {
                         onDoubleClick={() => openPhotos(i)}
                         aria-label={`${t("allPhotos")} ${i + 1}`}
                         aria-current={i === active ? "true" : undefined}
-                        className={`h-16 w-24 shrink-0 overflow-hidden rounded-[8px] border-2 transition-colors lg:aspect-video lg:h-auto lg:w-full ${
+                        className={`h-[76px] w-[112px] shrink-0 overflow-hidden rounded-[8px] border-2 transition-colors lg:aspect-video lg:h-auto lg:w-full ${
                           i === active ? "border-[hsl(var(--primary))]" : "border-border"
                         }`}
                       >

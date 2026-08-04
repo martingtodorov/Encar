@@ -329,23 +329,28 @@ async def _last_leg(db, stones, owner_id):
     """
     if not stones:
         return []
-    last = max(s["when"] for s in stones)
-    port = next((s.get("location") or "" for s in reversed(stones) if s["when"] == last), "")
+    # Both dates hang off the ship BERTHING at the destination port, not off whatever event
+    # happens to be last: an inland move after arrival must not push customs back.
+    arrival = next((s for s in reversed(stones)
+                    if s.get("code") in ("AV", "VA", "ARRI")), stones[-1])
+    port = arrival.get("location") or ""
     try:
-        base = datetime.fromisoformat(last)
-    except ValueError:
+        base = datetime.fromisoformat(arrival["when"])
+    except (ValueError, KeyError, TypeError):
         return []
-    city, country = "", ""
+    country = ""
     if owner_id:
         owner = await db.users.find_one({"_id": owner_id}, {"billing": 1})
-        billing = (owner or {}).get("billing") or {}
-        city, country = billing.get("city") or "", billing.get("country") or ""
+        country = ((owner or {}).get("billing") or {}).get("country") or ""
     fmt = "%Y-%m-%dT%H:%M:00"
     return [
-        _stone("CU", "Customs clearance",
+        _stone("CU", "Customs cleared",
                (base + timedelta(days=CUSTOMS_DAYS)).strftime(fmt), port),
-        _stone("DLV", "Delivery to your address",
-               (base + timedelta(days=DELIVERY_DAYS)).strftime(fmt), city, country),
+        # Country only — the buyer's street address is not something to print on a page
+        # that a shared link can open.
+        _stone("DLV", "Delivery",
+               (base + timedelta(days=CUSTOMS_DAYS + DELIVERY_DAYS)).strftime(fmt),
+               country, country),
     ]
 
 

@@ -125,9 +125,9 @@ export const HeaderNav = () => {
         </Link>
       ))}
 
-      {/* Language and theme sit with the menu, not across the header from it; only the
-          account and sign-in actions are pushed to the far right. */}
-      <div className="flex items-center gap-2">
+      {/* Everything that is not navigation lives on the right: language, theme and the
+          account actions. With only sign-in/register over there the bar read lopsided. */}
+      <div className="ml-auto flex items-center gap-2">
         <div className="inline-flex rounded-[10px] border border-input bg-muted p-0.5 shadow-sm">
           {LANGS.map((l) => (
             <button
@@ -162,7 +162,7 @@ export const HeaderNav = () => {
         </Button>
       </div>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="flex items-center gap-2">
         {user ? (
           <>
             {user.is_admin && (

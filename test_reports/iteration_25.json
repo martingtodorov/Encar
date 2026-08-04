@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 25 review of the six changes shipped by main agent: photo de-duplication, relevant-sort spread + cold-start popular fallback, tracking +3d/+7d ESTIMATED tail with country-only Delivery, JSONCargo 24h TTL, header balance, and detail-page gallery geometry. 8/8 pytest passed. Frontend: header, sort dropdown, gallery, language switch, and tracking milestones all verified in the browser. ONE spec deviation found: the /track summary card DOES print the container number when by=bol (data-testid='track-container-no' at TrackPage.js:401-409), which contradicts the acceptance criterion 'the page must NOT show the container ID anywhere — only the Bill of Lading'. Everything else matches spec.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "TrackPage summary card",
+        "issue": "When by='bol', the card still renders 'Container MRSU5757040 · 40' Dry High' below the Bill-of-Lading number (data-testid='track-container-no'). Spec: 'the page must NOT show the container ID anywhere — only the Bill of Lading'. Either drop the whole track-container-no block when data.by==='bol' (or unconditionally), or gate it behind an admin-only flag.",
+        "selector": "[data-testid='track-container-no']",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter25.py",
+    "/app/test_reports/pytest/iter25.xml"
+  ],
+  "action_items": [
+    "Hide the container number on /track when the reference is looked up by Bill of Lading: remove or conditionally render TrackPage.js lines 401-409 (the `data.container && data.container !== data.reference` block) so buyers only ever see the BoL. Verified location is Bergen Op Zoom, milestone dates and 'est.' badges are correct — this is the only spec miss."
+  ],
+  "critical_code_review_comments": [
+    "backend/server.py::car_detail (line ~1026): sorts photos by (code, type=='THUMBNAIL') then drops repeated `path`; verified 42259236 now returns exactly 18 photos with unique `full` and `thumb` URLs and photo_count==18. Spot-checked 8 more listings from /api/search — none had duplicate URLs.",
+    "backend/server.py sort='relevant': _spread(per_model=2, per_make=size//4=6) + _space(gap=2). Verified Mercedes-heavy taste => top brand ≤6/24, no adjacent same-make, no model >2 (assertions passed). Repeated with Hyundai/Kia-heavy taste — same guarantees hold (proves it is NOT hardcoded).",
+    "backend/server.py popular_ids() cold-start (empty taste): fallback returns 24 items with total>0. Deep pagination (page=30) returns 200. No 500s observed.",
+    "backend/tracking.py _last_leg: for 271191199 (Aug 9 2026 destination arrival) CU=Aug 12 (+3d) and DLV=Aug 19 (+7d from CU) — exact match. DLV.location==DLV.country (empty for admin because owner has no billing country) — the code passes country ONLY, never street/city.",
+    "backend/jsoncargo.py TTL_CONTAINER=86400: two back-to-back /api/tracking calls for MRSU5757040 kept /api/admin/tracking-quota `used` unchanged. Quota preserved.",
+    "frontend HeaderNav.js: on 1920px viewport nav links group at x=(~400–920), and the language switcher + theme + login + register cluster on the right (x=1190–1576). Gap between language switcher and login = 71px — well within one visual group. ✅",
+    "frontend CarDetailPage.js: on 1920px viewport main image 944x530 (ratio 1.78 ≈ 16:9) and 18 thumbnails of 272x153 render as expected. Thumbnail count matches API photo count.",
+    "frontend sort dropdown: data-testid='sort-select' present, it's a native <select> so page.select_option works — no shadcn overlay involved (this resolves the iteration-24 Playwright timeout).",
+    "frontend language switcher: /en → /bg → /ro → /en URL prefix rotation confirmed with query string preserved.",
+    "SPEC DEVIATION: TrackPage still renders the container number under the BoL heading."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter25.py",
+    "/app/test_reports/iteration_25.json"
+  ],
+  "success_rate": {"backend": "100% (8/8 pytest)", "frontend": "95% (1 spec deviation: container ID visible on /track)"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! ; x-admin-token: encar-admin",
+  "seed_data_creation": "None. Tests used existing listings + previously cached 271191199/MRSU5757040 tracking data. Nothing to clean up.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend base URL from REACT_APP_BACKEND_URL. Reusable regression test: /app/backend/tests/test_iter25.py (8 tests: photo dedup on 42259236, dedup on 6+ random cars, mercedes-heavy relevant spread, hyundai/kia-heavy relevant spread, empty-taste cold start, deep pagination, tracking +3d/+7d country-only, jsoncargo cache no-upstream). Sort dropdown is a native <select data-testid=sort-select> — Playwright must use `page.select_option(..., value='relevant')`, NOT clicking role=option. Track summary card at TrackPage.js:401-409 needs the container line hidden when by='bol'.",
+  "rca of the issue": "TrackPage.js renders `data.container` unconditionally whenever it differs from `data.reference` — the by-mode is not consulted. When the buyer looks up by Bill of Lading, backend still returns the container number (needed for JSONCargo cache key and for the map) but the UI should treat it as private. Fix: wrap the block in `data.by !== 'bol' && data.container && ...` or drop entirely so the buyer never sees the container ID."
+}

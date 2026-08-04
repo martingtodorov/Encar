@@ -564,8 +564,11 @@ async def search(body: SearchBody, request: Request):
                     db.listings.find(query).sort(SORTS["newest"]).limit(RELEVANT_POOL)]
             price, _, _ = _centre(samples, 0)
             mileage, _, _ = _centre(samples, 1)
-            ranked = _spread(_rank_by_taste(pool, makes, models, fuels, price, mileage),
-                             RELEVANT_POOL, per_model=4)
+            # Two per model, at most a quarter of a page from any one brand, then
+            # round-robined by make so the same badge never repeats back to back.
+            ranked = _space(
+                _spread(_rank_by_taste(pool, makes, models, fuels, price, mileage),
+                        RELEVANT_POOL, per_model=2, per_make=max(2, size // 4)))
             rows = [d for _, _, d in ranked][skip:skip + size]
         elif skip < RELEVANT_POOL:
             # Nothing known about this visitor yet: show what everyone else has been
@@ -679,14 +682,18 @@ def _rank_by_taste(rows, makes, models, fuels, price, mileage):
     return scored
 
 
-def _spread(scored, limit, per_model=3):
-    """A shelf of near-identical cars is not a choice: cap how many share a model."""
-    out, seen = [], {}
+def _spread(scored, limit, per_model=3, per_make=6):
+    """A shelf of near-identical cars is not a choice: cap how many share a model, and cap
+    the make too — a buyer who looked at three Mercedes should not be handed a page of
+    nothing but Mercedes."""
+    out, models, makes = [], {}, {}
     for row in scored:
-        key = row[2].get("model") or ""
-        if seen.get(key, 0) >= per_model:
+        model = row[2].get("model") or ""
+        make = row[2].get("manufacturer") or ""
+        if models.get(model, 0) >= per_model or makes.get(make, 0) >= per_make:
             continue
-        seen[key] = seen.get(key, 0) + 1
+        models[model] = models.get(model, 0) + 1
+        makes[make] = makes.get(make, 0) + 1
         out.append(row)
         if len(out) >= limit:
             break
@@ -701,19 +708,19 @@ def _why_label(out, why):
     return ""
 
 
-def _interleave(scored):
-    """Round-robin across make+model groups so two of the same car never sit side by side."""
-    groups = {}
-    for row in scored:
-        doc = row[2]
-        key = f"{doc.get('manufacturer') or ''}|{doc.get('model') or ''}"
-        groups.setdefault(key, []).append(row)
-    order = sorted(groups.values(), key=lambda g: -g[0][0])   # best group first
-    out = []
-    while any(order):
-        for group in order:
-            if group:
-                out.append(group.pop(0))
+def _space(scored, gap=2):
+    """Keep the ranking, but never let one brand sit within `gap` places of itself.
+
+    A strict round-robin across makes is the opposite mistake: it hands out exactly one car
+    per brand and buries the preference the ranking just found. This only breaks up RUNS, so
+    a favourite make still comes back every few rows.
+    """
+    pool, out = list(scored), []
+    while pool:
+        recent = {(r[2].get("manufacturer") or "") for r in out[-gap:]}
+        pick = next((i for i, row in enumerate(pool)
+                     if (row[2].get("manufacturer") or "") not in recent), 0)
+        out.append(pool.pop(pick))
     return out
 
 
@@ -748,8 +755,8 @@ async def recommendations(body: TasteBody, request: Request):
     if not rows:
         return {"items": [], "lang": lang}
 
-    best = _interleave(_spread(_rank_by_taste(rows, makes, models, fuels, price, mileage),
-                               max(1, min(body.limit, 24)), per_model=2))
+    best = _space(_spread(_rank_by_taste(rows, makes, models, fuels, price, mileage),
+                          max(1, min(body.limit, 24)), per_model=2, per_make=4))
 
     docs = [d for _, _, d in best]
     await translate_listings(db, docs, lang)
@@ -1027,12 +1034,18 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     photos = []
     raw_photos = sorted(
         (detail.get("photos") or []),
-        key=lambda x: int(str(x.get("code") or "999").strip() or 999),
-    )  # Encar returns these shuffled; ascending code matches the real ad order
+        # Encar returns these shuffled; ascending code matches the real ad order. Within one
+        # code a THUMBNAIL row repeats a photo that is already in the deck (the ad with 24
+        # pictures really has 18), so it sorts last and is dropped by the dedupe below.
+        key=lambda x: (int(str(x.get("code") or "999").strip() or 999),
+                       (x.get("type") or "") == "THUMBNAIL"),
+    )
+    seen_paths = set()
     for p in raw_photos:
         path = p.get("path")
-        if not path:
+        if not path or path in seen_paths:
             continue
+        seen_paths.add(path)
         photos.append({
             "full": image_url(path, 1280, 720),
             "thumb": image_url(path, 256, 144),

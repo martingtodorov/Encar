@@ -45,7 +45,7 @@ const EVENTS = {
     UV: "Разтоварен от кораба", AG: "Приет в терминала", AL: "Натоварен контейнер приет",
     AE: "Предаден за доставка", OA: "Излязъл от терминала", RD: "Контейнерът върнат",
     EE: "Празен контейнер изпратен", AV: "Готов за доставка", CU: "Освободен от митницата",
-    D: "Доставен", DLV: "Доставка до твоя адрес",
+    D: "Доставен", DLV: "Доставка",
   },
   ro: {
     GTIN: "Primit în terminal", STUF: "Încărcat în container",
@@ -58,7 +58,7 @@ const EVENTS = {
     UV: "Descărcat de pe navă", AG: "Primit în terminal", AL: "Container plin primit",
     AE: "Predat pentru livrare", OA: "A ieșit din terminal", RD: "Container returnat",
     EE: "Container gol trimis", AV: "Gata de livrare", CU: "Eliberat de vamă",
-    D: "Livrat", DLV: "Livrare la adresa ta",
+    D: "Livrat", DLV: "Livrare",
   },
   en: {
     GTIN: "Received at terminal", STUF: "Stuffed into container",
@@ -71,7 +71,7 @@ const EVENTS = {
     UV: "Unloaded from vessel", AG: "Received at terminal", AL: "Full container received",
     AE: "Released for delivery", OA: "Left the terminal", RD: "Container returned",
     EE: "Empty container dispatched", AV: "Available for delivery", CU: "Customs released",
-    D: "Delivered", DLV: "Delivery to your address",
+    D: "Delivered", DLV: "Delivery",
   },
 };
 
@@ -108,7 +108,7 @@ const Row = ({ m, lang, last }) => (
         </span>
         {m.estimated && (
           <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-            est.
+            {lang === "bg" ? "прогноза" : lang === "ro" ? "estimare" : "est."}
           </span>
         )}
       </div>
