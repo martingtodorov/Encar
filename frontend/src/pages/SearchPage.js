@@ -44,6 +44,18 @@ const PAGE_SIZE = 16;
 // Scroll offset handed back by a car page, read on the next mount of this one.
 let pendingRestore = null;
 
+// Relevance is ranked against the visitor's taste profile, which grows every time they
+// open a car. Re-reading it when this page remounts after Back would reshuffle the very
+// list they were looking at a minute ago, so the profile is snapshotted per query and
+// reused until the query itself changes. Module level on purpose: it has to outlive the
+// component, exactly like `pendingRestore`.
+let tasteSnapshot = { key: null, taste: null };
+
+function tasteFor(key) {
+  if (tasteSnapshot.key !== key) tasteSnapshot = { key, taste: getTaste() };
+  return tasteSnapshot.taste;
+}
+
 // "Relevant" is the sort for every search - browsing or narrowed down to a trim. The
 // visitor can pick another one from the dropdown and that choice is then respected for
 // the rest of the session, including while they change make/model.
@@ -244,7 +256,9 @@ export default function SearchPage() {
       // "Relevant" is ranked against this visitor's own profile, which lives on their
       // machine, so it has to travel with the request. Signed-in buyers also have it on
       // their account, and the backend prefers whichever is present.
-      return sort === "relevant" ? { ...body, taste: getTaste() } : body;
+      return sort === "relevant"
+        ? { ...body, taste: tasteFor(JSON.stringify({ filters, tax, sort, lang })) }
+        : body;
     },
     [filters, tax, sort, page, lang]
   );
@@ -479,7 +493,10 @@ export default function SearchPage() {
       <section className="bg-background">
         <div className="mx-auto max-w-[1280px] px-4 py-5 sm:px-6">
           <TaxonomySelects
-            value={tax}
+            // While the URL's English slugs are still being translated back, `tax` holds
+            // slugs — feeding those to the dropdowns fires level 2/3/4 lookups that can
+            // only come back empty, and the empty answer used to land AFTER the good one.
+            value={resolving ? EMPTY_TAX : tax}
             onChange={changeTax}
             onLabels={setTaxLabels}
             onSlugs={learnSlugs}

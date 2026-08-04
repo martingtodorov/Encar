@@ -63,47 +63,70 @@ export const TaxonomySelects = ({ value, onChange, onLabels, onSlugs, layout = "
   const [details, setDetails] = useState([]);
   const [busy, setBusy] = useState({});
 
-  const load = async (level, params, setter, key) => {
+  /**
+   * `alive` is not optional: these lookups are fired again the moment a parent selection
+   * changes, and the answers do NOT come back in the order they were asked for. Without
+   * the guard a stale (usually empty) response lands last and wipes a list that had just
+   * been filled — which is exactly how the model and submodel dropdowns ended up with no
+   * options at all after coming back from a car.
+   */
+  const load = async (level, params, setter, key, alive) => {
     setBusy((b) => ({ ...b, [key]: true }));
     try {
       const d = await getTaxonomy({ level, lang, ...params });
       const sorted = [...(d.items || [])].sort((a, b) =>
         (a.label || a.value).localeCompare(b.label || b.value, lang, { numeric: true })
       );
-      setter(sorted);
+      if (alive()) setter(sorted);
     } catch (e) {
-      setter([]);
+      if (alive()) setter([]);
     } finally {
-      setBusy((b) => ({ ...b, [key]: false }));
+      if (alive()) setBusy((b) => ({ ...b, [key]: false }));
     }
   };
 
   useEffect(() => {
-    load(1, {}, setMakes, "make");
+    let ok = true;
+    load(1, {}, setMakes, "make", () => ok);
+    return () => {
+      ok = false;
+    };
   }, [lang]);
 
   useEffect(() => {
     if (!make) {
       setModels([]);
-      return;
+      return undefined;
     }
-    load(2, { make }, setModels, "model");
+    let ok = true;
+    load(2, { make }, setModels, "model", () => ok);
+    return () => {
+      ok = false;
+    };
   }, [make, lang]);
 
   useEffect(() => {
     if (!make || !model) {
       setBadges([]);
-      return;
+      return undefined;
     }
-    load(3, { make, model }, setBadges, "badge");
+    let ok = true;
+    load(3, { make, model }, setBadges, "badge", () => ok);
+    return () => {
+      ok = false;
+    };
   }, [make, model, lang]);
 
   useEffect(() => {
     if (!make || !model || !badge) {
       setDetails([]);
-      return;
+      return undefined;
     }
-    load(4, { make, model, badge }, setDetails, "badgeDetail");
+    let ok = true;
+    load(4, { make, model, badge }, setDetails, "badgeDetail", () => ok);
+    return () => {
+      ok = false;
+    };
   }, [make, model, badge, lang]);
 
   // Publish the human-readable label for each selection so the applied-filter chips

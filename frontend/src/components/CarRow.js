@@ -91,7 +91,7 @@ export const CarRow = ({ car, onOpen }) => {
           onOpen?.(car);
         }
       }}
-      className="group relative flex cursor-pointer items-stretch gap-4 overflow-hidden rounded-[14px] border border-border bg-card p-3 shadow-sm transition-shadow duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group/card relative flex cursor-pointer items-stretch gap-4 overflow-hidden rounded-[14px] border border-border bg-card p-3 shadow-sm transition-shadow duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       {car.under_contract && (
         <span data-testid="car-row-contract-ribbon" className="ribbon">
@@ -109,6 +109,7 @@ export const CarRow = ({ car, onOpen }) => {
             images={car.images?.length ? car.images : [car.image]}
             alt={carTitle(car)}
             testId="car-row-swiper"
+            arrows
             ctaLabel={t("viewListing")}
             ctaHint={t("tapToOpen")}
             onCtaReached={warmNow}

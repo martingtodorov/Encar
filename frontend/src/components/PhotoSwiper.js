@@ -76,7 +76,9 @@ const DotRail = ({ count, active }) => {
 };
 
 const ARROW =
-  "absolute top-1/2 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur-sm transition-opacity duration-200 hover:bg-black/65 focus-visible:opacity-100 group-hover/photos:opacity-100 disabled:opacity-0 lg:flex";
+  // `group/card` as well as `group/photos`: on a result card the arrows appear as soon as
+  // the pointer is anywhere on the card, not only over the photo itself.
+  "absolute top-1/2 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur-sm transition-opacity duration-200 hover:bg-black/65 focus-visible:opacity-100 group-hover/photos:opacity-100 group-hover/card:opacity-100 disabled:opacity-0 lg:flex";
 
 export const PhotoSwiper = ({
   images = [],

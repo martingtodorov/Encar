@@ -32,7 +32,23 @@ on the car page are invisible to them. The owner explicitly does NOT want a Shar
 the UI, so nothing links to it; the endpoint exists for links pasted by hand.
 Equipment panel: `Panel` now takes a `className`, and the options block carries
 `lg:col-span-2` with its categories in a `sm:grid-cols-2 lg:grid-cols-3` grid — full page
-width on desktop, height down from ~1100px to 583px. -->
+width on desktop, height down from ~1100px to 583px.
+2026-06 — BACK NAVIGATION / DROPDOWN BUG (Opera report), root causes were TWO, both fixed:
+(1) `TaxonomySelects.load` had no stale-response guard. Arriving on a slug URL fires the
+level 2/3/4 lookups TWICE — once with the English slugs (always empty) and again with the
+Korean values resolved by `/api/meta/resolve` — and the empty answer often landed LAST,
+wiping the model and submodel lists. Every load now carries an `alive()` token, and
+`SearchPage` passes `EMPTY_TAX` to the selects while `resolving`, so the slug round never
+fires. (2) "Подходящи" re-read the taste profile on every mount, and the profile had just
+grown from the car the visitor opened, so Back silently RESHUFFLED the same 14 results.
+`tasteFor(key)` snapshots the profile per query (module level, like `pendingRestore`) and
+reuses it until the query changes. Verified: identical id order and intact dropdowns after
+in-app back, browser back and a direct slug URL.
+Note: "+" is stripped by `slugs.slugify` ("E53 AMG 4MATIC+" -> `e53-amg-4matic`). Only ONE
+real collision exists in the whole tree (Spark LS+/LS) and resolution is scoped, so this was
+NOT the cause — do not "fix" the slugs chasing this bug.
+Desktop result rows: the photo arrows now appear on hover of the WHOLE card
+(`group/card` on the row root + `group-hover/card:opacity-100` in `PhotoSwiper.ARROW`). -->
 
 
 
