@@ -41,10 +41,11 @@ export const AdminBuyers = () => {
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[820px] text-left">
+          <table className="w-full min-w-[980px] text-left">
             <thead>
               <tr className="border-b border-border text-[11.5px] uppercase tracking-wide text-muted-foreground">
                 <th className="pb-2 pr-3 font-medium">Customer</th>
+                <th className="pb-2 pr-3 font-medium">Phone</th>
                 <th className="pb-2 pr-3 font-medium">Wants</th>
                 <th className="pb-2 pr-3 font-medium">Price range</th>
                 <th className="pb-2 pr-3 font-medium">Mileage</th>
@@ -68,6 +69,19 @@ export const AdminBuyers = () => {
                     )}
                   </td>
                   <td className="py-2.5 pr-3">
+                    {r.phone ? (
+                      <a
+                        href={`tel:${r.phone.replace(/\s/g, "")}`}
+                        data-testid={`buyer-phone-${r.email}`}
+                        className="text-[13px] font-medium text-[hsl(var(--primary))] hover:underline"
+                      >
+                        {r.phone}
+                      </a>
+                    ) : (
+                      <span className="text-[13px] text-muted-foreground">—</span>
+                    )}
+                  </td>
+                  <td className="py-2.5 pr-3">
                     <div className="text-[13px] text-foreground">
                       {r.models.length ? r.models.join(", ") : r.makes.join(", ") || "—"}
                     </div>
@@ -75,6 +89,15 @@ export const AdminBuyers = () => {
                       <div className="text-[12px] text-muted-foreground">
                         {r.makes.join(", ")}
                         {r.fuels.length ? ` · ${r.fuels.join(", ")}` : ""}
+                      </div>
+                    )}
+                    {r.last_search && (
+                      <div
+                        data-testid={`buyer-last-search-${r.email}`}
+                        className="mt-1 text-[12px] text-muted-foreground"
+                      >
+                        <span className="text-foreground/70">Last search:</span> {r.last_search}
+                        {r.last_search_at ? ` · ${ago(r.last_search_at)}` : ""}
                       </div>
                     )}
                   </td>

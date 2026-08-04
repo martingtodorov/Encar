@@ -551,6 +551,30 @@ async def _profile(request: Request, sent):
             stored.get("fuels") or {}, stored.get("samples") or [])
 
 
+SEARCH_KEYS = ("q", "makes", "models", "badges", "badge_details", "fuels",
+               "price_min", "price_max", "year_min", "year_max",
+               "mileage_min", "mileage_max")
+
+
+async def _remember_search(request, p):
+    """Keep the last REAL search of a signed-in buyer.
+
+    An operator ringing a customer wants to open with what that customer was just looking
+    for, not with a guess. An empty query (the plain home page) is not worth remembering.
+    """
+    kept = {k: p.get(k) for k in SEARCH_KEYS if p.get(k)}
+    if not kept:
+        return
+    try:
+        user = await auth.optional_user(request)
+    except Exception:
+        user = None
+    if not user:
+        return
+    kept["at"] = datetime.now(timezone.utc).isoformat()
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"last_search": kept}})
+
+
 @api.post("/search")
 async def search(body: SearchBody, request: Request):
     lang = norm_lang(body.lang)
@@ -561,6 +585,9 @@ async def search(body: SearchBody, request: Request):
     page = max(1, int(body.page))
     size = min(max(1, int(body.page_size)), 96)
     skip = (page - 1) * size
+
+    if page == 1:
+        await _remember_search(request, p)
 
     total = await db.listings.count_documents(query)
 
@@ -2157,7 +2184,7 @@ async def admin_buyers(request: Request, x_admin_token: str = Header(default="")
     await _require_admin(request, x_admin_token)
     rows = [u async for u in db.users.find(
         {}, {"email": 1, "name": 1, "taste": 1, "billing": 1, "favourites": 1,
-             "created_at": 1}).sort("created_at", -1).limit(300)]
+             "last_search": 1, "created_at": 1}).sort("created_at", -1).limit(300)]
 
     out = []
     for u in rows:
@@ -2169,9 +2196,11 @@ async def admin_buyers(request: Request, x_admin_token: str = Header(default="")
         out.append({
             "email": u.get("email") or "", "name": u.get("name") or "",
             "city": (u.get("billing") or {}).get("city") or "",
+            "phone": (u.get("billing") or {}).get("phone") or "",
             "favourites": len(u.get("favourites") or []),
             "_makes": taste.get("makes") or {}, "_models": taste.get("models") or {},
             "_fuels": taste.get("fuels") or {},
+            "_search": u.get("last_search") or {},
             "price": price, "price_low": price_low, "price_high": price_high,
             "mileage": mileage, "mileage_low": mileage_low, "mileage_high": mileage_high,
             "events": taste.get("events") or 0,
@@ -2185,6 +2214,8 @@ async def admin_buyers(request: Request, x_admin_token: str = Header(default="")
     # English name, so every key is resolved through the ENGLISH cache (cache-only: this must
     # never call the LLM), the counts are merged under it, and only then is the top taken.
     words = {k for r in out for f in ("_makes", "_models", "_fuels") for k in r[f]}
+    words |= {v for r in out for f in ("makes", "models", "badges", "badge_details", "fuels")
+              for v in (r["_search"].get(f) or [])}
     en = await translate_cached_only(db, list(words), "en") if words else {}
 
     def merge(counts, n):
@@ -2194,10 +2225,40 @@ async def admin_buyers(request: Request, x_admin_token: str = Header(default="")
             totals[name] = totals.get(name, 0) + v
         return [k for k, _ in sorted(totals.items(), key=lambda kv: -kv[1])[:n]]
 
+    def describe(s):
+        """The last search as one line an operator can read out loud."""
+        if not s:
+            return ""
+        bits = []
+        names = [en.get(v, v) for v in
+                 ((s.get("badge_details") or s.get("badges") or s.get("models")
+                   or s.get("makes") or [])[:3])]
+        if names:
+            bits.append(", ".join(names))
+        if s.get("q"):
+            bits.append(f"\u201c{s['q']}\u201d")
+        lo, hi = s.get("price_min"), s.get("price_max")
+        if lo or hi:
+            bits.append(f"€{int(lo or 0):,}–{int(hi):,}".replace(",", " ")
+                        if hi else f"from €{int(lo):,}".replace(",", " "))
+        y1, y2 = s.get("year_min"), s.get("year_max")
+        if y1 and y2:
+            bits.append(f"{y1}–{y2}")
+        elif y1 or y2:
+            bits.append(f"{y1}+" if y1 else f"up to {y2}")
+        if s.get("mileage_max"):
+            bits.append(f"up to {int(s['mileage_max']):,} km".replace(",", " "))
+        if s.get("fuels"):
+            bits.append(", ".join(en.get(v, v) for v in s["fuels"][:2]))
+        return " · ".join(bits)
+
     for r in out:
         r["makes"] = merge(r.pop("_makes"), 3)
         r["models"] = merge(r.pop("_models"), 3)
         r["fuels"] = merge(r.pop("_fuels"), 2)
+        s = r.pop("_search")
+        r["last_search"] = describe(s)
+        r["last_search_at"] = s.get("at")
     return {"items": out}
 
 
