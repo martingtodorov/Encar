@@ -12,7 +12,9 @@ import {
   formatYearMonth,
 } from "@/lib/format";
 
-export const CarCard = ({ car, onOpen }) => {
+// showRegion: the "Picked for you" shelf leaves the Korean city out - it is the one fact
+// that never helps a buyer decide, and those cards are narrower.
+export const CarCard = ({ car, onOpen, showRegion = true }) => {
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
   const saved = isFavourite(car.id);
   const [warm, warmNow] = useCarWarm(car.id);
@@ -133,7 +135,7 @@ export const CarCard = ({ car, onOpen }) => {
               {car.fuel_type_t || car.fuel_type}
             </span>
           )}
-          {(car.region_t || car.region) && (
+          {showRegion && (car.region_t || car.region) && (
             <span className="inline-flex items-center gap-1">
               <MapPin className="h-3 w-3" aria-hidden="true" />
               {car.region_t || car.region}

@@ -51,7 +51,7 @@ export const Recommended = ({ onOpen }) => {
               data-testid={`recommended-card-${car.id}`}
               className="w-[280px] shrink-0 sm:w-[300px]"
             >
-              <CarCard car={car} onOpen={onOpen} />
+              <CarCard car={car} onOpen={onOpen} showRegion={false} />
             </div>
           ))}
         </div>

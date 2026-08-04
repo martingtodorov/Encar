@@ -406,3 +406,6 @@ Verified (iteration_9): 100% both.
 - Left as considered-and-declined for now: integer-cents pricing, a global archive
   semaphore, and a soft-lock on a second PENDING checkout for the same car (whoever pays
   first still wins, and the loser gets a clean 409).
+- "Подбрани за теб" cards no longer show the Korean city. `CarCard` takes `showRegion`
+  (default true) and `Recommended.js` passes false, so the search grid and rows keep the
+  region. Verified: 0 map pins in the shelf, 32 still on `/bg?make=BMW`.
