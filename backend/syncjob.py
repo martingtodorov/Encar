@@ -218,6 +218,14 @@ async def clear_stale(db):
             {"_id": JOB_ID},
             {"$set": {"status": "interrupted", "finished_at": _now(),
                       "error": "the server restarted while this sync was running"}})
+    # The retired page-based sync left its own doc behind, and nothing ever cleared it: a
+    # crawl interrupted months ago kept the admin Overview reading "running, page 142 of
+    # 420" for ever. Settle it too, so the panel cannot lie.
+    legacy = await db.sync_state.find_one({"_id": "catalogue"}) or {}
+    if legacy.get("status") == "running":
+        await db.sync_state.update_one(
+            {"_id": "catalogue"},
+            {"$set": {"status": "interrupted", "finished_at": _now()}})
 
 
 async def start(db, trigger="manual", resume_run_id=None, fresh=False):

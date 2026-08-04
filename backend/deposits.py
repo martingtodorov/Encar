@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 import archive
 import auth
+import translate
 
 log = logging.getLogger("deposits")
 router = APIRouter()
@@ -62,6 +63,25 @@ def _title(car):
                                      car.get("model_t") or car.get("model")] if x)
 
 
+async def _english_title(car):
+    """The same title, but never in Korean.
+
+    `_car` reads the listing straight from Mongo, where make and model are still Korean —
+    the `_t` variants are attached by the translation layer on the way to a page, which a
+    Stripe line item never passes through. So a buyer saw "푸조 5008 2세대" on the payment
+    page and on their card receipt. Resolved synchronously (make and model are cached
+    permanently, so this costs one provider call per model ever) and never allowed to
+    break a checkout.
+    """
+    try:
+        await translate.translate_listings(_db, [car], "en",
+                                          fields=("manufacturer", "model"),
+                                          background=False)
+    except Exception as e:                          # noqa: BLE001 - a name is not worth a 500
+        log.warning("could not translate %s for Stripe: %s", car.get("_id"), str(e)[:140])
+    return _title(car)
+
+
 @router.get("/deposit/car/{car_id}")
 async def deposit_quote(car_id: str, request: Request):
     """What a deposit on this car costs, and whether somebody already holds it."""
@@ -90,6 +110,7 @@ async def deposit_checkout(body: CheckoutBody, user=Depends(auth.current_user)):
         raise HTTPException(409, "another buyer already holds this car")
 
     amount = amount_for(car.get("sale_eur"))
+    title = await _english_title(car)
     origin = body.origin_url.rstrip("/")
     kwargs = dict(
         mode="payment",
@@ -97,7 +118,7 @@ async def deposit_checkout(body: CheckoutBody, user=Depends(auth.current_user)):
             "price_data": {
                 "currency": "eur",
                 "unit_amount": int(round(amount * 100)),
-                "product_data": {"name": f"Reservation deposit — {_title(car)}"},
+                "product_data": {"name": f"Reservation deposit — {title}"},
             },
             "quantity": 1,
         }],
@@ -121,7 +142,7 @@ async def deposit_checkout(body: CheckoutBody, user=Depends(auth.current_user)):
     await _db.deposits.insert_one({
         "session_id": session.id,
         "car_id": car["_id"],
-        "car_title": _title(car),
+        "car_title": title,
         "user_id": user["_id"],
         "email": user["email"],
         "amount": amount,

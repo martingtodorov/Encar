@@ -1463,6 +1463,11 @@ async def admin_overview(request: Request, x_admin_token: str = Header(default="
     partition = await db.sync_state.find_one({"_id": "catalogue_partition"}) or {}
     tax = await db.sync_state.find_one({"_id": "taxonomy"}) or {}
     return jsonable({
+        # The crawl the operator actually runs is the partitioned one, so its job doc is
+        # the truth about status and progress. `sync` below is the retired page-based
+        # sync's doc, kept only for the few counters that still read from it.
+        "job": await syncjob_mod.get_job(db),
+        "running": syncjob_mod.is_running(),
         "listings_total": await db.listings.count_documents({}),
         "listings_active": await db.listings.count_documents({"active": True}),
         "unique_cars": await db.listings.count_documents(

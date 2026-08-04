@@ -446,3 +446,31 @@ Verified (iteration_9): 100% both.
   succeeded, fully refunded. (The test report's "6099000 cents" was a typo in the writeup.)
 - Guard paths I checked myself: 401 anonymous, 401 signed-in non-admin, 404 unknown
   session, 409 on a pending deposit.
+
+## 2026-06-04 (later) — Stale crawl panel and Korean names in Stripe
+- The admin Overview's Crawl panel was stuck reading `sync_state/catalogue`, the doc left
+  behind by the RETIRED page-based `run_full_sync`. It had been frozen at
+  `status: "running", pages_done: 142, pages_total: 420` since 3 Aug because `clear_stale`
+  only ever repaired `catalogue_job`. So the panel claimed "running · page 142 of 420" for
+  ever, and "Last full crawl 2d ago" / "Duration 10 min" were equally stale.
+  Fixes: `/api/admin/overview` now returns the REAL job (`syncjob.get_job`) plus a
+  `running` flag; `AdminOverview.js` reads status, the progress bar (phase, seen of
+  upstream) and the crawl timings from the job and the partition doc instead; and
+  `clear_stale` now also settles the legacy doc so the ghost cannot come back.
+  Verified: panel shows "done", "Last full crawl 22m ago", "Duration 24 min", and the
+  "page 142 of 420" line is gone.
+- The crawl itself was NOT broken (checked before touching anything): last run finished
+  10:15 with 205,821 of 211,046 exportable ads indexed (97.5%), 10,489 cars first seen in
+  the previous 24h (320 in the last hour), 9,247 retired as sold. The ~2.5% gap is the
+  lease/rental rows we deliberately skip (3,379 that run) plus contract/placeholder ads,
+  which is exactly why the per-brand table sits at 94-100%.
+- Stripe showed Korean: the checkout line item and the buyer's card receipt read
+  "Reservation deposit — 푸조 5008 2세대". `_car()` reads the listing straight from Mongo,
+  where make/model are still Korean; the `_t` variants are attached by the translation
+  layer on the way to a PAGE, which a Stripe line item never passes through. New
+  `deposits._english_title()` resolves make and model through `translate_listings(..., "en",
+  background=False)` before the session is created, wrapped so a translation failure can
+  never break a checkout. `car_title` on the deposit record (shown in the admin Deposits
+  list and My Purchases) now stores the English form too.
+  Verified against Stripe: "Reservation deposit — Peugeot 5008 2nd Generation", no Hangul.
+  Note: deposits created BEFORE this fix keep their Korean `car_title`.

@@ -26,10 +26,11 @@ export const AdminOverview = () => {
 
   if (!data) return <Spinner />;
 
-  const sync = data.sync || {};
+  const job = data.job || {};
+  const progress = job.progress || {};
   const part = data.partition || {};
   const stats = part.stats || {};
-  const running = sync.status === "running";
+  const running = data.running || job.status === "running";
   const breaker = data.translation_breaker || {};
   const email = data.email || {};
   const held = data.listings_active || 0;
@@ -39,7 +40,7 @@ export const AdminOverview = () => {
     <div data-testid="admin-overview" className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[13px] text-muted-foreground">
-          Auto-refreshing every 15s · index last touched {ago(sync.finished_at)}
+          Auto-refreshing every 15s · index last touched {ago(part.finished_at || job.finished_at)}
         </p>
         <Button
           data-testid="admin-overview-refresh"
@@ -97,30 +98,29 @@ export const AdminOverview = () => {
                 : "bg-muted text-muted-foreground"
             }`}
           >
-            {running ? "running" : sync.status || "idle"}
+            {running ? "running" : job.status || "idle"}
           </span>
         </div>
 
-        {running && sync.pages_total ? (
+        {running && progress.percent != null ? (
           <div className="mt-3">
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-[hsl(var(--primary))] transition-[width] duration-500"
-                style={{
-                  width: `${Math.min(100, (sync.pages_done / sync.pages_total) * 100).toFixed(1)}%`,
-                }}
+                style={{ width: `${Math.min(100, progress.percent)}%` }}
               />
             </div>
             <p className="mt-1.5 tnum text-[12px] text-muted-foreground">
-              page {num(sync.pages_done)} of {num(sync.pages_total)}
+              {progress.phase_label || "Crawling Encar"} · {num(progress.seen)} of about{" "}
+              {num(progress.upstream)} cars
             </p>
           </div>
         ) : null}
 
         <dl className="mt-4 grid gap-x-6 gap-y-2 sm:grid-cols-2">
           {[
-            ["Last full crawl", ago(sync.finished_at)],
-            ["Duration", sync.duration_s ? `${Math.round(sync.duration_s / 60)} min` : "—"],
+            ["Last full crawl", ago(part.finished_at || job.finished_at)],
+            ["Duration", part.duration_s ? `${Math.round(part.duration_s / 60)} min` : "—"],
             ["Partition leaves", num(stats.leaves)],
             ["Upstream requests", num(part.encar_requests)],
             ["Lease / rental skipped", num(stats.excluded_skipped ?? stats.lease_skipped)],
