@@ -13,7 +13,14 @@ EUR 300 commission once the buyer wires the balance (iteration_29.json, 0 defect
 pages carry a body-damage diagram and a mechanical-checks card built from Encar's
 inspection sheet. Price-drop alerts for saved cars and a deposit-returned email are built
 but CANNOT DELIVER: SENDER_EMAIL is still Resend's shared sender and ADMIN_NOTIFY_EMAIL is
-unset, which also silently drops enquiry notifications. See CHANGELOG.md. -->
+unset, which also silently drops enquiry notifications. See CHANGELOG.md.
+2026-06: the owner's "Europe Encar" logo replaced the text wordmark everywhere
+(`public/logo.png` + `logo-220.png`, header, footer, favicon.ico/png, PWA icons 180/192/512
+on a #141414 plate). SECURITY: `ADMIN_TOKEN` no longer has the "encar-admin" default — it is
+read from backend/.env with NO fallback, compared with `secrets.compare_digest`, and an unset
+value refuses header-token admin access outright (verified: old token 401, new token 200, no
+token 401). Owner's decision on price-drop alerts: notify on ANY drop, no user threshold. -->
+
 
 ## Original problem statement
 Create a fully translated skin for encar.com in Bulgarian, Romanian and English.
@@ -112,8 +119,8 @@ instead of after a 10-20s spinner. The non-streaming POST route remains as a fal
 The SSE response must keep `X-Accel-Buffering: no` or the proxy buffers the whole stream.
 
 ## Admin (`/admin`, admin-only)
-Guarded by `_require_admin` — admin session OR `x-admin-token` header (`ADMIN_TOKEN`,
-default `encar-admin`). Three tabs: **Overview** (index size, crawl progress, translation
+Guarded by `_require_admin` — admin session OR `x-admin-token` header (`ADMIN_TOKEN` from
+backend/.env, NO default: unset means the header path is refused). Three tabs: **Overview** (index size, crawl progress, translation
 health, email status), **Brand coverage** (per-brand our-vs-Encar counts, Latin-script
 labels, refreshed by one count-only upstream request per make), **Enquiries** (full inbox
 with contact details, search, status filters and new/contacted/closed workflow).

@@ -19,6 +19,16 @@ export const SiteFooter = () => {
     <footer data-testid="site-footer" className="border-t border-border bg-card">
       <div className="mx-auto grid max-w-[1280px] gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(0,1fr))]">
         <div className="max-w-md">
+          <img
+            src="/logo-220.png"
+            alt="Europe Encar"
+            data-testid="footer-logo"
+            width={127}
+            height={36}
+            loading="lazy"
+            decoding="async"
+            className="mb-4 block h-9 w-auto"
+          />
           <div className="text-[13.5px] font-semibold text-foreground">{facts[0]}</div>
           <div className="mt-1 flex flex-col gap-0.5">
             {facts.slice(1).map((line) => (

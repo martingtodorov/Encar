@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
 from datetime import datetime, timedelta, timezone
 import uuid
@@ -58,7 +59,9 @@ log = logging.getLogger("server")
 
 MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ.get("DB_NAME", "encar_skin")
-ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "encar-admin")
+# No default: an unset ADMIN_TOKEN disables header-token admin access entirely rather
+# than leaving a guessable master key in the tree.
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "").strip()
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -1566,7 +1569,7 @@ def _mech_checks(insp):
 
 
 def _check_admin(token):
-    if token != ADMIN_TOKEN:
+    if not ADMIN_TOKEN or not secrets.compare_digest(token or "", ADMIN_TOKEN):
         raise HTTPException(status_code=401, detail="bad admin token")
 
 
