@@ -10,6 +10,7 @@ route asks Stripe directly while the record is still pending, so a webhook that 
 arrives cannot leave a paid deposit looking unpaid.
 """
 import logging
+import asyncio
 import os
 from datetime import datetime, timezone
 
@@ -20,6 +21,7 @@ from pydantic import BaseModel
 import archive
 import auth
 import translate
+import mailer
 
 log = logging.getLogger("deposits")
 router = APIRouter()
@@ -152,6 +154,8 @@ async def deposit_checkout(body: CheckoutBody, user=Depends(auth.current_user)):
         "amount": amount,
         "currency": "eur",
         "car_price_eur": car.get("sale_eur") or 0,
+        # Which skin they bought from, so a later refund email speaks their language.
+        "lang": (origin.rsplit("/", 1)[-1] or "en")[:2].lower(),
         "status": "initiated",
         "payment_status": "pending",
         "created_at": _now(),
@@ -297,6 +301,11 @@ async def refund(session_id, admin_email=""):
         {"session_id": session_id},
         {"$set": {**settle, "stripe_refund_id": out.id}})
     await _free_car(record["car_id"])
+    # The buyer should hear it from us, not from their bank statement. Fire and forget: a
+    # mail outage must not turn a completed refund into an error.
+    asyncio.create_task(mailer.send_deposit_returned(
+        record.get("email"), record.get("car_title") or record["car_id"],
+        give_back, settle["commission_eur"], record.get("lang") or "en"))
     log.info("returned %s EUR of the %s EUR deposit %s (kept %s commission) and released "
              "car %s", give_back, deposit, session_id, settle["commission_eur"],
              record["car_id"])

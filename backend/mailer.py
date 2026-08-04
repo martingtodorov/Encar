@@ -44,6 +44,20 @@ async def _send(to, subject, html):
         return None
     if not to:
         return None
+
+    # On the shared sender Resend will only deliver to the address that owns the account,
+    # so anything aimed at a buyer would vanish without a trace. Send it to the owner
+    # instead, with the intended recipient in the subject, until SENDER_EMAIL points at a
+    # verified domain.
+    owner = os.environ.get("ADMIN_NOTIFY_EMAIL", "").strip()
+    if sender() == SHARED_SENDER and to.lower() != owner.lower():
+        if not owner:
+            log.warning("email to %s dropped: shared sender and no ADMIN_NOTIFY_EMAIL", to)
+            return None
+        log.info("email for %s redirected to %s (shared sender)", to, owner)
+        subject = f"[would go to {to}] {subject}"
+        to = owner
+
     import resend
 
     resend.api_key = os.environ["RESEND_API_KEY"]
@@ -148,6 +162,90 @@ async def acknowledge_enquiry(doc):
         _row(c["car"], _esc(doc.get("car_title"))),
         _row(c["message"], _esc(doc.get("message")).replace("\n", "<br>")),
     ])
+
+
+# ── price drop on a saved car ────────────────────────────────────────────────
+DROP = {
+    "bg": {
+        "subject": "Запазена кола падна в цената",
+        "heading": "Кола от запазените ви е по-евтина",
+        "body": "Цената падна при следните автомобили от списъка ви:",
+        "cut": "по-евтина с",
+        "footer": ("Получавате това, защото сте запазили колата. Можете да изключите тези "
+                   "известия в профила си."),
+    },
+    "ro": {
+        "subject": "Un automobil salvat a scăzut la preț",
+        "heading": "Un automobil din lista ta este mai ieftin",
+        "body": "Prețul a scăzut la următoarele automobile din lista ta:",
+        "cut": "mai ieftin cu",
+        "footer": ("Primești acest mesaj pentru că ai salvat automobilul. Poți opri aceste "
+                   "notificări din profilul tău."),
+    },
+    "en": {
+        "subject": "A saved car dropped in price",
+        "heading": "A car on your list got cheaper",
+        "body": "The price came down on these cars you saved:",
+        "cut": "down",
+        "footer": ("You are getting this because you saved the car. You can turn these "
+                   "alerts off in your profile."),
+    },
+}
+
+
+async def send_price_drop(to, rows, lang="en"):
+    """One email per person, listing every car of theirs that fell.
+
+    One message per car would punish exactly the people who save the most cars.
+    """
+    t = DROP.get(lang) or DROP["en"]
+    body = "".join(
+        _row(_esc(r["title"]), f'€{r["now_eur"]:,.0f} · {t["cut"]} {r["cut_pct"]}%')
+        for r in rows)
+    html = _shell(t["heading"],
+                  f'<tr><td colspan="2" style="padding:0 0 12px;color:#111">{t["body"]}'
+                  f'</td></tr>{body}',
+                  t["footer"])
+    return await _send(to, t["subject"], html)
+
+
+# ── deposit returned ─────────────────────────────────────────────────────────
+RETURNED = {
+    "bg": {
+        "subject": "Депозитът ви е върнат",
+        "heading": "Върнахме депозита ви",
+        "body": ("Сумата е изпратена обратно към картата, с която платихте. Според банката "
+                 "ви може да отнеме няколко работни дни."),
+        "car": "Автомобил", "returned": "Върната сума", "kept": "Задържана комисиона",
+        "footer": "Ако нещо не е ясно, просто отговорете на този имейл.",
+    },
+    "ro": {
+        "subject": "Depozitul tău a fost returnat",
+        "heading": "Am returnat depozitul tău",
+        "body": ("Suma a fost trimisă înapoi pe cardul cu care ai plătit. În funcție de "
+                 "bancă, pot trece câteva zile lucrătoare."),
+        "car": "Automobil", "returned": "Sumă returnată", "kept": "Comision reținut",
+        "footer": "Dacă ceva nu este clar, răspunde pur și simplu la acest e-mail.",
+    },
+    "en": {
+        "subject": "Your deposit has been returned",
+        "heading": "We have returned your deposit",
+        "body": ("The money is on its way back to the card you paid with. Depending on your "
+                 "bank it can take a few working days to appear."),
+        "car": "Car", "returned": "Returned", "kept": "Commission kept",
+        "footer": "If anything is unclear, just reply to this email.",
+    },
+}
+
+
+async def send_deposit_returned(to, car_title, returned_eur, commission_eur, lang="en"):
+    t = RETURNED.get(lang) or RETURNED["en"]
+    rows = (f'<tr><td colspan="2" style="padding:0 0 12px;color:#111">{t["body"]}</td></tr>'
+            + _row(t["car"], _esc(car_title))
+            + _row(t["returned"], f"€{returned_eur:,.0f}")
+            + _row(t["kept"], f"€{commission_eur:,.0f}"))
+    return await _send(to, t["subject"], _shell(t["heading"], rows, t["footer"]))
+
     await _send(to, c["subject"], _shell(c["heading"], rows, c["footer"]))
 
 

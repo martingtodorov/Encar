@@ -41,6 +41,7 @@ import mailer                # noqa: E402
 import pricing               # noqa: E402
 import slugs as slugs_mod    # noqa: E402
 import syncjob as syncjob_mod  # noqa: E402
+import pricewatch as pricewatch_mod  # noqa: E402
 import edi                  # noqa: E402
 import jsoncargo            # noqa: E402
 import maersk_public        # noqa: E402
@@ -1985,6 +1986,15 @@ async def admin_customers(request: Request, q: str = "", limit: int = 20,
     return {"items": [{"email": r.get("email") or "",
                        "name": r.get("name") or (r.get("billing") or {}).get("full_name") or "",
                        "created_at": jsonable(r.get("created_at"))} for r in rows]}
+
+
+@api.post("/admin/price-watch/run")
+async def admin_price_watch_run(request: Request, first_seen: bool = False,
+                               x_admin_token: str = Header(default="")):
+    """Check saved cars for price drops now, instead of waiting for the next sync."""
+    await _require_admin(request, x_admin_token)
+    return jsonable(await pricewatch_mod.run(db, notify_first_seen=first_seen))
+
 
 
 @api.get("/admin/deposits")

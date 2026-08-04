@@ -11,7 +11,9 @@ new Deposits tab, which also releases the car for other buyers (iteration_28.jso
 deposit is a PURCHASE, not a holding fee: non-refundable on withdrawal, returned less a
 EUR 300 commission once the buyer wires the balance (iteration_29.json, 0 defects). Car
 pages carry a body-damage diagram and a mechanical-checks card built from Encar's
-inspection sheet. See CHANGELOG.md. -->
+inspection sheet. Price-drop alerts for saved cars and a deposit-returned email are built
+but CANNOT DELIVER: SENDER_EMAIL is still Resend's shared sender and ADMIN_NOTIFY_EMAIL is
+unset, which also silently drops enquiry notifications. See CHANGELOG.md. -->
 
 ## Original problem statement
 Create a fully translated skin for encar.com in Bulgarian, Romanian and English.

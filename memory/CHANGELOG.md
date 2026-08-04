@@ -558,3 +558,33 @@ withdraws; once the buyer wires the balance we return the deposit less a EUR 300
 - Verified: car 42432304 (29 checks, engine "slight seepage" on rocker cover and block/sump,
   drivetrain "fault found" on the CV joint, everything else fine) in Bulgarian, and car
   42379471 (30 checks, all fine) in Romanian. No Korean characters in either.
+
+## 2026-06-04 (night) — Price-drop alerts and the deposit-returned email
+- New `pricewatch.py`. Keeps a per-person baseline in `price_watch` (`<user_id>:<car_id>`)
+  for every saved car and alerts by email and push when the price falls.
+  KEY DECISION: the baseline is the KRW price, not the EUR one. Our euro figures are derived
+  through the exchange rate, so watching them would fire "the price dropped!" every time the
+  won moved overnight - noise that teaches people to ignore alerts. The won price only moves
+  when the seller moves it. The message still speaks in euros.
+  A car seen for the first time only gets a baseline (nobody is told about a "drop" the
+  moment they save something), a price that ROSE rebases quietly, and moves under
+  MIN_DROP_KRW (100,000 KRW) are ignored as rounding. One email per person listing all their
+  fallen cars, not one per car.
+- Hooked into `syncjob._run` right after a successful sync - the one moment prices have
+  actually changed - plus `POST /api/admin/price-watch/run?first_seen=` to run it by hand.
+- `mailer.send_price_drop()` and `mailer.send_deposit_returned()`, both in BG/RO/EN. The
+  refund email fires from `deposits.refund()` as a detached task, so a mail outage can never
+  turn a completed refund into an error. Deposits now store the buyer's `lang` (parsed from
+  the checkout origin) so the refund email speaks their language.
+- `mailer._send()` guard: on the shared `onboarding@resend.dev` sender Resend only delivers
+  to the address that owns the account, so anything aimed at a buyer used to vanish without
+  trace. It now redirects to ADMIN_NOTIFY_EMAIL with "[would go to X]" in the subject, or
+  logs a clear warning if that is unset.
+- VERIFIED: first run recorded a baseline and sent nothing; after dropping a watched car's
+  KRW price 10% the run reported 1 drop and 1 email; restoring the price (a RISE) reported
+  0 drops, proving the quiet rebase. All six templates build in three languages with no
+  Korean.
+- NOT VERIFIED, blocked on config not code: actual delivery. `SENDER_EMAIL` is still
+  `onboarding@resend.dev` and `ADMIN_NOTIFY_EMAIL` is UNSET, so nothing can reach anyone.
+  The same gap has been silently dropping enquiry notifications since at least 2 Aug.
+  Waiting on the owner for the address that owns the Resend account.
