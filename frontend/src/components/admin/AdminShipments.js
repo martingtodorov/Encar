@@ -11,22 +11,9 @@ import {
   refreshShipment,
 } from "@/lib/api";
 import { Spinner, ago } from "@/components/admin/AdminBits";
+import { CustomerPicker } from "@/components/admin/CustomerPicker";
 
-const BLANK = {
-  email: "", ref: "", by: "container", car_id: "",
-  vessel_name: "", vessel_imo: "", vessel_mmsi: "", eta: "", note: "",
-};
-
-const FIELDS = [
-  ["email", "Customer email", "buyer@example.com"],
-  ["ref", "Tracking reference", "MSKU1234567 or a 9-character B/L"],
-  ["car_id", "Car id (optional)", "the listing id from the ad URL"],
-  ["vessel_name", "Vessel name (optional)", "MAERSK SELETAR"],
-  ["vessel_imo", "Vessel IMO (optional)", "9525338"],
-  ["vessel_mmsi", "Vessel MMSI (optional)", "563012400"],
-  ["eta", "ETA (optional)", "2026-07-14"],
-  ["note", "Note for the buyer (optional)", "Sailing from Busan, transhipping in Singapore"],
-];
+const BLANK = { email: "", ref: "", by: "container" };
 
 export const AdminShipments = () => {
   const [rows, setRows] = useState(null);
@@ -137,18 +124,26 @@ export const AdminShipments = () => {
             ))}
           </div>
 
-          {FIELDS.map(([key, label, hint]) => (
-            <label key={key} className={`flex flex-col gap-1.5 ${key === "note" ? "sm:col-span-2" : ""}`}>
-              <span className="text-[12px] font-medium text-muted-foreground">{label}</span>
-              <Input
-                data-testid={`shipment-${key}`}
-                value={form[key]}
-                onChange={set(key)}
-                placeholder={hint}
-                className="h-10 bg-background"
-              />
-            </label>
-          ))}
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] font-medium text-muted-foreground">Customer</span>
+            <CustomerPicker
+              value={form.email}
+              onChange={(email) => setForm((f) => ({ ...f, email }))}
+            />
+          </label>
+
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[12px] font-medium text-muted-foreground">
+              {form.by === "bol" ? "Bill of lading" : "Container number"}
+            </span>
+            <Input
+              data-testid="shipment-ref"
+              value={form.ref}
+              onChange={set("ref")}
+              placeholder={form.by === "bol" ? "9-character B/L" : "MSKU1234567"}
+              className="h-10 bg-background"
+            />
+          </label>
 
           <div className="sm:col-span-2">
             <Button

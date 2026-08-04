@@ -16,7 +16,8 @@ const MIN_PASSWORD = 8;
 
 export default function LoginPage() {
   const { t, lang } = useApp();
-  const { user, login, register, passkeyLogin, passkeySupported, errorMessage } = useAuth();
+  const { user, login, loginMfa, register, passkeyLogin, passkeySupported,
+          errorMessage } = useAuth();
   const { path, go } = useLangNav();
 
   useSeo({ lang, title: `${t("login")} \u00b7 Encar` });
@@ -29,6 +30,10 @@ export default function LoginPage() {
   const [billing, setBilling] = useState(BLANK_BILLING);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
+  // Set when the password was right but a second factor is still owed.
+  const [pending, setPending] = useState("");
+  const [code, setCode] = useState("");
+  const [recovery, setRecovery] = useState(false);
 
   useEffect(() => {
     if (user) go("/", { replace: true });
@@ -41,6 +46,7 @@ export default function LoginPage() {
       await fn();
       go("/", { replace: true });
     } catch (e) {
+      if (e?.mfa) return;          // a second factor is owed, not a failure
       const msg = errorMessage(e, t("authFailed"));
       if (msg) setError(msg);
     } finally {
@@ -55,7 +61,20 @@ export default function LoginPage() {
       return;
     }
     if (mode === "register") run("register", () => register(email, password, name, billing));
-    else run("login", () => login(email, password));
+    else
+      run("login", async () => {
+        const answer = await login(email, password);
+        if (answer?.mfa_required) {
+          setPending(answer.pending_id);
+          // Stop `run` from navigating: the sign-in is not finished yet.
+          throw { mfa: true };
+        }
+      });
+  };
+
+  const submitCode = (e) => {
+    e.preventDefault();
+    run("mfa", () => loginMfa(pending, code, recovery));
   };
 
   const registering = mode === "register";
@@ -75,6 +94,78 @@ export default function LoginPage() {
           {registering ? t("registerBlurb") : t("loginBlurb")}
         </p>
 
+        {pending ? (
+          <form
+            onSubmit={submitCode}
+            data-testid="auth-mfa-form"
+            className="mt-6 flex flex-col gap-4"
+          >
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="auth-mfa-code" className="text-[12.5px] font-medium">
+                {recovery ? t("mfaUseRecovery") : t("mfaTitle")}
+              </Label>
+              <p className="text-[12.5px] leading-relaxed text-muted-foreground">
+                {t("mfaBlurb")}
+              </p>
+              <Input
+                id="auth-mfa-code"
+                data-testid="auth-mfa-input"
+                autoFocus
+                inputMode={recovery ? "text" : "numeric"}
+                maxLength={recovery ? 20 : 6}
+                value={code}
+                onChange={(e) =>
+                  setCode(recovery ? e.target.value : e.target.value.replace(/\D/g, ""))
+                }
+                className={`h-12 bg-background text-[16px] ${
+                  recovery ? "" : "tnum text-center tracking-[0.4em]"
+                }`}
+              />
+            </div>
+
+            {error && (
+              <div
+                data-testid="auth-error"
+                role="alert"
+                className="flex items-start gap-2 rounded-[10px] border border-destructive/40 bg-secondary px-3 py-2.5 text-[13px] text-foreground"
+              >
+                <AlertCircle
+                  className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+                  aria-hidden="true"
+                />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <Button
+              data-testid="auth-mfa-submit"
+              type="submit"
+              disabled={!!busy || code.length < (recovery ? 4 : 6)}
+              className="h-12 w-full justify-center gap-2 rounded-[12px] bg-[hsl(var(--primary))] text-[15px] font-semibold text-primary-foreground hover:brightness-110"
+            >
+              {busy === "mfa" ? (
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <LogIn className="h-[18px] w-[18px]" aria-hidden="true" />
+              )}
+              {t("mfaContinue")}
+            </Button>
+
+            <button
+              type="button"
+              data-testid="auth-mfa-toggle"
+              onClick={() => {
+                setRecovery((v) => !v);
+                setCode("");
+                setError("");
+              }}
+              className="text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {recovery ? t("mfaUseApp") : t("mfaUseRecovery")}
+            </button>
+          </form>
+        ) : (
+          <>
         {/* Passkeys are offered AFTER the account exists (see PasskeyPrompt), never on the
             registration form where there is no account for the credential to belong to. */}
         {passkeySupported && !registering && (
@@ -213,6 +304,8 @@ export default function LoginPage() {
         >
           {registering ? t("haveAccount") : t("noAccount")}
         </button>
+          </>
+        )}
 
         <Link
           to={path("/")}

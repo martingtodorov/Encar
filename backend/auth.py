@@ -34,6 +34,8 @@ from webauthn import (
     verify_registration_response,
 )
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+
+import twofa
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
     PublicKeyCredentialDescriptor,
@@ -106,13 +108,26 @@ def _hash_token(raw: str):
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
-async def _start_session(response: Response, user_id: str):
+async def _start_session(response: Response, user_id: str, request: Request = None):
     raw = secrets.token_urlsafe(32)
+    ua = request.headers.get("user-agent", "") if request else ""
+    # Behind the ingress the real client address arrives in X-Forwarded-For; the first hop
+    # is the visitor, the rest are proxies.
+    forwarded = (request.headers.get("x-forwarded-for", "") if request else "").split(",")
+    ip = (forwarded[0].strip() if forwarded[0].strip()
+          else (request.client.host if request and request.client else ""))
+    marks = twofa.device(ua)
     await _db.sessions.insert_one({
         "_id": str(uuid.uuid4()),
         "token_hash": _hash_token(raw),
         "user_id": user_id,
         "created_at": _now(),
+        "last_seen": _now(),
+        "user_agent": ua[:400],
+        "ip": ip[:64],
+        "browser": marks["browser"],
+        "os": marks["os"],
+        "label": marks["label"],
         "expires_at": _now() + timedelta(days=SESSION_TTL_DAYS),
     })
     response.set_cookie(
@@ -129,6 +144,12 @@ async def _user_from_request(request: Request):
         {"token_hash": _hash_token(raw), "expires_at": {"$gt": _now()}})
     if not session:
         return None
+    # "Last active" only has to be roughly right, and writing it on every request would be
+    # one Mongo write per page view.
+    last = session.get("last_seen") or session.get("created_at")
+    if not last or (_now() - last.replace(tzinfo=timezone.utc)).total_seconds() > 300:
+        await _db.sessions.update_one({"_id": session["_id"]},
+                                     {"$set": {"last_seen": _now()}})
     return await _db.users.find_one({"_id": session["user_id"]})
 
 
@@ -165,6 +186,9 @@ def _public(user, passkeys=0):
         "is_admin": bool(user.get("is_admin")),
         "billing": user.get("billing") or {},
         "consent": user.get("consent") or "",
+        "twofa": bool((user.get("totp") or {}).get("enabled")),
+        "recovery_codes_left": sum(
+            1 for c in (user.get("recovery_codes") or []) if not c.get("used")),
         "taste": user.get("taste") or {},
         "created_at": user.get("created_at"),
     }
@@ -220,7 +244,7 @@ class SavedSearchesBody(BaseModel):
 
 # ── password auth -------------------------------------------------------------
 @router.post("/auth/register")
-async def register(body: Credentials, response: Response):
+async def register(body: Credentials, request: Request, response: Response):
     if len(body.password) < MIN_PASSWORD:
         raise HTTPException(400, f"password must be at least {MIN_PASSWORD} characters")
     email = str(body.email).strip().lower()
@@ -250,12 +274,12 @@ async def register(body: Credentials, response: Response):
         await _db.users.insert_one(user)
     except Exception:
         raise HTTPException(409, "that email is already registered")
-    await _start_session(response, user["_id"])
+    await _start_session(response, user["_id"], request)
     return {"user": _public(user)}
 
 
 @router.post("/auth/login")
-async def login(body: LoginBody, response: Response):
+async def login(body: LoginBody, request: Request, response: Response):
     email = str(body.email).strip().lower()
     user = await _db.users.find_one({"email_norm": email})
     stored = (user or {}).get("password_hash") or _DUMMY_HASH
@@ -265,7 +289,14 @@ async def login(body: LoginBody, response: Response):
         ok = False
     if not user or not ok:
         raise HTTPException(401, "wrong email or password")
-    await _start_session(response, user["_id"])
+    # With a second factor on, the password alone buys a 10-minute ticket, never a session.
+    if (user.get("totp") or {}).get("enabled"):
+        pending_id = secrets.token_urlsafe(24)
+        await _db.mfa_pending.insert_one({
+            "_id": pending_id, "user_id": user["_id"], "attempts": 0,
+            "created_at": _now(), "expires_at": _now() + timedelta(minutes=10)})
+        return {"mfa_required": True, "pending_id": pending_id}
+    await _start_session(response, user["_id"], request)
     n = await _db.webauthn_credentials.count_documents({"user_id": user["_id"]})
     return {"user": _public(user, n)}
 
@@ -420,7 +451,8 @@ async def passkey_login_verify(body: CeremonyBody, request: Request, response: R
     user = await _db.users.find_one({"_id": cred["user_id"]})
     if not user:
         raise HTTPException(401, "the account for that passkey no longer exists")
-    await _start_session(response, user["_id"])
+    # A passkey is already a stronger factor than a six-digit code, so it is not asked for.
+    await _start_session(response, user["_id"], request)
     n = await _db.webauthn_credentials.count_documents({"user_id": user["_id"]})
     return {"user": _public(user, n)}
 
@@ -552,3 +584,172 @@ async def merge_saved_searches(body: SavedSearchesBody, user=Depends(current_use
     await _db.users.update_one({"_id": user["_id"]},
                                {"$set": {"saved_searches": items, "searches_at": _now()}})
     return {"items": items}
+
+
+# ── active sessions -----------------------------------------------------------
+def _session_out(row, current_hash):
+    return {
+        "id": row["_id"],
+        "label": row.get("label") or twofa.device(row.get("user_agent"))["label"],
+        "browser": row.get("browser") or "",
+        "os": row.get("os") or "",
+        "ip": row.get("ip") or "",
+        "created_at": row.get("created_at"),
+        "last_seen": row.get("last_seen") or row.get("created_at"),
+        "current": row.get("token_hash") == current_hash,
+    }
+
+
+@router.get("/auth/sessions")
+async def list_sessions(request: Request, user=Depends(current_user)):
+    """Every device currently signed in to this account, most recently active first."""
+    raw = request.cookies.get(SESSION_COOKIE) or ""
+    current = _hash_token(raw) if raw else ""
+    rows = await _db.sessions.find(
+        {"user_id": user["_id"], "expires_at": {"$gt": _now()}}
+    ).sort("last_seen", -1).to_list(100)
+    return {"items": [_session_out(r, current) for r in rows]}
+
+
+@router.delete("/auth/sessions/{session_id}")
+async def revoke_session(session_id: str, request: Request, user=Depends(current_user)):
+    raw = request.cookies.get(SESSION_COOKIE) or ""
+    row = await _db.sessions.find_one({"_id": session_id, "user_id": user["_id"]})
+    if not row:
+        raise HTTPException(404, "that device is not signed in")
+    if raw and row.get("token_hash") == _hash_token(raw):
+        raise HTTPException(400, "use sign out for this device")
+    await _db.sessions.delete_one({"_id": session_id, "user_id": user["_id"]})
+    return {"ok": True}
+
+
+@router.post("/auth/sessions/revoke-others")
+async def revoke_other_sessions(request: Request, user=Depends(current_user)):
+    """Sign out everywhere else, keeping the device asking. Deleting the record IS the
+    revocation here: sessions are looked up by token hash on every request."""
+    raw = request.cookies.get(SESSION_COOKIE) or ""
+    result = await _db.sessions.delete_many(
+        {"user_id": user["_id"], "token_hash": {"$ne": _hash_token(raw) if raw else ""}})
+    return {"signed_out": result.deleted_count}
+
+
+# ── two-factor authentication -------------------------------------------------
+class CodeBody(BaseModel):
+    code: str = ""
+
+
+class MfaLoginBody(BaseModel):
+    pending_id: str
+    code: str
+    recovery: bool = False
+
+
+class PasswordBody(BaseModel):
+    password: str
+
+
+def _check_password(user, password):
+    try:
+        return bool(ph.verify(password, user.get("password_hash") or _DUMMY_HASH))
+    except Exception:
+        return False
+
+
+@router.post("/auth/2fa/setup")
+async def twofa_setup(user=Depends(current_user)):
+    """A secret and its QR, held server-side until a real code proves the app has it."""
+    if (user.get("totp") or {}).get("enabled"):
+        raise HTTPException(409, "two-factor authentication is already on")
+    secret = twofa.new_secret()
+    await _db.totp_setup.replace_one(
+        {"_id": user["_id"]},
+        {"_id": user["_id"], "secret": twofa.encrypt(secret), "created_at": _now()},
+        upsert=True)
+    uri = twofa.provisioning_uri(secret, user["email"])
+    return {"otpauth_uri": uri, "qr_data_url": twofa.qr_data_url(uri),
+            "manual_key": secret}
+
+
+@router.post("/auth/2fa/enable")
+async def twofa_enable(body: CodeBody, user=Depends(current_user)):
+    pending = await _db.totp_setup.find_one({"_id": user["_id"]})
+    if not pending or (_now() - pending["created_at"].replace(tzinfo=timezone.utc)
+                       ).total_seconds() > 900:
+        raise HTTPException(400, "that setup expired, please start again")
+    secret = twofa.decrypt(pending["secret"])
+    if not twofa.valid_code(secret, body.code):
+        raise HTTPException(400, "that code is not right")
+    plain, stored = twofa.new_recovery_codes()
+    await _db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"totp": {"enabled": True, "secret": pending["secret"],
+                           "last_counter": twofa.counter(secret), "enabled_at": _now()},
+                  "recovery_codes": stored}})
+    await _db.totp_setup.delete_one({"_id": user["_id"]})
+    # The only time these are ever readable.
+    return {"enabled": True, "recovery_codes": plain}
+
+
+@router.post("/auth/2fa/disable")
+async def twofa_disable(body: PasswordBody, user=Depends(current_user)):
+    if not _check_password(user, body.password):
+        raise HTTPException(401, "wrong password")
+    await _db.users.update_one({"_id": user["_id"]},
+                              {"$unset": {"totp": "", "recovery_codes": ""}})
+    return {"enabled": False}
+
+
+@router.post("/auth/2fa/recovery-codes")
+async def twofa_new_recovery_codes(body: PasswordBody, user=Depends(current_user)):
+    if not (user.get("totp") or {}).get("enabled"):
+        raise HTTPException(400, "two-factor authentication is off")
+    if not _check_password(user, body.password):
+        raise HTTPException(401, "wrong password")
+    plain, stored = twofa.new_recovery_codes()
+    await _db.users.update_one({"_id": user["_id"]},
+                              {"$set": {"recovery_codes": stored}})
+    return {"recovery_codes": plain}
+
+
+@router.post("/auth/2fa/login")
+async def twofa_login(body: MfaLoginBody, request: Request, response: Response):
+    """Second step of a password sign-in: a code from the app, or a recovery code."""
+    pending = await _db.mfa_pending.find_one({"_id": body.pending_id})
+    if not pending or pending["expires_at"].replace(tzinfo=timezone.utc) < _now():
+        raise HTTPException(401, "that sign-in expired, please start again")
+    if pending.get("attempts", 0) >= 6:
+        await _db.mfa_pending.delete_one({"_id": pending["_id"]})
+        raise HTTPException(429, "too many attempts, please sign in again")
+    await _db.mfa_pending.update_one({"_id": pending["_id"]}, {"$inc": {"attempts": 1}})
+
+    user = await _db.users.find_one({"_id": pending["user_id"]})
+    totp = (user or {}).get("totp") or {}
+    ok = False
+    if not user:
+        raise HTTPException(401, "that sign-in expired, please start again")
+
+    if body.recovery:
+        index = twofa.match_recovery(body.code, user.get("recovery_codes"))
+        if index is not None:
+            # Consumed atomically, so the same code cannot be spent twice in parallel.
+            spent = await _db.users.update_one(
+                {"_id": user["_id"], f"recovery_codes.{index}.used": False},
+                {"$set": {f"recovery_codes.{index}.used": True,
+                          f"recovery_codes.{index}.used_at": _now()}})
+            ok = spent.modified_count == 1
+    elif totp.get("enabled"):
+        secret = twofa.decrypt(totp["secret"])
+        if twofa.valid_code(secret, body.code):
+            # A code is good for its 30-second window ONCE.
+            now_counter = twofa.counter(secret)
+            if totp.get("last_counter") != now_counter:
+                await _db.users.update_one({"_id": user["_id"]},
+                                          {"$set": {"totp.last_counter": now_counter}})
+                ok = True
+
+    if not ok:
+        raise HTTPException(401, "that code is not right")
+    await _db.mfa_pending.delete_one({"_id": pending["_id"]})
+    await _start_session(response, user["_id"], request)
+    n = await _db.webauthn_credentials.count_documents({"user_id": user["_id"]})
+    return {"user": _public(user, n)}

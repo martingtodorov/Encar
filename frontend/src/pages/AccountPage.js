@@ -9,6 +9,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
 import { useSeo } from "@/lib/seo";
 import { AccountShipments } from "@/components/AccountShipments";
+import { TwoFactorPanel } from "@/components/TwoFactorPanel";
+import { SessionsPanel } from "@/components/SessionsPanel";
 import { BLANK_BILLING, BillingFields } from "@/components/BillingFields";
 import http from "@/lib/api";
 
@@ -185,6 +187,9 @@ export default function AccountPage() {
             )}
           </ul>
         </section>
+
+        <TwoFactorPanel />
+        <SessionsPanel />
 
         <AccountShipments />
 

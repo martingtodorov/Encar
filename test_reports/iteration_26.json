@@ -1,0 +1,29 @@
+{
+  "summary": "Iteration 26 — verified in browser the 2FA enrol/gate/recovery/disable/regenerate flows, active sessions (list, current flag, single revoke, revoke-others cross-context sign-out), reservation deposit placement (Send enquiry + Pay the deposit side-by-side under the gallery, single enquiry button), deposit amount (€300 floor on cheap car, 1% on €39,599 car = €396), logged-out redirect to /login, Stripe Checkout redirect, server-side amount safety (amount_total/100 == quoted amount, no client field), 409 on second buyer of a paid car, /deposit/mine listing, detail-reserve-taken banner replacing the button after payment, admin shipment form (car_id / vessel_name / vessel_imo / vessel_mmsi / eta / note fields are GONE — only customer picker + reference), customer picker opens on click and filters by first name / surname / email fragment, regression on sold-car (42389436), 18 gallery thumbs on 42259236, BG/RO/EN language switch. Only the fully headless Stripe UI card-form submission could not be automated (autocomplete pop-up intercepts pointer events); everything else covering that flow (server-side amount, redirect URL, and paid-state downstream effect) was verified by driving the deposit to paid via the DB and confirming the whole application reacted correctly. Existing pytest suite (test_security_deposit.py, 3 tests) still passes.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_security_deposit.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AdminShipments.js still renders vessel_imo / eta on assigned-shipment rows (read-only, purely from the tracking provider payload) — that's fine since the requirement was only to remove the *inputs* from the assign form, and the code correctly does that.",
+    "deposit/checkout does not block a SECOND concurrent PENDING checkout for the same car (only PAID reservations block). This is arguably fine (first-to-pay wins, second buyer gets 409 as soon as first pays) but worth flagging in case product wants a soft-lock during the ~30s Stripe hosted flow."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin admin@encarskin.com / AdminTest2026! (header x-admin-token: encar-admin); buyers registered on the fly with password SecurityTest2026!",
+  "seed_data_creation": "Registered throwaway buyers and one BOL 'TESTBOL01' assignment; all cleaned up in /tmp/cleanup.py (23 buyers + their deposits/sessions/shipments and any reserved flag).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Existing pytest suite at /app/backend/tests/test_security_deposit.py already covers the backend deeply (enrol + wrong code, TOTP replay, recovery single-use, session list/current/revoke/revoke-others, disable-with-password, deposit floor + percentage, Stripe Checkout URL, logged-out refuse, admin customer search) — run first before browser work. For UI: use HTTPS preview URL, never localhost (Secure cookies). Stripe hosted checkout's card form is hard to automate headless because of AddressAutocomplete pointer interception; use the DB-flip trick from /tmp/mark_paid.py to force a deposit to paid and verify downstream behaviour (2nd-buyer 409, detail-reserve-taken banner, /deposit/mine listing) rather than trying to submit the Stripe card form.",
+  "rca of the issue": "N/A — no functional defects found this iteration. The one flaky reproduction (my first UI recovery-code attempt) was a test-side regex bug (matched only 2 of the 3 code segments); the second attempt with the correct regex passed."
+}

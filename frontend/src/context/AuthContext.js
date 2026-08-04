@@ -15,6 +15,7 @@ import {
   apiRegister,
   saveBilling,
 } from "@/lib/api";
+import http from "@/lib/api";
 import { createCredential, getCredential, passkeySupported } from "@/lib/passkey";
 import { useApp } from "@/context/AppContext";
 
@@ -97,12 +98,35 @@ export function AuthProvider({ children }) {
     async (email, password) => {
       const local = favourites;
       const localSearches = searches;
-      const { user: u } = await apiLogin({ email, password });
-      await adopt(u, local, localSearches);
-      return u;
+      const answer = await apiLogin({ email, password });
+      // With 2FA on the password buys a ticket, not a session: the caller collects the code.
+      if (answer.mfa_required) return answer;
+      await adopt(answer.user, local, localSearches);
+      return answer.user;
     },
     [adopt, favourites, searches]
   );
+
+  /** Second step of a password sign-in: the code from the app, or a recovery code. */
+  const loginMfa = useCallback(
+    async (pendingId, code, recovery = false) => {
+      const local = favourites;
+      const localSearches = searches;
+      const { data } = await http.post("/auth/2fa/login", {
+        pending_id: pendingId, code, recovery,
+      });
+      await adopt(data.user, local, localSearches);
+      return data.user;
+    },
+    [adopt, favourites, searches]
+  );
+
+  /** Re-read the account after a change made outside this context (2FA, billing). */
+  const refresh = useCallback(async () => {
+    const { user: u } = await apiMe();
+    setUser(u || null);
+    return u;
+  }, []);
 
   const register = useCallback(
     async (email, password, name, billing) => {
@@ -167,6 +191,8 @@ export function AuthProvider({ children }) {
       user,
       loading,
       login,
+      loginMfa,
+      refresh,
       register,
       logout,
       passkeyLogin,
@@ -177,7 +203,8 @@ export function AuthProvider({ children }) {
       justRegistered,
       clearJustRegistered,
     }),
-    [user, loading, login, register, logout, passkeyLogin, addPasskey, updateBilling,
+    [user, loading, login, loginMfa, refresh, register, logout, passkeyLogin, addPasskey,
+     updateBilling,
      justRegistered,
      clearJustRegistered]
   );

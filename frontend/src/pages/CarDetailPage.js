@@ -23,6 +23,7 @@ import { DetailStickyBar } from "@/components/DetailStickyBar";
 import { ImageWithFallback } from "@/components/ImageWithFallback";
 import { PhotoSwiper } from "@/components/PhotoSwiper";
 import { CarGrid } from "@/components/CarGrid";
+import { ReserveCar } from "@/components/ReserveCar";
 import { useApp } from "@/context/AppContext";
 import { EnquiryDialog } from "@/components/EnquiryDialog";
 import { DescriptionPanelBody } from "@/components/DescriptionPanelBody";
@@ -404,8 +405,11 @@ export default function CarDetailPage() {
             {/* On mobile the enquiry is the next thing after the photos: by then the buyer
                 has seen the car and the price, and nothing should sit between that and
                 getting in touch. Desktop keeps it beside the specs. */}
-            <div className="mt-4 lg:hidden">
+            {/* Both actions sit directly under the photos: by then the buyer has seen the
+                car and the price, and enquiring or holding it must be one glance away. */}
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <EnquiryDialog car={car} title={car.title} />
+              <ReserveCar car={car} />
             </div>
 
             <div className="mt-6 grid gap-4 lg:grid-cols-2">
@@ -503,10 +507,7 @@ export default function CarDetailPage() {
                 {car.spec?.vin && <Row label={t("vin")} value={car.spec.vin} />}
               </Panel>
 
-              {/* enquiry: the primary call to action (mobile has its own, above) */}
-              <div className="mb-5 hidden lg:block">
-                <EnquiryDialog car={car} title={car.title} />
-              </div>
+              {/* enquiry and reserve both live under the photos now */}
 
               {/* insurance history */}
               <Panel

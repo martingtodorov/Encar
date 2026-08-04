@@ -32,6 +32,7 @@ ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
 
 import auth                  # noqa: E402
+import deposits              # noqa: E402
 import fx as fx_mod          # noqa: E402
 import mailer                # noqa: E402
 import pricing               # noqa: E402
@@ -1629,6 +1630,7 @@ async def create_enquiry(body: EnquiryBody, request: Request):
 
 
 auth.set_db(db)
+deposits.set_db(db)
 # ── shipment tracking ---------------------------------------------------------
 class TrackBody(BaseModel):
     ref: str
@@ -1707,6 +1709,28 @@ class ShipmentBody(BaseModel):
     vessel_mmsi: str = ""
     eta: str = ""
     note: str = ""
+
+
+@api.get("/admin/customers")
+async def admin_customers(request: Request, q: str = "", limit: int = 20,
+                          x_admin_token: str = Header(default="")):
+    """Customer accounts matching a name or email fragment, for the assignment picker.
+
+    An operator knows the buyer by name, not by the exact address they registered with, so
+    the search covers the account name, the billing name and the email.
+    """
+    await _require_admin(request, x_admin_token)
+    term = (q or "").strip()[:60]
+    query = {}
+    if term:
+        rx = {"$regex": re.escape(term), "$options": "i"}
+        query = {"$or": [{"email": rx}, {"name": rx}, {"billing.full_name": rx}]}
+    rows = await db.users.find(
+        query, {"email": 1, "name": 1, "billing.full_name": 1, "created_at": 1}
+    ).sort("email", 1).to_list(min(max(1, limit), 50))
+    return {"items": [{"email": r.get("email") or "",
+                       "name": r.get("name") or (r.get("billing") or {}).get("full_name") or "",
+                       "created_at": jsonable(r.get("created_at"))} for r in rows]}
 
 
 @api.get("/admin/shipments")
@@ -1833,6 +1857,7 @@ async def admin_shipment_remove(ref: str, request: Request,
 
 
 api.include_router(auth.router)
+api.include_router(deposits.router)
 app.include_router(api)
 
 app.add_middleware(
