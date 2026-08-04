@@ -328,22 +328,9 @@ export const FilterSidebar = ({
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="region" className="border-border">
-            <AccordionTrigger data-testid="filter-section-region" className="py-3 hover:no-underline">
-              <SectionTitle>{t("region")}</SectionTitle>
-            </AccordionTrigger>
-            <AccordionContent className="pb-3">
-              <PickList
-                items={facets?.regions || []}
-                selected={filters.regions || []}
-                onToggle={(v) => toggleInArray("regions", v)}
-                placeholder={t("searchMake")}
-                testIdPrefix="filter-region"
-                emptyLabel={t("noneFound")}
-                maxH="max-h-44"
-              />
-            </AccordionContent>
-          </AccordionItem>
+          {/* The Korean region filter is gone on purpose: where in Korea a car sits tells a
+              buyer in Europe nothing, and it was one more section to scroll past. The
+              region still travels in the payload, so old links and saved searches work. */}
 
           <AccordionItem value="documents" className="border-b-0">
             <AccordionTrigger

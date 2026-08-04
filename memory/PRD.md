@@ -48,7 +48,11 @@ Note: "+" is stripped by `slugs.slugify` ("E53 AMG 4MATIC+" -> `e53-amg-4matic`)
 real collision exists in the whole tree (Spark LS+/LS) and resolution is scoped, so this was
 NOT the cause — do not "fix" the slugs chasing this bug.
 Desktop result rows: the photo arrows now appear on hover of the WHOLE card
-(`group/card` on the row root + `group-hover/card:opacity-100` in `PhotoSwiper.ARROW`). -->
+(`group/card` on the row root + `group-hover/card:opacity-100` in `PhotoSwiper.ARROW`).
+The "Region in Korea" filter section was REMOVED from `FilterSidebar` at the owner's
+request — where in Korea a car sits means nothing to a European buyer. The `regions` field
+still travels in the payload, URL and saved searches, so old links keep working, and the
+region is still shown on the card and in quick view. -->
 
 
 
