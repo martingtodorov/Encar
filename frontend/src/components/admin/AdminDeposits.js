@@ -28,10 +28,12 @@ export const AdminDeposits = () => {
   }, [load]);
 
   const refund = async (row) => {
+    const keep = row.commission_eur ?? 300;
+    const back = Math.max(0, (row.amount || 0) - keep);
     if (
       !window.confirm(
-        `Refund ${eur(row.amount)} to ${row.email} and put ${row.car_title || row.car_id} ` +
-          "back on the market?"
+        `Return ${eur(back)} to ${row.email}, keep ${eur(keep)} commission, and put ` +
+          `${row.car_title || row.car_id} back on the market?`
       )
     )
       return;
@@ -41,7 +43,7 @@ export const AdminDeposits = () => {
       toast.success(
         out.already
           ? "Stripe had already refunded this one — the car is released"
-          : `Refunded ${eur(row.amount)} and released the car`
+          : `Returned ${eur(out.returned_eur)}, kept ${eur(out.commission_eur)} and released the car`
       );
       await load();
     } catch (e) {
@@ -108,7 +110,10 @@ export const AdminDeposits = () => {
                 </div>
                 <div className="mt-0.5 text-[11.5px] text-muted-foreground">
                   paid {ago(r.paid_at)}
-                  {r.refunded_at ? ` · refunded ${ago(r.refunded_at)} by ${r.refunded_by}` : ""}
+                  {r.refunded_at
+                    ? ` · returned ${eur(r.returned_eur)} (kept ${eur(r.commission_eur)}) ` +
+                      `${ago(r.refunded_at)} by ${r.refunded_by}`
+                    : ""}
                 </div>
               </div>
 
@@ -125,7 +130,7 @@ export const AdminDeposits = () => {
                   ) : (
                     <Undo2 className="h-3.5 w-3.5" aria-hidden="true" />
                   )}
-                  Refund and release
+                  Return and release
                 </Button>
               ) : null}
             </li>

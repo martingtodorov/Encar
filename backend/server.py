@@ -1260,6 +1260,8 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
             "comments": [T(c["result"].strip()) for c in comments if c.get("result")],
         }
 
+    body_panels = _body_panels(insp, diag)
+
     # ── dealer description (unique per car -> one LLM call, cached forever) ──────
     desc_ko = ((detail.get("contents") or {}).get("text") or "").strip()
     # The per-vehicle dealer description is deliberately NOT translated.
@@ -1333,6 +1335,7 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
         "insurance": insurance,
         "inspection": inspection,
         "diagnosis": diagnosis,
+        "body_panels": body_panels,
         # Public quote carries the customer-facing price only. Landed cost, margins and
         # the two customs scenarios are business data and are added below for admins.
         "quote": {"suggested_sale": (quote or {}).get("suggested_sale")},
@@ -1401,6 +1404,76 @@ def _panel_label(name):
     to show a buyer."""
     s = (name or "").replace("_", " ").strip().lower()
     return s[:1].upper() + s[1:]
+
+
+# Encar's inspection sheet names panels with P-codes and Korean titles. Mapping them onto
+# our own slugs keeps the diagram and its labels ours: the drawing is drawn here and the
+# words come from our own translations, not from Korean text pasted onto a page.
+PANEL_SLUGS = {
+    "P011": "hood", "P021": "front_fender_left", "P022": "front_fender_right",
+    "P031": "front_door_left", "P032": "front_door_right",
+    "P033": "rear_door_left", "P034": "rear_door_right",
+    "P041": "trunk_lid", "P051": "radiator_support",
+    "P061": "quarter_panel_left", "P062": "quarter_panel_right",
+    "P071": "roof", "P081": "side_sill_left", "P082": "side_sill_right",
+    "P091": "front_panel", "P101": "cross_member",
+    "P111": "inside_panel_left", "P112": "inside_panel_right",
+    "P121": "front_side_member_left", "P122": "front_side_member_right",
+    "P131": "front_wheelhouse_left", "P132": "front_wheelhouse_right",
+    "P141": "pillar_front_left", "P142": "pillar_centre_left", "P143": "pillar_rear_left",
+    "P144": "pillar_front_right", "P145": "pillar_centre_right",
+    "P146": "pillar_rear_right",
+    "P151": "rear_side_member_left", "P152": "rear_side_member_right",
+    "P161": "rear_wheelhouse_left", "P162": "rear_wheelhouse_right",
+    "P171": "trunk_floor", "P181": "rear_panel",
+}
+
+# Encar's own diagnosis covers the outer skin only, with its own enum names.
+DIAGNOSIS_SLUGS = {
+    "HOOD": "hood", "ROOF_PANEL": "roof", "TRUNK_LID": "trunk_lid",
+    "FRONT_FENDER_LEFT": "front_fender_left", "FRONT_FENDER_RIGHT": "front_fender_right",
+    "FRONT_DOOR_LEFT": "front_door_left", "FRONT_DOOR_RIGHT": "front_door_right",
+    "BACK_DOOR_LEFT": "rear_door_left", "BACK_DOOR_RIGHT": "rear_door_right",
+    "QUARTER_PANEL_LEFT": "quarter_panel_left",
+    "QUARTER_PANEL_RIGHT": "quarter_panel_right",
+}
+
+
+def _body_panels(insp, diag):
+    """Panel-by-panel condition, normalised for the body diagram.
+
+    Two upstream sources overlap. The inspection sheet is the richer one: it lists only the
+    panels WITH a finding, each carrying a status code (X replaced, W sheet metal or weld,
+    C corrosion, A scratch, U dent, T damage). Encar's own diagnosis covers the outer skin
+    and reports replaced against normal. The sheet wins when present; the diagnosis is the
+    fallback. A car with neither gets no diagram at all, because an empty one would read as
+    "every panel is fine" — a claim we cannot make.
+    """
+    findings = {}
+    if insp:
+        for row in (insp.get("outers") or []):
+            code = ((row.get("type") or {}).get("code") or "").upper()
+            slug = PANEL_SLUGS.get(code)
+            statuses = [(s.get("code") or "").upper()
+                        for s in (row.get("statusTypes") or []) if s.get("code")]
+            if not statuses:
+                continue
+            key = slug or code
+            findings.setdefault(key, {"slug": slug, "code": code, "statuses": []})
+            findings[key]["statuses"].extend(statuses)
+        return {"available": True, "source": "inspection",
+                "findings": list(findings.values())}
+
+    items = (diag or {}).get("items") or []
+    if not items:
+        return None
+    for it in items:
+        slug = DIAGNOSIS_SLUGS.get(it.get("name") or "")
+        if slug and it.get("resultCode") not in (None, "", "NORMAL"):
+            findings[slug] = {"slug": slug, "code": "", "statuses": ["X"]}
+    return {"available": True, "source": "diagnosis",
+            "findings": list(findings.values())}
+
 
 
 def _check_admin(token):

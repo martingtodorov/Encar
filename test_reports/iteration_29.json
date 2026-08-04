@@ -1,0 +1,67 @@
+{
+  "summary": "Full E2E verification of the new PARTIAL refund flow (deposit minus EUR 300 commission), the commission-swallows-deposit edge case, the ReserveCar terms gate, the BodyDiagram in three languages (car 42179408) plus its clean-state (42379471), and the /api/deposit/car regression that exposes commission_eur. Two real Stripe test deposits were paid and refunded end-to-end. Backend pytest: 9/9 PASSED in 93s. Frontend Playwright: all copy, gating, findings, structural chips and empty-state assertions passed in EN/BG/RO. No Korean characters anywhere in the body diagram in any language. Zero defects found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_partial_refund_and_commission.py",
+    "/app/test_reports/pytest/iter29.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "deposits.refund() correctly computes give_back = max(0, amount - COMMISSION_EUR) and passes the correct partial amount to stripe.Refund.create; when give_back <= 0 it skips Stripe altogether, updates Mongo, and still frees the car. Verified live with two real Stripe test payments.",
+    "ReserveCar.js uses formatMoney(commission_eur, currency, lang, rates) for the blurb, so on the RO detail page the commission is displayed in RON (converted from EUR 300 -> ~1574 RON) rather than as '300 EUR'. This is intentional (matches how all other prices are localised) but is worth flagging: the review brief asks that the paragraph 'names the EUR 300 commission' - on /ro/car/* the amount is 1574 RON, not '300 EUR'. FAQ and Fees pages hardcode '300 EUR' in the same languages, so the two representations are consistent-for-context; no code change recommended unless the owner wants the number pinned to EUR on the reserve blurb.",
+    "PaymentResultPage.js reads commission_eur from /api/deposit/status/{sid} which now includes it - confirmed via test_deposit_status_returns_commission_eur."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_partial_refund_and_commission.py"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (all assertions across 3 languages)"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! ; throwaway buyers e2e-partial-*@example.com / SecurityTest2026!",
+  "seed_data_creation": "Two refunded deposit rows are kept as history (see traceability). No paid deposits or reserved cars remain. Cars 42370582 and 42462841 are both released and re-reservable. A pending checkout session for 42370582 (created by test_different_buyer_can_reserve_after_partial_refund) is cleaned up.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Refund flow now correctly issues a PARTIAL Stripe refund of (deposit - 300 EUR). The pytest file test_partial_refund_and_commission.py drives Stripe hosted Checkout with Playwright for two paid deposits, then verifies API + Stripe Refund object + Mongo + car release. The edge case is exercised by patching deposits.amount to 250 in Mongo BEFORE calling refund; the endpoint returns returned_eur=0, commission_eur=250, no Stripe refund is created, and the car is released. Cars used: 42370582 (partial), 42462841 (edge). If you re-run, they must be free - check GET /api/deposit/car/{id} first. Chromium is under /pw-browsers.",
+  "traceability": {
+    "partial_refund": {
+      "car_id": "42370582",
+      "checkout_session_id": "cs_test_a1rOD0yZXTBwZAIv64CCHcoHCr71GXigxT2wep7SwSL17bEldi7yBRfHdu",
+      "deposit_eur": 619.90,
+      "returned_eur": 319.90,
+      "commission_eur": 300.00,
+      "stripe_refund_id": "re_3U0gLQ8ffOTMDOy501DxSegi",
+      "stripe_amount_refunded_cents": 31990,
+      "stripe_charge_refunded_bool": false,
+      "note": "PARTIAL refund confirmed by Stripe API: amount_refunded=31990c (=deposit 61990c - 30000c commission), charge.refunded=false (only 100% refunds flip it to true), exactly one Refund object on the intent."
+    },
+    "commission_swallows_deposit_edge_case": {
+      "car_id": "42462841",
+      "checkout_session_id": "cs_test_a1HDfBm2y0I28CrLrN8FNm7wM4rMq57iBQTaJ8izjHUoTAnsrujtj9WZzc",
+      "deposit_paid_eur": 619.90,
+      "amount_patched_to_eur": 250,
+      "returned_eur": 0.0,
+      "commission_eur": 250.0,
+      "stripe_refund_created": false,
+      "car_released": true,
+      "note": "As instructed the paid deposit's `amount` field was set to 250 in Mongo before pressing refund. deposits.refund() took the give_back <= 0 branch, did NOT call stripe.Refund.create (verified via stripe.Refund.list count unchanged), still flipped the record to refunded and $unset the reserved fields on the listing."
+    },
+    "regression_deposit_car_endpoint": "GET /api/deposit/car/{id} returns 200 with commission_eur=300.0 for 42370582, 42462841, 42179408, 42379471.",
+    "body_diagram": {
+      "42179408_findings_seen": ["hood", "rear_door_right", "front_door_right", "rear_door_left", "quarter_panel_left"],
+      "42179408_structural_seen": ["radiator_support"],
+      "42179408_korean_chars_found": 0,
+      "42179408_verified_in_languages": ["en", "bg", "ro"],
+      "42379471_body_diagram_clean_shown": true
+    },
+    "terms_gate": {
+      "42179408_button_disabled_before_tick": {"en": true, "bg": true, "ro": true},
+      "42179408_button_enabled_after_tick":   {"en": true, "bg": true, "ro": true}
+    },
+    "copy_consistency": {
+      "reserve_blurb_mentions_300": {"en": "€300", "bg": "300 €", "ro": "1.574 RON (i.e. EUR 300 converted; FAQ/fees show 300 EUR hardcoded)"},
+      "faq_has_300": {"en": true, "bg": true, "ro": true},
+      "fees_has_300": {"en": true, "bg": true, "ro": true},
+      "faq_still_promises_full_refund_if_we_cannot_deliver": true
+    }
+  },
+  "rca of the issue": "No issue - iteration_28 verified the previous FULL refund behaviour; this iteration verifies the deliberate switch to PARTIAL (deposit - 300) which is now working end-to-end (Stripe Refund object correctly sized to 31990 cents on a 61990-cent charge)."
+}

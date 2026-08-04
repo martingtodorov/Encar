@@ -81,9 +81,17 @@ export default function PaymentResultPage({ outcome = "success" }) {
         </h1>
 
         {paid && (
-          <p className="tnum mt-2 text-base text-muted-foreground">
-            {record.car_title} · {money(record.amount_eur)}
-          </p>
+          <>
+            <p className="tnum mt-2 text-base text-muted-foreground">
+              {record.car_title} · {money(record.amount_eur)}
+            </p>
+            <p
+              data-testid="payment-result-next"
+              className="mx-auto mt-3 max-w-[460px] text-[13px] leading-relaxed text-muted-foreground"
+            >
+              {t("payDepositNext").replace("{sum}", money(record.commission_eur))}
+            </p>
+          </>
         )}
 
         <div className="mt-6 flex flex-wrap justify-center gap-3">

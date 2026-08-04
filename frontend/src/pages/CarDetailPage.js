@@ -31,6 +31,7 @@ import { useLangNav } from "@/hooks/useLangNav";
 import { getCar, warmCar, forgetCar, countView } from "@/lib/api";
 import { noteView, WEIGHT } from "@/lib/taste";
 import Lightbox from "@/components/Lightbox";
+import BodyDiagram from "@/components/BodyDiagram";
 import { useSeo, useJsonLd } from "@/lib/seo";
 import { formatMileage, formatMoney, formatNumber, formatYearMonth } from "@/lib/format";
 
@@ -660,6 +661,9 @@ export default function CarDetailPage() {
                   <p className="py-2 text-[13px] text-muted-foreground">{t("docNotAvailable")}</p>
                 )}
               </Panel>
+
+              {/* body condition diagram */}
+              {car.body_panels && <BodyDiagram panels={car.body_panels} />}
 
               {/* Encar diagnosis */}
               {car.diagnosis && (

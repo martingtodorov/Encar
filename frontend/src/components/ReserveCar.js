@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Lock, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
@@ -9,18 +10,19 @@ import { formatMoney } from "@/lib/format";
 import http from "@/lib/api";
 
 /**
- * Reservation deposit: 10% of the car, no floor, taken through Stripe Checkout.
+ * Reservation deposit: 10% of the car, taken through Stripe Checkout.
  *
- * Shaped as a single action so it can sit beside the enquiry button under the photos. The
- * amount is quoted by the backend, never computed here — a price in the browser is a price
- * a buyer can edit. A car somebody else already holds shows as reserved instead of offering
- * a second deposit.
+ * The deposit is not a holding fee — we buy the car with it, so it is not refundable if the
+ * buyer withdraws. Because of that the terms have to be acknowledged before the button
+ * works: an explicit tick is what stands behind us in a card dispute. The amount is quoted
+ * by the backend, never computed here — a price in the browser is a price a buyer can edit.
  */
 export const ReserveCar = ({ car }) => {
   const { t, lang, currency, rates } = useApp();
   const { user } = useAuth();
   const { path } = useLangNav();
   const [quote, setQuote] = useState(null);
+  const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -77,8 +79,8 @@ export const ReserveCar = ({ car }) => {
         data-testid="detail-reserve-button"
         variant="outline"
         onClick={pay}
-        disabled={busy}
-        className="h-12 w-full justify-center gap-2 rounded-[12px] border-2 border-[hsl(var(--primary))] bg-card text-[15px] font-semibold text-[hsl(var(--primary))] hover:bg-secondary"
+        disabled={busy || !agreed}
+        className="h-12 w-full justify-center gap-2 rounded-[12px] border-2 border-[hsl(var(--primary))] bg-card text-[15px] font-semibold text-[hsl(var(--primary))] hover:bg-secondary disabled:border-border disabled:text-muted-foreground"
       >
         {busy ? (
           <Loader2 className="h-[18px] w-[18px] animate-spin" aria-hidden="true" />
@@ -90,8 +92,21 @@ export const ReserveCar = ({ car }) => {
           · {money(quote.amount_eur)}
         </span>
       </Button>
+
+      <label className="mt-2.5 flex cursor-pointer items-start gap-2.5">
+        <Checkbox
+          data-testid="detail-reserve-terms"
+          checked={agreed}
+          onCheckedChange={(v) => setAgreed(v === true)}
+          className="mt-0.5 shrink-0"
+        />
+        <span className="text-[11.5px] leading-relaxed text-foreground">
+          {t("depositTerms")}
+        </span>
+      </label>
+
       <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
-        {t("depositBlurb")}
+        {t("depositBlurb").replace("{sum}", money(quote.commission_eur))}
       </p>
     </div>
   );

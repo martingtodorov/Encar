@@ -27,6 +27,9 @@ router = APIRouter()
 DEPOSIT_RATE = float(os.environ.get("DEPOSIT_RATE", "0.10"))
 # No floor: the deposit is purely proportional to the car.
 DEPOSIT_MIN_EUR = float(os.environ.get("DEPOSIT_MIN_EUR", "0"))
+# The deposit is not a holding fee - we buy the car with it. It is returned once the buyer
+# wires the balance, less this commission, which is what the business earns on the deal.
+COMMISSION_EUR = float(os.environ.get("DEPOSIT_COMMISSION_EUR", "300"))
 
 _db = None
 
@@ -95,6 +98,7 @@ async def deposit_quote(car_id: str, request: Request):
         "amount_eur": amount_for(car.get("sale_eur")),
         "rate": DEPOSIT_RATE,
         "minimum_eur": DEPOSIT_MIN_EUR,
+        "commission_eur": COMMISSION_EUR,
         "reserved": bool(paid),
         "mine": bool(paid and user and paid.get("user_id") == user["_id"]),
     }
@@ -189,6 +193,7 @@ async def deposit_status(session_id: str):
             pass
     return {"session_id": record["session_id"], "status": record["status"],
             "payment_status": record["payment_status"], "amount_eur": record["amount"],
+            "commission_eur": COMMISSION_EUR,
             "car_id": record["car_id"], "car_title": record.get("car_title") or ""}
 
 
@@ -221,6 +226,8 @@ async def list_for_admin(limit=200):
         "car_title": r.get("car_title") or "",
         "email": r.get("email") or "",
         "amount": r.get("amount") or 0,
+        "returned_eur": r.get("returned_eur"),
+        "commission_eur": r.get("commission_eur"),
         "car_price_eur": r.get("car_price_eur") or 0,
         "payment_status": r.get("payment_status"),
         "archive_ok": r.get("archive_ok"),
@@ -249,10 +256,28 @@ async def refund(session_id, admin_email=""):
     if not intent:
         raise HTTPException(409, "Stripe never reported a payment for that deposit")
 
+    deposit = float(record.get("amount") or 0)
+    give_back = round(max(0.0, deposit - COMMISSION_EUR), 2)
+    settle = {"status": "refunded", "payment_status": "refunded",
+              "returned_eur": give_back, "commission_eur": round(deposit - give_back, 2),
+              "refunded_at": _now(), "refunded_by": admin_email or "admin token",
+              "updated_at": _now()}
+
+    if give_back <= 0:
+        # The commission swallows the whole deposit, and Stripe rejects a zero refund.
+        # Nothing to send back, but the car must still be released.
+        await _db.deposits.update_one({"session_id": session_id}, {"$set": settle})
+        await _free_car(record["car_id"])
+        return {"refunded": True, "returned_eur": 0.0,
+                "commission_eur": settle["commission_eur"], "car_id": record["car_id"],
+                "email": record.get("email") or ""}
+
     try:
         out = stripe.Refund.create(
             payment_intent=intent,
+            amount=int(round(give_back * 100)),
             metadata={"kind": "car_deposit", "car_id": record["car_id"],
+                      "commission_eur": settle["commission_eur"],
                       "refunded_by": admin_email or "admin token"},
             idempotency_key=f"deposit-refund-{session_id}")
     except stripe.error.InvalidRequestError as e:
@@ -261,9 +286,7 @@ async def refund(session_id, admin_email=""):
         if "already been refunded" in (str(e) or "").lower():
             await _db.deposits.update_one(
                 {"session_id": session_id},
-                {"$set": {"status": "refunded", "payment_status": "refunded",
-                          "refunded_at": _now(), "refunded_by": admin_email or "stripe",
-                          "updated_at": _now()}})
+                {"$set": {**settle, "refunded_by": admin_email or "stripe"}})
             await _free_car(record["car_id"])
             return {"refunded": True, "already": True, "car_id": record["car_id"]}
         raise HTTPException(400, str(e.user_message or e)[:200])
@@ -272,14 +295,14 @@ async def refund(session_id, admin_email=""):
 
     await _db.deposits.update_one(
         {"session_id": session_id},
-        {"$set": {"status": "refunded", "payment_status": "refunded",
-                  "stripe_refund_id": out.id, "refunded_at": _now(),
-                  "refunded_by": admin_email or "admin token", "updated_at": _now()}})
+        {"$set": {**settle, "stripe_refund_id": out.id}})
     await _free_car(record["car_id"])
-    log.info("refunded deposit %s (%s EUR) and released car %s",
-             session_id, record.get("amount"), record["car_id"])
+    log.info("returned %s EUR of the %s EUR deposit %s (kept %s commission) and released "
+             "car %s", give_back, deposit, session_id, settle["commission_eur"],
+             record["car_id"])
     return {"refunded": True, "refund_id": out.id, "status": out.status,
-            "amount_eur": record.get("amount") or 0, "car_id": record["car_id"],
+            "returned_eur": give_back, "commission_eur": settle["commission_eur"],
+            "amount_eur": deposit, "car_id": record["car_id"],
             "email": record.get("email") or ""}
 
 
