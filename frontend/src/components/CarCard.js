@@ -12,8 +12,8 @@ import {
   formatYearMonth,
 } from "@/lib/format";
 
-// showRegion: the "Picked for you" shelf leaves the Korean city out - it is the one fact
-// that never helps a buyer decide, and those cards are narrower.
+// The Korean city is never shown: it is the one fact that cannot help a buyer in Europe
+// decide. `showRegion` is kept as a no-op prop so the callers need no change.
 export const CarCard = ({ car, onOpen, showRegion = true }) => {
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
   const saved = isFavourite(car.id);
@@ -133,12 +133,6 @@ export const CarCard = ({ car, onOpen, showRegion = true }) => {
             <span className="inline-flex items-center gap-1">
               <Fuel className="h-3 w-3" aria-hidden="true" />
               {car.fuel_type_t || car.fuel_type}
-            </span>
-          )}
-          {showRegion && (car.region_t || car.region) && (
-            <span className="inline-flex items-center gap-1">
-              <MapPin className="h-3 w-3" aria-hidden="true" />
-              {car.region_t || car.region}
             </span>
           )}
         </div>

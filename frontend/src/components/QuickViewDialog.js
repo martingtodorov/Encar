@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Heart, ExternalLink, Gauge, Calendar, Fuel, MapPin, Cog } from "lucide-react";
+import { Heart, ExternalLink, Gauge, Calendar, Fuel, Cog } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -103,9 +103,6 @@ export const QuickViewDialog = ({ car, open, onOpenChange }) => {
                     label={t("transmission")}
                     value={t(car.transmission === "manual" ? "manual" : "auto")}
                   />
-                )}
-                {(car.region_t || car.region) && (
-                  <Row label={t("region")} value={car.region_t || car.region} />
                 )}
                 {car.photo_count ? (
                   <Row label={t("photos")} value={formatNumber(car.photo_count, lang)} muted />

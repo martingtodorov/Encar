@@ -1,4 +1,4 @@
-import { Heart, Gauge, Calendar, Fuel, MapPin } from "lucide-react";
+import { Heart, Gauge, Calendar, Fuel } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PhotoSwiper } from "@/components/PhotoSwiper";
@@ -67,11 +67,6 @@ export const CarRow = ({ car, onOpen }) => {
       key: "fuel",
       icon: Fuel,
       text: car.fuel_type_t || car.fuel_type,
-    },
-    (car.region_t || car.region) && {
-      key: "region",
-      icon: MapPin,
-      text: car.region_t || car.region,
     },
   ].filter(Boolean);
 

@@ -52,7 +52,11 @@ Desktop result rows: the photo arrows now appear on hover of the WHOLE card
 The "Region in Korea" filter section was REMOVED from `FilterSidebar` at the owner's
 request — where in Korea a car sits means nothing to a European buyer. The `regions` field
 still travels in the payload, URL and saved searches, so old links keep working, and the
-region is still shown on the card and in quick view. -->
+region is still shown on the card and in quick view.
+Follow-up: the Korean region was then removed from the UI ENTIRELY — the spec chip on the
+desktop row, the chip on the mobile card and the row in QuickViewDialog (the car page never
+had one). `showRegion` on `CarCard` is now a no-op kept only so callers need no change; the
+backend still returns and filters on `region`. -->
 
 
 
