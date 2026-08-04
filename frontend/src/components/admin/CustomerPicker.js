@@ -14,18 +14,23 @@ export const CustomerPicker = ({ value, onChange }) => {
   const [open, setOpen] = useState(false);
   const [term, setTerm] = useState("");
   const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
   const box = useRef(null);
 
   useEffect(() => {
+    if (!open) return undefined;
+    setLoading(true);
+    // The list is wanted the instant it opens; only typing is debounced.
     const id = setTimeout(async () => {
-      if (!open) return;
       try {
         const { data } = await http.get("/admin/customers", { params: { q: term } });
         setRows(data.items || []);
       } catch (e) {
         setRows([]);
+      } finally {
+        setLoading(false);
       }
-    }, 220);
+    }, term ? 220 : 0);
     return () => clearTimeout(id);
   }, [term, open]);
 
@@ -43,6 +48,8 @@ export const CustomerPicker = ({ value, onChange }) => {
       <button
         type="button"
         data-testid="shipment-customer"
+        aria-label="Customer"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className="flex h-10 w-full items-center justify-between gap-2 rounded-[10px] border border-input bg-background px-3 text-left text-[13.5px] text-foreground"
       >
@@ -67,6 +74,9 @@ export const CustomerPicker = ({ value, onChange }) => {
               autoFocus
               value={term}
               onChange={(e) => setTerm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setOpen(false);
+              }}
               placeholder="Name, surname or email"
               className="h-9 bg-background pl-8 text-[13px]"
             />
@@ -74,8 +84,11 @@ export const CustomerPicker = ({ value, onChange }) => {
 
           <ul className="thin-scroll mt-2 max-h-64 overflow-y-auto">
             {rows.length === 0 ? (
-              <li className="px-2 py-2 text-[12.5px] text-muted-foreground">
-                No matching customer
+              <li
+                data-testid="shipment-customer-empty"
+                className="px-2 py-2 text-[12.5px] text-muted-foreground"
+              >
+                {loading ? "Searching…" : "No matching customer"}
               </li>
             ) : (
               rows.map((r) => (

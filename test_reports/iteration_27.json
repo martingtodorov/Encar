@@ -1,0 +1,33 @@
+{
+  "summary": "Full browser E2E of the deposit -> archive -> purchases pipeline through real Stripe Checkout, plus the customer-picker and relevant-sort regressions. This is the first iteration to complete the Stripe hosted payment form headlessly. Payment landed via card 4242 -> Stripe redirected to /en/payment/success -> GET /api/deposit/status/{sid} flipped to paid; the archive fire-and-forget ran successfully (log: 'archived 42341529: 29/29 photos') and created purchased_listings with photo_count=29, non-empty photos, full listing sub-doc; every archived JPG is on disk under $MEDIA_ROOT/listings/42341529/NNN.jpg and served over HTTPS with content-type image/jpeg (HTTP 200). /api/purchases returns the car with photo='/api/media/listings/42341529/001.jpg' (NOT an encar.com URL), archived:true, deposit_eur:300, price_eur:7899. /en/purchases renders the archived photo with img.naturalWidth=1600. detail-reserve-taken banner shown to both the paying buyer (mine:true) and to a second buyer (mine:false). POST /api/deposit/checkout by a second buyer returns HTTP 409 'another buyer already holds this car'. A fresh throwaway buyer sees the purchases-empty state. BOL tie-in verified: POST /api/admin/shipments {email, ref, by:'bol', car_id:'42341529'} makes /api/purchases return the ref and the purchase-track-<car_id> button appear; the shipment was cleaned up. Regressions: shipment customer picker filters 'todor' to Martin Todorov, CLOSES on select, puts the email in the trigger, Assign creates a shipment-row-<REF> without any overlay covering it. Sort defaults to 'relevant' on /en?make=bmw and /en?make=bmw&model=3-series; result total is identical for relevant vs cheapest (150,601 either way), so relevant does not reduce results. Amount branch coverage: cheap car 42341529 (€7,899) -> €300 floor; expensive car 42445863 (€39,599) -> €395.99 via GET /api/deposit/car/{id}. Existing pytest suite (test_purchases.py, test_relevant_sort.py, test_security_deposit.py) still passes: 9/9. All test buyers, deposits, sessions, the reservation flag on the car, the purchased_listings doc, on-disk photos, and the temporary shipment were removed at the end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_security_deposit.py",
+    "/app/backend/tests/test_purchases.py",
+    "/app/backend/tests/test_relevant_sort.py",
+    "/app/test_reports/pytest/iter27.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "amount_for() uses float arithmetic and rounds to 2dp at the end; safe for the £-store-integer path (multiplied by 100 before Stripe) but if a car price is ever a Decimal in Mongo the float coercion would silently lose precision — worth typing sale_eur as int(cents) at ingestion time.",
+    "archive.archive_later() swallows *all* exceptions with a bare Exception catch to protect the webhook; the log line 'archiving <id> failed' is the only signal that a paid deposit produced no archive. Consider bumping this to log.error and also flagging deposits.archive_ok=False so an operator query can find broken archives without grepping supervisor logs.",
+    "PARALLEL_DOWNLOADS=6 with 30s per-request timeout means a slow origin can leave archive() running for minutes; fine given fire-and-forget, but there is no upper bound on how many concurrent archives can run if many deposits land at once. Consider a module-level semaphore.",
+    "deposit_checkout does not block on a second PENDING checkout for the same car (only PAID reservations block). Still race-safe (whoever pays first wins, second buyer gets 409 on retry), but two buyers can be sitting on the Stripe page for the same car at once — a soft-lock during the ~30s hosted flow would be friendlier."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "Admin admin@encarskin.com / AdminTest2026! ; buyers registered on the fly with password SecurityTest2026!",
+  "seed_data_creation": "Registered 6 throwaway buyers (all named e2e-...@example.com). One completed a real Stripe test-mode payment for car 42341529 with session_id=cs_test_a1mBF3Cu1bkJbXCi2Sei6Tzg4QqCgSCALTjGQ7mXzLCRqz0Cza0K5u9y8S (€300). All 6 users, their deposits and sessions, the paid reservation on 42341529, the purchased_listings doc, the on-disk /api/media/listings/42341529/*.jpg files, and one temporary BOL 'E2E-BOL-<ts>' assignment plus 'E2E-PICK-<ts>' were removed at the end.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Stripe hosted checkout CAN be driven headlessly, but two things matter: (1) after clicking 'Enter address manually' the Combobox stops intercepting pointer events, so fill() works on billingAddressLine1/Locality/PostalCode and the state select; (2) the Phone number field is a masked react-phone-number input — .fill() silently fails, use locator('input[type=\"tel\"]').last.press_sequentially('2015550123', delay=25). Choose currency EUR (get_by_text('€300.00')) before submitting or Stripe defaults to USD. After clicking the blue 'Pay' button, poll /api/deposit/status/{sid} for up to ~10s — the webhook lands almost immediately in this env. Cleanup path is /tmp cleanup script; make sure to unset listings.reserved and remove the purchased_listings doc + MEDIA_ROOT/listings/<car_id>/ folder or subsequent deposit tests on the same car will hit 409.",
+  "rca of the issue": "N/A — no defects. The prior iteration reported that Stripe's card form could not be automated because AddressAutocomplete intercepted pointer events; the workaround is to click 'Enter address manually' before filling and use press_sequentially on the tel input."
+}

@@ -108,13 +108,16 @@ export const AdminShipments = () => {
         {/* Bill of lading only: the container number is our lookup key, never something the
             buyer is shown, so there is nothing for an operator to choose here. */}
         <form className="mt-4 grid gap-3 sm:grid-cols-2" onSubmit={submit}>
-          <label className="flex flex-col gap-1.5">
+          {/* Not a <label>: a click on an option inside one is forwarded to the label's
+              control (the picker's own trigger), which reopened the list every time an
+              operator chose someone — and the open list then covered Assign. */}
+          <div className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-muted-foreground">Customer</span>
             <CustomerPicker
               value={form.email}
               onChange={(email) => setForm((f) => ({ ...f, email }))}
             />
-          </label>
+          </div>
 
           <label className="flex flex-col gap-1.5">
             <span className="text-[12px] font-medium text-muted-foreground">
