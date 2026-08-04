@@ -61,7 +61,20 @@ Wording overrides: `translate.OVERRIDES` is the place for copy the owner has fix
 it beats the cache and is never sent to the LLM, so a cache rebuild cannot undo it. First
 entry: "가솔린+전기" reads "Хибрид" / "Hibrid" / "Hybrid" instead of "Бензин + Електричество".
 Applied in BOTH `translate_many` and `translate_cached_only`, so filters, rows and car pages
-all agree. -->
+all agree. "디젤+전기" and "LPG+전기" followed as "Дизелов хибрид" / "Газов хибрид" (and the
+RO/EN equivalents).
+Keyboard photo flicking: `PhotoSwiper` listens for ArrowLeft/ArrowRight on `window` ONLY
+while the pointer is on that deck (`hovering` state), so 16 rows on a page never fight each
+other or the page's own scrolling; the key is swallowed so the page cannot scroll sideways,
+and typing in an input/textarea/select is ignored. Verified on a result row (1/4 -> 3/4 ->
+2/4, scrollY stays 0, nothing happens once the pointer leaves) and on the car page gallery
+(1/18 -> 2/18 -> 1/18).
+Body diagram: the schematic is no longer a rounded rectangle. `BodyDiagram.BODY` is our own
+top-down sports-coupe outline (narrow nose, pinched waist, rear haunches WIDER than the
+front) with wheels drawn under the body, a windscreen and rear-glass band and mirrors;
+`SHAPES` entries are now `{d, cx, cy}` paths that follow the flanks instead of `{x,y,w,h}`
+rects. It is a generic silhouette drawn by us — deliberately NOT a copy of any
+manufacturer's design. viewBox 0 0 320 460, rendered at h-[320px]. -->
 
 
 

@@ -117,20 +117,66 @@ const COPY = {
         note: "From Encar's inspection sheet." },
 };
 
-// Our own top-down schematic: front at the top. Panels drawn as plain rounded blocks.
+// Our own top-down schematic, drawn as a low, wide-hipped coupe rather than a rectangle:
+// a tapered nose, a cabin pinched in behind the windscreen and haunches over the rear
+// wheels, so the shape reads as a car at a glance. Panels are curved bands that follow the
+// body, and `cx`/`cy` is where the status badge sits on each one.
 const SHAPES = {
-  hood: { x: 112, y: 34, w: 96, h: 74 },
-  roof: { x: 112, y: 150, w: 96, h: 128 },
-  trunk_lid: { x: 112, y: 320, w: 96, h: 74 },
-  front_fender_left: { x: 58, y: 74, w: 48, h: 70 },
-  front_door_left: { x: 58, y: 150, w: 48, h: 78 },
-  rear_door_left: { x: 58, y: 234, w: 48, h: 66 },
-  quarter_panel_left: { x: 58, y: 306, w: 48, h: 74 },
-  front_fender_right: { x: 214, y: 74, w: 48, h: 70 },
-  front_door_right: { x: 214, y: 150, w: 48, h: 78 },
-  rear_door_right: { x: 214, y: 234, w: 48, h: 66 },
-  quarter_panel_right: { x: 214, y: 306, w: 48, h: 74 },
+  hood: {
+    d: "M160,36 C141,36 129,46 123,66 C117,86 115,98 115,112 L205,112 C205,98 203,86 197,66 C191,46 179,36 160,36 Z",
+    cx: 160, cy: 80,
+  },
+  roof: {
+    d: "M121,130 C116,158 116,200 120,240 L200,240 C204,200 204,158 199,130 Z",
+    cx: 160, cy: 188,
+  },
+  trunk_lid: {
+    d: "M120,300 C114,332 112,372 116,404 C128,414 142,418 160,418 C178,418 192,414 204,404 C208,372 206,332 200,300 Z",
+    cx: 160, cy: 360,
+  },
+  front_fender_left: {
+    d: "M112,58 Q97,96 92,146 L118,146 Q123,96 138,58 Z",
+    cx: 108, cy: 104,
+  },
+  front_door_left: {
+    d: "M92,150 Q95,190 96,228 L122,228 Q121,190 118,150 Z",
+    cx: 107, cy: 190,
+  },
+  rear_door_left: {
+    d: "M96,232 Q92,265 90,298 L116,298 Q118,265 122,232 Z",
+    cx: 105, cy: 265,
+  },
+  quarter_panel_left: {
+    d: "M90,302 Q84,362 104,416 L126,404 Q110,360 116,302 Z",
+    cx: 106, cy: 356,
+  },
+  front_fender_right: {
+    d: "M208,58 Q223,96 228,146 L202,146 Q197,96 182,58 Z",
+    cx: 212, cy: 104,
+  },
+  front_door_right: {
+    d: "M228,150 Q225,190 224,228 L198,228 Q199,190 202,150 Z",
+    cx: 213, cy: 190,
+  },
+  rear_door_right: {
+    d: "M224,232 Q228,265 230,298 L204,298 Q202,265 198,232 Z",
+    cx: 215, cy: 265,
+  },
+  quarter_panel_right: {
+    d: "M230,302 Q236,362 216,416 L194,404 Q210,360 204,302 Z",
+    cx: 214, cy: 356,
+  },
 };
+
+// The body itself, plus the parts that are not panels but make it read as a car: wheels,
+// windscreen, rear glass and mirrors. Narrow nose, pinched waist, haunches over the rear
+// wheels that are WIDER than the front — that proportion is what makes a top view read as
+// a sports coupe instead of a saloon.
+const BODY =
+  "M160,22 C134,22 118,34 112,58 C102,86 92,104 92,130 C92,160 95,182 96,210 " +
+  "C97,244 90,286 84,320 C80,360 88,400 104,420 C116,436 136,441 160,441 " +
+  "C184,441 204,436 216,420 C232,400 240,360 236,320 C230,286 223,244 224,210 " +
+  "C225,182 228,160 228,130 C228,104 218,86 208,58 C202,34 186,22 160,22 Z";
 
 export const BodyDiagram = ({ panels }) => {
   const { lang } = useApp();
@@ -163,23 +209,52 @@ export const BodyDiagram = ({ panels }) => {
 
       <div className="mt-3 flex flex-col gap-5 sm:flex-row sm:items-start">
         <svg
-          viewBox="0 0 320 430"
-          className="mx-auto h-[300px] w-auto shrink-0"
+          viewBox="0 0 320 460"
+          className="mx-auto h-[320px] w-auto shrink-0"
           role="img"
           aria-label={c.title}
         >
-          <rect
-            x="44" y="20" width="232" height="392" rx="60"
+          {/* wheels first, so the body sits over them the way a top view really looks */}
+          {[
+            [78, 110], [224, 110], [68, 298], [234, 298],
+          ].map(([x, y]) => (
+            <rect
+              key={`${x}-${y}`}
+              x={x} y={y} width="18" height="54" rx="8"
+              className="fill-zinc-400 dark:fill-zinc-700"
+            />
+          ))}
+
+          <path
+            d={BODY}
             className="fill-zinc-200 stroke-zinc-300 dark:fill-zinc-800 dark:stroke-zinc-700"
             strokeWidth="2"
           />
+
+          {/* glass and mirrors: not panels, just enough to read as a car */}
+          <path
+            d="M119,113 L201,113 L199,128 L121,128 Z"
+            className="fill-zinc-300/80 dark:fill-zinc-700/80"
+          />
+          <path
+            d="M121,246 C117,266 117,283 119,296 L201,296 C203,283 203,266 199,246 Z"
+            className="fill-zinc-300/80 dark:fill-zinc-700/80"
+          />
+          {[84, 236].map((x) => (
+            <ellipse
+              key={x}
+              cx={x} cy="141" rx="8" ry="4.5"
+              className="fill-zinc-300 dark:fill-zinc-700"
+            />
+          ))}
+
           {Object.entries(SHAPES).map(([slug, s]) => {
             const mark = marks[slug];
             const st = mark ? STATUS[mark.code] : null;
             return (
               <g key={slug} data-testid={`panel-${slug}`}>
-                <rect
-                  x={s.x} y={s.y} width={s.w} height={s.h} rx="7"
+                <path
+                  d={s.d}
                   fill={st ? st.bg : undefined}
                   stroke={st ? st.colour : undefined}
                   strokeWidth={st ? 2 : 1.5}
@@ -191,12 +266,9 @@ export const BodyDiagram = ({ panels }) => {
                 />
                 {mark && (
                   <>
-                    <circle
-                      cx={s.x + s.w / 2} cy={s.y + s.h / 2} r="12"
-                      fill={st.colour}
-                    />
+                    <circle cx={s.cx} cy={s.cy} r="12" fill={st.colour} />
                     <text
-                      x={s.x + s.w / 2} y={s.y + s.h / 2 + 5}
+                      x={s.cx} y={s.cy + 5}
                       textAnchor="middle" fontSize="14" fontWeight="700" fill="#fff"
                     >
                       {mark.code}

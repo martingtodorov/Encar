@@ -122,6 +122,25 @@ export const PhotoSwiper = ({
   const [reach, setReach] = useState(0);
   const prime = () => setReach((r) => Math.max(r, 1));
 
+  // Keyboard flicking, but only while the pointer is actually on this deck: a global
+  // arrow-key handler on every card in a 16-row list would fight the page's own scrolling.
+  const [hovering, setHovering] = useState(false);
+  const stepRef = useRef(null);
+
+  useEffect(() => {
+    if (!hovering || count < 2) return undefined;
+    const onKey = (e) => {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const el = e.target;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return;
+      e.preventDefault();
+      stepRef.current?.(e.key === "ArrowRight" ? 1 : -1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hovering, count]);
+
   useEffect(() => {
     setReach((r) => Math.max(r, active + 1));
   }, [active]);
@@ -217,12 +236,17 @@ export const PhotoSwiper = ({
       glide(n);
     }
   };
+  stepRef.current = step;
 
   return (
     <div
       data-testid={testId}
       className={`group/photos relative h-full w-full overflow-hidden ${className}`}
-      onMouseEnter={prime}
+      onMouseEnter={() => {
+        prime();
+        setHovering(true);
+      }}
+      onMouseLeave={() => setHovering(false)}
       onPointerDown={prime}
     >
       <div
