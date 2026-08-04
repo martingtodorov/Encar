@@ -96,7 +96,12 @@ cache hit; the buyer got Korean and the frontend gave up after 2 retries (12s). 
 `_diag_comment_parts` splits it into sentences, drops the payment/contact noise and caches
 per sentence, so the boilerplate is already translated on the FIRST view of a car (verified:
 a second car sharing the boilerplate came back in Bulgarian immediately), and the car page
-retries up to 4 times (4s/7s/11s/16s) for whatever tail is genuinely new. -->
+retries up to 4 times (4s/7s/11s/16s) for whatever tail is genuinely new.
+DROPPED FEATURE (owner's decision, 2026-06): "3rd and 4th card photo must be interior" is
+NOT being built. Encar's search feed returns only 4 photos per car and all of them are
+exterior; interior shots exist only in the per-car detail (587 of ~215k cached), so it would
+cost one upstream detail request per car. The owner chose to skip it entirely — do not
+re-propose it. -->
 
 
 
