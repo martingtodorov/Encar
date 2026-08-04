@@ -3,7 +3,10 @@
 <!-- 2026-06-04: "подходящи" (relevant) is now the DEFAULT SORT on every search — the old
 auto-switch rules (make -> newest, model -> cheapest) were removed; a sort the visitor
 picks themselves is respected for the session. Catalogue sync is checkpointed per slice
-and resumes after any number of server restarts. See CHANGELOG.md for detail. -->
+and resumes after any number of server restarts. Bill-of-lading customer assignment is
+finished (the picker was breaking because it sat inside a <label>). The deposit -> archive
+-> My Purchases pipeline is now verified end to end in a browser through real Stripe test
+checkout (iteration_27.json, 0 defects). See CHANGELOG.md for detail. -->
 
 ## Original problem statement
 Create a fully translated skin for encar.com in Bulgarian, Romanian and English.

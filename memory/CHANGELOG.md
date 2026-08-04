@@ -379,3 +379,30 @@ Verified (iteration_9): 100% both.
     each resumed run 20260804023420 with monotonically growing progress
     (63 -> 92 -> 103 slices; 11.4k -> 15.5k -> 17.4k cars), and the job doc showed
     `trigger: resume`, `resume_attempts: 5`.
+
+## 2026-06-04 (later) — Customer picker fix and the first true E2E of the purchase pipeline
+- Bill-of-lading customer assignment finished and verified in the browser. The picker
+  itself was sound; the bug was in `AdminShipments.js`, where it sat inside a `<label>`.
+  A click on an option is forwarded by the browser to the label's control — the picker's
+  own trigger — so the list reopened on every selection AND then covered the Assign
+  button, which is why assignment appeared not to work at all. The wrapper is now a
+  `<div>` and the trigger carries `aria-label="Customer"`.
+- `CustomerPicker.js`: fetches the moment it opens (only typing is debounced), shows
+  "Searching…" instead of flashing "No matching customer", and Escape closes the list.
+- Verified live: opens on click with 20 accounts, "todor" narrows to Martin Todorov
+  (surname search), picking closes the list and fills the trigger, Assign creates the row.
+  `/api/admin/customers` matches first name, surname, email and `billing.full_name`.
+- Deposit -> archive -> My Purchases tested END TO END IN A BROWSER for the first time
+  (iteration_27.json, 0 defects, 100% backend and frontend). Real Stripe test-mode
+  checkout on car 42341529: EUR 300 minimum applied, archive logged "29/29 photos",
+  `purchased_listings` holds the full listing, all 29 JPGs on disk and served as
+  image/jpeg over HTTPS, `/api/purchases` returns OUR photo URL (never encar.com),
+  `/en/purchases` renders it at naturalWidth 1600, a second buyer gets HTTP 409 and the
+  "already taken" banner, a fresh buyer sees the empty state, and assigning a B/L for the
+  same car surfaces the Track button on the purchase row.
+- Acted on one review note: `archive_later` now records `archive_ok` on the deposit, so a
+  paid deposit whose archive failed can be found with a query instead of by grepping the
+  log — that failure would otherwise silently cost the buyer their car page.
+- Left as considered-and-declined for now: integer-cents pricing, a global archive
+  semaphore, and a soft-lock on a second PENDING checkout for the same car (whoever pays
+  first still wins, and the loser gets a clean 409).

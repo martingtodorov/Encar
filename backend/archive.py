@@ -100,9 +100,16 @@ async def archive(db, car_id):
 def archive_later(db, car_id):
     """Fire and forget: a webhook must answer Stripe now, not after 20 photo downloads."""
     async def run():
+        ok = False
         try:
-            await archive(db, car_id)
+            doc = await archive(db, car_id)
+            ok = bool(doc and doc.get("photo_count"))
         except Exception as e:                      # noqa: BLE001 - never break the payment
             log.exception("archiving %s failed: %s", car_id, e)
+        # A paid deposit whose archive failed is otherwise invisible: the buyer's car would
+        # quietly lose its page the day Encar withdraws the ad. Recorded on the deposit so
+        # a query finds it, rather than only a line in the log.
+        await db.deposits.update_many({"car_id": str(car_id)},
+                                      {"$set": {"archive_ok": ok}})
 
     asyncio.create_task(run())
