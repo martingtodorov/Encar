@@ -74,12 +74,23 @@ async def _send(to, subject, html):
 
 # ── templates ────────────────────────────────────────────────────────────────
 # Inline CSS and a table shell only: everything else is unreliable in mail clients.
+def _logo_html():
+    """The wordmark, hosted on our own site. Mail clients need an absolute URL, so with no
+    PUBLIC_SITE_URL configured we fall back to text rather than a broken image."""
+    base = os.environ.get("PUBLIC_SITE_URL", "").strip().rstrip("/")
+    if not base:
+        return '<span style="font-size:18px;font-weight:700;color:#d0021b">Europe Encar</span>'
+    return (f'<img src="{base}/logo-220.png" alt="Europe Encar" width="127" height="36" '
+            'style="display:block;border:0;outline:none;text-decoration:none;height:36px;'
+            'width:auto">')
+
+
 def _shell(heading, rows_html, footer):
     return f"""<table width="100%" cellpadding="0" cellspacing="0" style="background:#f6f6f7;padding:24px 0;font-family:Helvetica,Arial,sans-serif">
 <tr><td align="center">
 <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #e5e5e7;border-radius:14px;overflow:hidden">
 <tr><td style="padding:20px 24px;border-bottom:1px solid #e5e5e7">
-<span style="font-size:18px;font-weight:700;color:#d0021b">Encar</span>
+{_logo_html()}
 </td></tr>
 <tr><td style="padding:24px">
 <h1 style="margin:0 0 16px;font-size:19px;line-height:1.3;color:#111">{heading}</h1>
@@ -162,6 +173,7 @@ async def acknowledge_enquiry(doc):
         _row(c["car"], _esc(doc.get("car_title"))),
         _row(c["message"], _esc(doc.get("message")).replace("\n", "<br>")),
     ])
+    await _send(to, c["subject"], _shell(c["heading"], rows, c["footer"]))
 
 
 # ── price drop on a saved car ────────────────────────────────────────────────
@@ -245,8 +257,6 @@ async def send_deposit_returned(to, car_title, returned_eur, commission_eur, lan
             + _row(t["returned"], f"€{returned_eur:,.0f}")
             + _row(t["kept"], f"€{commission_eur:,.0f}"))
     return await _send(to, t["subject"], _shell(t["heading"], rows, t["footer"]))
-
-    await _send(to, c["subject"], _shell(c["heading"], rows, c["footer"]))
 
 
 def send_enquiry_emails(doc):

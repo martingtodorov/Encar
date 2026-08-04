@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 from fastapi import (APIRouter, Depends, FastAPI, Header, HTTPException, Query,
                      Request)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field
@@ -1075,6 +1075,76 @@ async def _gone(listing, listing_id, lang):
         "model": listing.get("model_t") or listing.get("model") or "",
         "similar": items,
     }))
+
+
+def _attr(s):
+    """Escape for an HTML attribute — an ad title can carry quotes and ampersands."""
+    return (str(s or "").replace("&", "&amp;").replace('"', "&quot;")
+            .replace("<", "&lt;").replace(">", "&gt;"))
+
+
+@api.get("/share/car/{listing_id}", response_class=HTMLResponse)
+async def share_car(listing_id: str, request: Request, lang: str = "bg"):
+    """A shareable link whose preview picture is the ad's own lead photo.
+
+    Viber, Messenger, WhatsApp and Facebook never run our JavaScript, so the og:* tags the
+    car page writes at runtime are invisible to them. This page carries them in the HTML
+    and forwards a human straight to the car.
+    """
+    lang = norm_lang(lang)
+    doc = await db.listings.find_one(
+        {"_id": listing_id},
+        {"photos": 1, "manufacturer": 1, "model": 1, "manufacturer_t": 1, "model_t": 1,
+         "badge_detail": 1, "year_month": 1, "mileage": 1, "sale_eur": 1})
+    photos = (doc or {}).get("photos") or []
+    # Makes and models are proper nouns: translate_listings resolves them from the ENGLISH
+    # cache, so a shared link never shows the Korean model name.
+    if doc:
+        await translate_listings(db, [doc], lang, fields=("manufacturer", "model"))
+    title = " ".join(filter(None, [
+        (doc or {}).get("manufacturer_t") or (doc or {}).get("manufacturer"),
+        (doc or {}).get("model_t") or (doc or {}).get("model"),
+    ])) or "Europe Encar"
+    ym = str((doc or {}).get("year_month") or "")
+    facts = [f"{ym[4:6]}/{ym[:4]}" if len(ym) >= 6 else "",
+             f"{(doc or {}).get('mileage'):,} km".replace(",", " ")
+             if (doc or {}).get("mileage") else "",
+             f"€{(doc or {}).get('sale_eur'):,.0f}".replace(",", " ")
+             if (doc or {}).get("sale_eur") else ""]
+    description = " · ".join([f for f in facts if f])
+    # 1200x630 is what every chat app and social network crops to.
+    image = image_url(photos[0], 1200, 630) if photos else ""
+    base = os.environ.get("PUBLIC_SITE_URL", "").strip().rstrip("/") \
+        or str(request.base_url).rstrip("/")
+    target = f"{base}/{lang}/car/{listing_id}"
+
+    tags = [f'<meta property="og:title" content="{_attr(title)}">',
+            f'<meta property="og:description" content="{_attr(description)}">',
+            f'<meta property="og:url" content="{_attr(target)}">',
+            '<meta property="og:type" content="website">',
+            '<meta property="og:site_name" content="Europe Encar">',
+            '<meta name="twitter:card" content="summary_large_image">',
+            f'<meta name="twitter:title" content="{_attr(title)}">',
+            f'<meta name="twitter:description" content="{_attr(description)}">']
+    if image:
+        tags += [f'<meta property="og:image" content="{_attr(image)}">',
+                 f'<meta property="og:image:secure_url" content="{_attr(image)}">',
+                 '<meta property="og:image:width" content="1200">',
+                 '<meta property="og:image:height" content="630">',
+                 f'<meta property="og:image:alt" content="{_attr(title)}">',
+                 f'<meta name="twitter:image" content="{_attr(image)}">']
+
+    html = ("<!doctype html><html><head><meta charset=\"utf-8\">"
+            f"<title>{_attr(title)}</title>" + "".join(tags)
+            + f'<link rel="canonical" href="{_attr(target)}">'
+            + f'<meta http-equiv="refresh" content="0;url={_attr(target)}">'
+            + "</head><body>"
+            + f'<a href="{_attr(target)}">{_attr(title)}</a>'
+            + f'<script>location.replace("{target}")</script>'
+            + "</body></html>")
+    # Chat apps cache previews hard; a day is long enough to be cheap and short enough
+    # that a price change is picked up.
+    return HTMLResponse(html, headers={"Cache-Control": "public, max-age=86400"})
 
 
 @api.get("/car/{listing_id}")

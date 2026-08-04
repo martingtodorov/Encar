@@ -19,7 +19,18 @@ unset, which also silently drops enquiry notifications. See CHANGELOG.md.
 on a #141414 plate). SECURITY: `ADMIN_TOKEN` no longer has the "encar-admin" default — it is
 read from backend/.env with NO fallback, compared with `secrets.compare_digest`, and an unset
 value refuses header-token admin access outright (verified: old token 401, new token 200, no
-token 401). Owner's decision on price-drop alerts: notify on ANY drop, no user threshold. -->
+token 401). Owner's decision on price-drop alerts: notify on ANY drop, no user threshold.
+2026-06 (same session): every email now opens with the logo (`mailer._logo_html` uses
+`PUBLIC_SITE_URL` + `/logo-220.png`, falling back to a text wordmark if the env var is
+unset). BUG FOUND AND FIXED: `acknowledge_enquiry` never sent anything — its `_send` call
+had been orphaned to the bottom of the file below `send_deposit_returned`'s `return`, so
+buyers got no acknowledgement at all.
+Share previews: `GET /api/share/car/{id}?lang=` returns a tiny HTML page carrying og:/twitter
+tags with the ad's LEAD PHOTO at 1200x630 (make/model resolved through the English cache) and
+forwards a human to `/{lang}/car/{id}` — chat apps never run our JS, so the runtime og tags
+on the car page are invisible to them. The owner explicitly does NOT want a Share button in
+the UI, so nothing links to it; the endpoint exists for links pasted by hand. -->
+
 
 
 ## Original problem statement

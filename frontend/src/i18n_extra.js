@@ -3,6 +3,7 @@
 
 const EXTRA = {
   bg: {
+
     sendEnquiry: "Прати запитване",
     enquiryBlurbGuest: "Оставете имейл или телефон и ще се свържем с вас за този автомобил.",
     enquiryBlurbUser: "Данните ви са попълнени. Добавете въпрос, ако желаете.",
@@ -206,6 +207,7 @@ const EXTRA = {
     trackNoCars: "Запази автомобил, за да можеш да го свържеш с тази пратка.",
   },
   ro: {
+
     sendEnquiry: "Trimite o solicitare",
     enquiryBlurbGuest: "Lasă un e-mail sau un telefon și te contactăm despre această mașină.",
     enquiryBlurbUser: "Datele tale sunt completate. Adaugă o întrebare dacă vrei.",
@@ -409,6 +411,7 @@ const EXTRA = {
     trackNoCars: "Salvează o mașină ca să o poți lega de acest transport.",
   },
   en: {
+
     sendEnquiry: "Send enquiry",
     enquiryBlurbGuest: "Leave an email or phone number and we'll get back to you about this car.",
     enquiryBlurbUser: "Your details are filled in. Add a question if you'd like.",
