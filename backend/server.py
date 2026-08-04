@@ -1821,6 +1821,22 @@ async def admin_customers(request: Request, q: str = "", limit: int = 20,
                        "created_at": jsonable(r.get("created_at"))} for r in rows]}
 
 
+@api.get("/admin/deposits")
+async def admin_deposits(request: Request, x_admin_token: str = Header(default="")):
+    """Every deposit that reached Stripe, so an operator can see what is held and refund."""
+    await _require_admin(request, x_admin_token)
+    return jsonable({"items": await deposits.list_for_admin()})
+
+
+@api.post("/admin/deposits/{session_id}/refund")
+async def admin_deposit_refund(session_id: str, request: Request,
+                               x_admin_token: str = Header(default="")):
+    """Refund a deposit in full and put the car back on the market."""
+    admin = await _require_admin(request, x_admin_token)
+    return jsonable(await deposits.refund(session_id, (admin or {}).get("email") or ""))
+
+
+
 @api.get("/admin/shipments")
 async def admin_shipments(request: Request, x_admin_token: str = Header(default="")):
     await _require_admin(request, x_admin_token)

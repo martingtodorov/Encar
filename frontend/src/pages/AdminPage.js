@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Activity, Inbox, PieChart, RefreshCcw, Ship, Users } from "lucide-react";
+import { Activity, BadgeEuro, Inbox, PieChart, RefreshCcw, Ship, Users } from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
@@ -13,6 +13,7 @@ import { AdminEnquiries } from "@/components/admin/AdminEnquiries";
 import { AdminCatalogueSync } from "@/components/admin/AdminCatalogueSync";
 import { AdminShipments } from "@/components/admin/AdminShipments";
 import { AdminBuyers } from "@/components/admin/AdminBuyers";
+import { AdminDeposits } from "@/components/admin/AdminDeposits";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
@@ -20,6 +21,7 @@ const TABS = [
   { id: "enquiries", label: "Enquiries", icon: Inbox },
   { id: "sync", label: "Catalogue sync", icon: RefreshCcw },
   { id: "shipments", label: "Shipments", icon: Ship },
+  { id: "deposits", label: "Deposits", icon: BadgeEuro },
   { id: "buyers", label: "Buyers", icon: Users },
 ];
 
@@ -98,6 +100,7 @@ export default function AdminPage() {
           {tab === "enquiries" && <AdminEnquiries />}
           {tab === "sync" && <AdminCatalogueSync />}
           {tab === "shipments" && <AdminShipments />}
+          {tab === "deposits" && <AdminDeposits />}
           {tab === "buyers" && <AdminBuyers />}
         </div>
       </main>

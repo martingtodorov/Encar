@@ -156,6 +156,16 @@ export async function startCatalogueSync({ fresh = false } = {}) {
   return data;
 }
 
+export async function getAdminDeposits() {
+  const { data } = await http.get("/admin/deposits");
+  return data;
+}
+
+export async function refundDeposit(sessionId) {
+  const { data } = await http.post(`/admin/deposits/${encodeURIComponent(sessionId)}/refund`);
+  return data;
+}
+
 export async function putSyncSchedule(body) {
   const { data } = await http.put("/admin/catalogue-sync/schedule", body);
   return data;

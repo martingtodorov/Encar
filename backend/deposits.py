@@ -182,6 +182,87 @@ async def my_deposits(user=Depends(auth.current_user)):
     return {"items": rows}
 
 
+async def _free_car(car_id):
+    """Put the car back on the market: it is only held while a deposit stands."""
+    await _db.listings.update_one(
+        {"_id": car_id},
+        {"$unset": {"reserved": "", "reserved_by": "", "reserved_at": ""}})
+
+
+async def list_for_admin(limit=200):
+    """Every deposit that reached Stripe, newest first, for the operator's refund list."""
+    rows = await _db.deposits.find(
+        {"payment_status": {"$in": ["paid", "refunded"]}}
+    ).sort("updated_at", -1).to_list(limit)
+    return [{
+        "session_id": r.get("session_id"),
+        "car_id": r.get("car_id"),
+        "car_title": r.get("car_title") or "",
+        "email": r.get("email") or "",
+        "amount": r.get("amount") or 0,
+        "car_price_eur": r.get("car_price_eur") or 0,
+        "payment_status": r.get("payment_status"),
+        "archive_ok": r.get("archive_ok"),
+        "paid_at": r.get("created_at"),
+        "refunded_at": r.get("refunded_at"),
+        "refunded_by": r.get("refunded_by") or "",
+    } for r in rows]
+
+
+async def refund(session_id, admin_email=""):
+    """Refund a deposit in full and release the car.
+
+    The `charge.refunded` webhook does the same two writes, so this is deliberately
+    idempotent: whichever lands first wins and the second is a no-op. The Stripe call
+    carries an idempotency key on the session id, so a double-clicked button cannot
+    refund twice.
+    """
+    record = await _db.deposits.find_one({"session_id": session_id})
+    if not record:
+        raise HTTPException(404, "no such deposit")
+    if record.get("payment_status") == "refunded":
+        raise HTTPException(409, "that deposit is already refunded")
+    if record.get("payment_status") != "paid":
+        raise HTTPException(409, "only a paid deposit can be refunded")
+    intent = record.get("stripe_payment_intent_id")
+    if not intent:
+        raise HTTPException(409, "Stripe never reported a payment for that deposit")
+
+    try:
+        out = stripe.Refund.create(
+            payment_intent=intent,
+            metadata={"kind": "car_deposit", "car_id": record["car_id"],
+                      "refunded_by": admin_email or "admin token"},
+            idempotency_key=f"deposit-refund-{session_id}")
+    except stripe.error.InvalidRequestError as e:
+        # Refunded straight on the Stripe dashboard: our record is simply behind, so
+        # settle it here rather than leaving the car held for ever.
+        if "already been refunded" in (str(e) or "").lower():
+            await _db.deposits.update_one(
+                {"session_id": session_id},
+                {"$set": {"status": "refunded", "payment_status": "refunded",
+                          "refunded_at": _now(), "refunded_by": admin_email or "stripe",
+                          "updated_at": _now()}})
+            await _free_car(record["car_id"])
+            return {"refunded": True, "already": True, "car_id": record["car_id"]}
+        raise HTTPException(400, str(e.user_message or e)[:200])
+    except stripe.error.StripeError as e:
+        raise HTTPException(502, str(e.user_message or e)[:200])
+
+    await _db.deposits.update_one(
+        {"session_id": session_id},
+        {"$set": {"status": "refunded", "payment_status": "refunded",
+                  "stripe_refund_id": out.id, "refunded_at": _now(),
+                  "refunded_by": admin_email or "admin token", "updated_at": _now()}})
+    await _free_car(record["car_id"])
+    log.info("refunded deposit %s (%s EUR) and released car %s",
+             session_id, record.get("amount"), record["car_id"])
+    return {"refunded": True, "refund_id": out.id, "status": out.status,
+            "amount_eur": record.get("amount") or 0, "car_id": record["car_id"],
+            "email": record.get("email") or ""}
+
+
+
 @router.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
     payload = await request.body()

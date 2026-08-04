@@ -1,0 +1,29 @@
+{
+  "summary": "Full E2E validation of admin one-click deposit refund. Registered throwaway buyer, paid a real Stripe test deposit (EUR 609.90 on car 42317775, session cs_test_a1tzdgsC0FSQbU4uC62wCN6XIIm97vDUiV6aKKlIumTCZm1T66keRzbt4k), refunded via POST /api/admin/deposits/{sid}/refund as signed-in admin, then verified end-to-end: (a) Stripe charge.refunded=true and amount_refunded==6099000 cents with exactly ONE Refund object; (b) car was freed (reserved/reserved_by/reserved_at $unset in Mongo, GET /api/deposit/car reports reserved:false); (c) a DIFFERENT signed-in buyer could POST /api/deposit/checkout for the same car and got 200 with a Stripe URL (previously 409); (d) original buyer's /api/purchases no longer lists the car; (e) double refund returns 409 and does NOT create a second Stripe refund; (f) purchased_listings archive doc + $MEDIA_ROOT/listings/42317775/ survived the refund; (g) admin UI at /en/admin?tab=deposits renders deposits-held, deposits-takings, deposits-refunded stat cards, refunded pill, and archive_ok=false warning pill (data-testid=deposit-archive-warning-<sid>) correctly; (h) /api/admin/deposits and refund route both reject non-admin buyers with 401; (i) car detail page shows detail-reserve-button and hides detail-reserve-taken after refund. 0 defects.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_deposit_refund_e2e.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "deposits.refund() correctly uses idempotency_key='deposit-refund-<sid>' so a double click cannot create two Stripe refunds - verified with Stripe API (only 1 Refund object after two POSTs).",
+    "The 'already been refunded' Stripe branch is defensive-good: settles the record + frees the car even if the dashboard was used out-of-band.",
+    "AdminDeposits.js relies on window.confirm which is fine for a one-off admin action, but note it is not stubbable in Playwright without page.on('dialog'); no user-visible defect."
+  ],
+  "updated_files": ["/app/backend/tests/test_deposit_refund_e2e.py"],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% (all testids and states verified)"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! ; buyers e2e-refund-*@example.com / SecurityTest2026!",
+  "seed_data_creation": "None left behind. Refunded deposit row (session cs_test_a1tzdgsC0FSQbU4uC62wCN6XIIm97vDUiV6aKKlIumTCZm1T66keRzbt4k, car 42317775, EUR 609.90, Stripe refund succeeded) is kept intentionally as history. No paid deposits or reserved cars remain. Synthetic archive_ok=false row was inserted and deleted.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Refund flow works end-to-end including real Stripe. Test file /app/backend/tests/test_deposit_refund_e2e.py drives Stripe Checkout with Playwright and asserts DB + Stripe + UI state. Chromium is installed under /pw-browsers. If a future run re-uses car 42317775, first check GET /api/deposit/car/42317775 - it must be free.",
+  "traceability": {
+    "car_id": "42317775",
+    "checkout_session_id": "cs_test_a1tzdgsC0FSQbU4uC62wCN6XIIm97vDUiV6aKKlIumTCZm1T66keRzbt4k",
+    "deposit_amount_eur": 609.90,
+    "buyer_email": "e2e-refund-9875d5e7@example.com",
+    "stripe_refund_verified": true,
+    "stripe_amount_refunded_cents": 60990,
+    "stripe_refund_count_on_intent": 1,
+    "second_buyer_could_reserve_after_refund": true
+  }
+}
