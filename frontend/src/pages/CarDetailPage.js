@@ -32,6 +32,7 @@ import { getCar, warmCar, forgetCar, countView } from "@/lib/api";
 import { noteView, WEIGHT } from "@/lib/taste";
 import Lightbox from "@/components/Lightbox";
 import BodyDiagram from "@/components/BodyDiagram";
+import MechChecks from "@/components/MechChecks";
 import { useSeo, useJsonLd } from "@/lib/seo";
 import { formatMileage, formatMoney, formatNumber, formatYearMonth } from "@/lib/format";
 
@@ -664,6 +665,9 @@ export default function CarDetailPage() {
 
               {/* body condition diagram */}
               {car.body_panels && <BodyDiagram panels={car.body_panels} />}
+
+              {/* mechanical checks, beside the body diagram */}
+              {car.mech_checks && <MechChecks checks={car.mech_checks} />}
 
               {/* Encar diagnosis */}
               {car.diagnosis && (

@@ -10,7 +10,8 @@ checkout (iteration_27.json, 0 defects). Admins can refund a deposit in one clic
 new Deposits tab, which also releases the car for other buyers (iteration_28.json). The
 deposit is a PURCHASE, not a holding fee: non-refundable on withdrawal, returned less a
 EUR 300 commission once the buyer wires the balance (iteration_29.json, 0 defects). Car
-pages carry a body-damage diagram built from Encar's inspection sheet. See CHANGELOG.md. -->
+pages carry a body-damage diagram and a mechanical-checks card built from Encar's
+inspection sheet. See CHANGELOG.md. -->
 
 ## Original problem statement
 Create a fully translated skin for encar.com in Bulgarian, Romanian and English.

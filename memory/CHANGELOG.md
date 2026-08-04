@@ -537,3 +537,24 @@ withdraws; once the buyer wires the balance we return the deposit less a EUR 300
   the obvious next step: the sheet's self-diagnosis sections (engine, transmission,
   drivetrain, steering, braking, electrics, fuel, high-voltage system) - mechanical, not
   panels, so they do not belong on a body diagram.
+
+## 2026-06-04 (night) — Mechanical checks beside the body diagram
+- `server._mech_checks(insp)` normalises the mechanical half of the inspection sheet
+  (`inspection.inners`): 9 sections mapped by code (S01 engine, S02 transmission, S03
+  drivetrain, S04 steering, S05 braking, S06 electrics, S07 fuel, S08 high-voltage on EVs,
+  S00 electronic self-test) and 41 leaf item codes mapped to our own slugs. Leaves are
+  walked recursively because leak checks nest one level down.
+- Status mapping matters: upstream code 1 (good), 2 (adequate - used for FLUID LEVELS) and
+  3 (none found) all mean "nothing to report"; 6 is slight seepage (warn) and 7 (leak) or
+  10 (faulty) are real findings. Treating 2 as a problem would have flagged ~800 perfectly
+  normal oil/coolant level readings across the catalogue.
+- Each section reports the WORST of its items and only non-fine items are named - the sheet
+  runs ~30 checks and nearly all pass, so listing them all would bury the one that matters.
+  An unmapped item still counts towards the section verdict but is not named, so Korean can
+  never reach the page.
+- `MechChecks.js` renders it beside the body diagram: section rows with a green tick, amber
+  warning or red cross, findings nested underneath, and a "N points checked, all fine"
+  summary. Labels for 9 sections and 40 items in BG/RO/EN.
+- Verified: car 42432304 (29 checks, engine "slight seepage" on rocker cover and block/sump,
+  drivetrain "fault found" on the CV joint, everything else fine) in Bulgarian, and car
+  42379471 (30 checks, all fine) in Romanian. No Korean characters in either.

@@ -1261,6 +1261,7 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
         }
 
     body_panels = _body_panels(insp, diag)
+    mech_checks = _mech_checks(insp)
 
     # ── dealer description (unique per car -> one LLM call, cached forever) ──────
     desc_ko = ((detail.get("contents") or {}).get("text") or "").strip()
@@ -1336,6 +1337,7 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
         "inspection": inspection,
         "diagnosis": diagnosis,
         "body_panels": body_panels,
+        "mech_checks": mech_checks,
         # Public quote carries the customer-facing price only. Landed cost, margins and
         # the two customs scenarios are business data and are added below for admins.
         "quote": {"suggested_sale": (quote or {}).get("suggested_sale")},
@@ -1473,6 +1475,92 @@ def _body_panels(insp, diag):
             findings[slug] = {"slug": slug, "code": "", "statuses": ["X"]}
     return {"available": True, "source": "diagnosis",
             "findings": list(findings.values())}
+
+
+# The inspection sheet's mechanical half, grouped the way the sheet groups it.
+MECH_SECTIONS = {
+    "S00": "self_diagnosis", "S01": "engine", "S02": "transmission",
+    "S03": "drivetrain", "S04": "steering", "S05": "braking",
+    "S06": "electrics", "S07": "fuel", "S08": "high_voltage",
+}
+
+# Engine and gearbox lead, because that is the order a buyer worries in. The electronic
+# self-diagnosis goes last: it is a scan result, not a physical check.
+MECH_ORDER = ["engine", "transmission", "drivetrain", "steering", "braking",
+              "electrics", "fuel", "high_voltage", "self_diagnosis"]
+
+MECH_ITEMS = {
+    "s001": "engine_self_test", "s002": "transmission_self_test",
+    "s003": "idle_running", "s004": "rocker_cover", "s005": "head_gasket",
+    "s006": "cylinder_block", "s007": "oil_level", "s008": "head_gasket_coolant",
+    "s009": "water_pump", "s010": "radiator", "s011": "coolant_level",
+    "s012": "common_rail", "s013": "oil_leak", "s014": "fluid_level_condition",
+    "s015": "operation_idle", "s016": "oil_leak", "s017": "gear_selector",
+    "s019": "operation_idle", "s020": "clutch", "s021": "cv_joint",
+    "s022": "driveshaft_bearings", "s023": "power_steering_leak",
+    "s024": "steering_gear", "s025": "steering_pump", "s026": "tie_rod_ball_joint",
+    "s027": "brake_master_cylinder", "s028": "brake_fluid_leak",
+    "s029": "brake_booster", "s030": "alternator_output", "s031": "starter_motor",
+    "s032": "wiper_motor", "s033": "cabin_blower", "s034": "radiator_fan",
+    "s035": "window_motors", "s036": "fuel_leak", "s037": "differential",
+    "s038": "steering_joints", "s039": "high_pressure_hose",
+    "s040": "charge_port_insulation", "s041": "traction_battery_isolation",
+    "s042": "hv_wiring",
+}
+
+# Upstream status codes. Good, adequate (fluid levels) and none-found all mean there is
+# nothing to report; seepage is worth a warning; a leak or a faulty part is a finding.
+MECH_STATUS = {"1": "ok", "2": "ok", "3": "ok", "6": "warn", "7": "bad", "10": "bad"}
+_WORST = {"ok": 0, "warn": 1, "bad": 2}
+
+
+def _mech_leaves(node):
+    kids = node.get("children") or []
+    if not kids:
+        yield node
+    for k in kids:
+        yield from _mech_leaves(k)
+
+
+def _mech_checks(insp):
+    """The mechanical half of the inspection sheet: engine, gearbox, brakes and the rest.
+
+    The sheet checks a few dozen items and almost all of them come back fine, so listing
+    every one would bury the two that matter. Each section therefore reports a verdict —
+    the worst of its items — and only the items that are NOT fine are named.
+    """
+    sections = {}
+    for sec in (insp or {}).get("inners") or []:
+        slug = MECH_SECTIONS.get(((sec.get("type") or {}).get("code") or "").upper())
+        if not slug:
+            continue
+        row = sections.setdefault(slug, {"slug": slug, "verdict": "ok", "checks": 0,
+                                         "findings": []})
+        for leaf in _mech_leaves(sec):
+            code = (leaf.get("statusType") or {}).get("code")
+            status = MECH_STATUS.get(str(code)) if code is not None else None
+            if not status:
+                continue
+            row["checks"] += 1
+            if status == "ok":
+                continue
+            if _WORST[status] > _WORST[row["verdict"]]:
+                row["verdict"] = status
+            item = MECH_ITEMS.get((leaf.get("type") or {}).get("code") or "")
+            # An unmapped item still counts towards the verdict, it just cannot be named -
+            # better a section marked "needs attention" than Korean text on the page.
+            if item:
+                row["findings"].append({"slug": item, "status": status})
+
+    rows = [s for s in sections.values() if s["checks"]]
+    if not rows:
+        return None
+    rows.sort(key=lambda r: MECH_ORDER.index(r["slug"]) if r["slug"] in MECH_ORDER else 99)
+    return {"available": True, "sections": rows,
+            "checks": sum(r["checks"] for r in rows),
+            "findings": sum(len(r["findings"]) for r in rows),
+            "clean": all(r["verdict"] == "ok" for r in rows)}
+
 
 
 
