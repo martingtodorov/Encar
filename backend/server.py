@@ -2170,8 +2170,8 @@ async def admin_buyers(request: Request, x_admin_token: str = Header(default="")
             "email": u.get("email") or "", "name": u.get("name") or "",
             "city": (u.get("billing") or {}).get("city") or "",
             "favourites": len(u.get("favourites") or []),
-            "makes": top(taste.get("makes"), 3), "models": top(taste.get("models"), 3),
-            "fuels": top(taste.get("fuels"), 2),
+            "_makes": taste.get("makes") or {}, "_models": taste.get("models") or {},
+            "_fuels": taste.get("fuels") or {},
             "price": price, "price_low": price_low, "price_high": price_high,
             "mileage": mileage, "mileage_low": mileage_low, "mileage_high": mileage_high,
             "events": taste.get("events") or 0,
@@ -2179,6 +2179,25 @@ async def admin_buyers(request: Request, x_admin_token: str = Header(default="")
             "joined_at": u.get("created_at"),
         })
     out.sort(key=lambda r: (-r["events"], r["email"]))
+
+    # The taste profile stores whatever the listing carried, so the same make can sit in it
+    # twice - once as "아우디" and once as "Audi". An operator picking up the phone needs one
+    # English name, so every key is resolved through the ENGLISH cache (cache-only: this must
+    # never call the LLM), the counts are merged under it, and only then is the top taken.
+    words = {k for r in out for f in ("_makes", "_models", "_fuels") for k in r[f]}
+    en = await translate_cached_only(db, list(words), "en") if words else {}
+
+    def merge(counts, n):
+        totals = {}
+        for k, v in (counts or {}).items():
+            name = en.get(k, k)
+            totals[name] = totals.get(name, 0) + v
+        return [k for k, _ in sorted(totals.items(), key=lambda kv: -kv[1])[:n]]
+
+    for r in out:
+        r["makes"] = merge(r.pop("_makes"), 3)
+        r["models"] = merge(r.pop("_models"), 3)
+        r["fuels"] = merge(r.pop("_fuels"), 2)
     return {"items": out}
 
 

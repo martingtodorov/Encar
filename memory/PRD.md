@@ -74,7 +74,16 @@ top-down sports-coupe outline (narrow nose, pinched waist, rear haunches WIDER t
 front) with wheels drawn under the body, a windscreen and rear-glass band and mirrors;
 `SHAPES` entries are now `{d, cx, cy}` paths that follow the flanks instead of `{x,y,w,h}`
 rects. It is a generic silhouette drawn by us — deliberately NOT a copy of any
-manufacturer's design. viewBox 0 0 320 460, rendered at h-[320px]. -->
+manufacturer's design. viewBox 0 0 320 460, rendered at h-[320px]. REVERTED at the owner's
+request — the plain rounded-block version is back, and the owner is drawing the silhouette
+by hand; the agreed hand-off is ONE svg, front at the top, one `<path id="...">` per panel
+using the existing slugs (hood, roof, trunk_lid, front_fender_left/right,
+front_door_left/right, rear_door_left/right, quarter_panel_left/right), no fill/stroke on the
+panels, a viewBox and no fixed width/height.
+Admin buyer interests (`GET /admin/buyers`): makes, models and fuels were showing the raw
+Korean, and the same make appeared TWICE when a profile had both "아우디" and "Audi". Keys are
+now resolved through the English cache (`translate_cached_only`, never the LLM), counts are
+merged under the English name and only then is the top 3 / top 2 taken. -->
 
 
 
