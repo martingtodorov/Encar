@@ -209,8 +209,23 @@ async def vessel_position(db, imo, mmsi=""):
         return None
 
 
+def _when_key(stone):
+    """Sortable timestamp. Anything unparseable sorts last so it cannot jump the timeline."""
+    try:
+        # Naive throughout: carriers quote local time without an offset, but a DCSA event can
+        # carry one, and comparing the two kinds raises mid-sort.
+        return (0, datetime.fromisoformat(stone["when"]).replace(tzinfo=None))
+    except (ValueError, KeyError, TypeError):
+        return (1, datetime.max)
+
+
 def _view(ref, by, stones, source, cached=False, vessel=None):
-    """Turn a sorted list of canonical events into what the Track page renders."""
+    """Turn a list of canonical events into what the Track page renders."""
+    # Strictly chronological: our estimated customs step hangs off the DISCHARGE date, so
+    # appending it would print it below a later carrier event (customs 05.08 under an
+    # arrival on 09.08). Stable, so events sharing a timestamp keep the carrier's order and
+    # anything undated stays where it was.
+    stones = sorted(stones, key=_when_key)
     # Coordinates where the port is one we know, so the map can draw the route. Unknown
     # ports simply have no marker; the timeline still names them.
     for m in stones:

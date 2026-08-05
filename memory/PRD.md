@@ -722,6 +722,27 @@ reserve price, listing approval). Agreed scope:
 - Row comparison tool on the desktop list view
 - Hoist the dealer-description translation cache into context so revisits are instant
 
+## Admin audit log (2026-06, VERIFIED)
+`audit_log` collection, written by `server._audit(request, actor, action, target, detail)`;
+read by `GET /api/admin/audit` (newest first, limit ≤ 500) and rendered in Admin → **Activity**
+(`components/admin/AdminAudit.js`, `data-testid="admin-audit"`). Actor is the signed-in admin's
+email or `"master token"` when `x-admin-token` was used; the client IP is stored too.
+Audited: taxonomy merge / rename, merge-rename undone, enquiry deleted, **customer deleted**,
+**deposit refunded** (the last two were missing and were added). Verified end to end with the
+master token (3 rows written) and in the browser as `admin@encarskin.com`; the probe rows were
+deleted afterwards, so the collection is empty on purpose.
+FIXED SAME SESSION: the tail of `server.py` was corrupt from the previous session's botched
+edit (a stray `_public.close()` plus a duplicated `on_shutdown` body) — it would have taken the
+backend down on the next restart. Always `python3 -c "import ast; ast.parse(...)"` after editing.
+
+## Tracking timeline order (2026-06)
+Milestones are now sorted CHRONOLOGICALLY in `tracking._view` (`_when_key`, stable, undated
+events last, tz dropped so naive and offset-carrying timestamps can be compared). Our two
+estimated steps hang off the DISCHARGE date, so simply appending them printed "Customs cleared
+05.08" BELOW a carrier arrival on 09.08 — the owner's report. Verified live on B/L 271191199:
+departure 07.06 → discharge Rotterdam 01.08 → ready 01.08 → customs 05.08 → arrival Bergen op
+Zoom 09.08 → delivery 12.08. The frontend renders payload order, so nothing changed there.
+
 ## Reference
 - Test credentials: `/app/memory/test_credentials.md`
 - Implementation log: `/app/memory/CHANGELOG.md`
