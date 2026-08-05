@@ -98,7 +98,7 @@
         cmd: "node scripts/gen-seo.js"
         chdir: "{{ release_dir }}/frontend"
       environment:
-        SITE_URL: "https://{{ site_domains[0] }}"
+        REACT_APP_SITE_URL: "https://{{ site_domains[0] }}"
       failed_when: false          # nice to have, never worth failing a deploy
       tags: [build]
 

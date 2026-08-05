@@ -5,11 +5,9 @@
 # ── identity ──────────────────────────────────────────────────────────────────
 app_name: encar
 # Every domain this build answers on. The first one is the canonical site URL used in
-# emails and share links.
+# emails, share links, sitemap.xml and robots.txt.
 site_domains:
-  - encar.autoandbid.bg
-  - encar.autoandbid.com
-  - encar.autoandbid.ro
+  - encareurope.com
 
 # Where things live on the hosts (mirrors the Auto&Bid layout).
 app_dir: /opt/encar                  # backend releases + venv
