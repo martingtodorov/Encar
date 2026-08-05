@@ -145,7 +145,31 @@ with JS only, pointer nowhere near the card, produced exactly ONE `/api/car/{id}
 * MISTAKE TO LEARN FROM: two of my own edits took the site down (a `search_replace` that
   joined two lines in server.py -> SyntaxError -> 502, and a new component importing api
   helpers that had not landed). ALWAYS `python3 -c "import ast; ast.parse(...)"` the backend
-  and check `/var/log/supervisor/frontend.out.log` for "compiled" before moving on. -->
+  and check `/var/log/supervisor/frontend.out.log` for "compiled" before moving on.
+* Prefetch 410: `useCarWarm` fire-and-forgot `warmCar` with no `.catch`, so hovering or
+  swiping a card whose ad the dealer had just pulled surfaced "Request failed with status
+  code 410" to the visitor. Prefetch errors are swallowed now; the car PAGE still shows the
+  friendly sold screen with similar cars (verified on 42439184: no page errors).
+
+## Self-hosting on Hetzner — checklist (asked 2026-06)
+Static scan passed: no hardcoded secrets or URLs in code, env usage correct, `yarn build`
+succeeds (294 kB gzip), backend imports clean. What the owner must still do on their own box:
+1. Code out via "Save to GitHub"; `.env` files are NOT included — recreate every key.
+2. `REACT_APP_BACKEND_URL` is baked in at BUILD time by CRA — rebuild for the new domain.
+3. `PUBLIC_SITE_URL` in backend/.env still points at the preview URL; it is what email logos
+   and share links use, so it MUST change.
+4. Own MongoDB (`MONGO_URL`, `DB_NAME`). A fresh DB is EMPTY — either run the catalogue sync
+   and taxonomy build, or `mongodump/restore`. Worth carrying over: `translations` (already
+   paid for), `taxonomy_overrides` (the owner's merges), `users`, `purchases`, `shipments`.
+5. `MEDIA_ROOT` needs a PERSISTENT volume: archived photos of purchased cars live there and
+   are served from `/api/media`.
+6. nginx: `/api` -> uvicorn:8001, everything else -> the static `build/`. HTTPS is required —
+   sessions and passkeys are Secure-cookie only. Passkey RP id is derived from the request
+   origin (auth.py `_rp`), so nothing to configure there.
+7. ONE backend process: `syncjob` and `pricewatch` schedule in-process, so multiple uvicorn
+   workers would double-run the crawl and the price emails.
+8. Translations already use the owner's own `ANTHROPIC_API_KEY`/`GEMINI_API_KEY` directly; the
+   Emergent universal key is only a FALLBACK and stops working off-platform, which is fine. -->
 
 
 
