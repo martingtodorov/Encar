@@ -111,7 +111,33 @@ owner's rule — customs = discharge + 4 days, delivery = customs + 7. Verified:
 Mobile cards: swiping to the SECOND photo now warms the ad in the background —
 `CarCard` passes `onIndexChange` to `PhotoSwiper` and calls `warmNow()` from slide 2 onward
 (`warmCar` dedupes, so later slides cost nothing). Verified in isolation: scrolling the deck
-with JS only, pointer nowhere near the card, produced exactly ONE `/api/car/{id}` request. -->
+with JS only, pointer nowhere near the card, produced exactly ONE `/api/car/{id}` request.
+2026-06 — CURATION + polish batch:
+* `curate.py` (new) holds the owner's taxonomy curation. `taxonomy_overrides` docs
+  (`_id = "{level}|{value}"`) either RENAME a value or MERGE it into another; dropdowns are
+  collapsed (counts summed onto the survivor) in `/meta/taxonomy` and `build_query` expands a
+  filter on the survivor to every value folded into it, so the single entry really returns all
+  the cars. `raw=1` on `/meta/taxonomy` skips the collapse — that is what the admin screen
+  reads. Admin API: GET/POST `/admin/taxonomy/overrides`, DELETE `.../{id}`. UI:
+  `AdminTaxonomy.js`, tab "Models & trims". Nothing touches `listings`, so every change is
+  undoable and a re-crawl cannot overwrite it. Applied for the owner: M2 Coupe M Performance
+  Steering Wheel Edition + M2 Black Shadow -> M2 Coupe (16 cars), M2 Competition Final
+  Edition -> M2 Competition (16 cars); verified end to end.
+* Model names: `curate.model_label` strips "The New / All New / New" and "5th Generation" and
+  appends the production span read from our own catalogue (`curate.ensure_years`, one grouped
+  pass over `form_year`, cached a week in `model_years`). Open span while still on sale:
+  "더 뉴 스포티지 5세대" -> "Sportage (2024-)", "올 뉴 쏘렌토" -> "Sorento (2015-2017)". Applied in
+  the model dropdown, `listing_out.model_t` and the car page title.
+* Filter pill bug: the inputs hand over STRINGS, so `Number.isFinite("60000")` was false and
+  the mileage pill read "Пробег: –— км". `AppliedFiltersChips` now coerces every bound and
+  words one-sided ranges as "≤ 60 000 км" / "≥ …" (same fix for price and year).
+* Mobile: `index.css` forces 16px form text on touch devices, so iOS no longer zooms in when
+  a field is focused (pinch-zoom still works).
+* Login: "Нямате профил?" is now 16px with a real Регистрация button (`auth-switch-mode`).
+* MISTAKE TO LEARN FROM: two of my own edits took the site down (a `search_replace` that
+  joined two lines in server.py -> SyntaxError -> 502, and a new component importing api
+  helpers that had not landed). ALWAYS `python3 -c "import ast; ast.parse(...)"` the backend
+  and check `/var/log/supervisor/frontend.out.log` for "compiled" before moving on. -->
 
 
 

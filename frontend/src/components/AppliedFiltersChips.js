@@ -36,21 +36,35 @@ export const AppliedFiltersChips = ({ filters, tax, taxLabels, facets, onRemove,
     chips.push({ key: `transmissions:${tr}`, label: t(tr === "manual" ? "manual" : "auto") })
   );
 
+  // One-sided ranges: "≤ 60 000 km", not "–60 000 km". And the inputs hand us STRINGS, so
+  // every bound is coerced before formatting — Number.isFinite("60000") is false, which is
+  // how the mileage pill ended up reading "Пробег: –— км".
+  const span = (lo, hi, fmt) => {
+    const a = lo || lo === 0 ? fmt(Number(lo)) : "";
+    const b = hi || hi === 0 ? fmt(Number(hi)) : "";
+    if (a && b) return `${a}\u2013${b}`;
+    return a ? `\u2265 ${a}` : `\u2264 ${b}`;
+  };
+
   if (filters.year_min || filters.year_max) {
     chips.push({
       key: "year",
-      label: `${t("year")}: ${filters.year_min || ""}\u2013${filters.year_max || ""}`,
+      label: `${t("year")}: ${span(filters.year_min, filters.year_max, (n) => String(n))}`,
     });
   }
   if (filters.price_min || filters.price_max) {
-    const a = filters.price_min ? formatMoney(filters.price_min, currency, lang, rates) : "";
-    const b = filters.price_max ? formatMoney(filters.price_max, currency, lang, rates) : "";
-    chips.push({ key: "price", label: `${t("price")}: ${a}\u2013${b}` });
+    chips.push({
+      key: "price",
+      label: `${t("price")}: ${span(filters.price_min, filters.price_max,
+        (n) => formatMoney(n, currency, lang, rates))}`,
+    });
   }
   if (filters.mileage_min || filters.mileage_max) {
-    const a = filters.mileage_min ? formatNumber(filters.mileage_min, lang) : "";
-    const b = filters.mileage_max ? formatNumber(filters.mileage_max, lang) : "";
-    chips.push({ key: "mileage", label: `${t("mileage")}: ${a}\u2013${b} ${t("km")}` });
+    chips.push({
+      key: "mileage",
+      label: `${t("mileage")}: ${span(filters.mileage_min, filters.mileage_max,
+        (n) => formatNumber(n, lang))} ${t("km")}`,
+    });
   }
   if (filters.only_inspection) chips.push({ key: "only_inspection", label: t("onlyInspection") });
   if (filters.only_record) chips.push({ key: "only_record", label: t("onlyRecord") });

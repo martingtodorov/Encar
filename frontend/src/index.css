@@ -202,3 +202,14 @@ code {
     background: hsl(var(--secondary));
     color: hsl(var(--secondary-foreground));
 }
+
+/* iOS Safari zooms the page in whenever a focused field is under 16px, and it never zooms
+   back out. Touch devices therefore get 16px form text regardless of the design size -
+   nothing else changes, and pinch-to-zoom stays available. */
+@media (hover: none) and (pointer: coarse) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select,
+    textarea {
+        font-size: 16px !important;
+    }
+}

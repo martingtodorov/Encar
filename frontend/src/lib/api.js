@@ -146,6 +146,28 @@ export async function getHealth() {
 }
 
 // ── admin ──────────────────────────────────────────────────────────────────
+export async function getRawTaxonomy({ level, make = "", model = "" }) {
+  const { data } = await http.get("/meta/taxonomy", {
+    params: { level, make, model, lang: "en", raw: true },
+  });
+  return data;
+}
+
+export async function getTaxonomyOverrides() {
+  const { data } = await http.get("/admin/taxonomy/overrides");
+  return data.items;
+}
+
+export async function saveTaxonomyOverride(body) {
+  const { data } = await http.post("/admin/taxonomy/overrides", body);
+  return data;
+}
+
+export async function deleteTaxonomyOverride(id) {
+  const { data } = await http.delete(`/admin/taxonomy/overrides/${encodeURIComponent(id)}`);
+  return data;
+}
+
 export async function getCatalogueSync() {
   const { data } = await http.get("/admin/catalogue-sync");
   return data;

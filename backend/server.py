@@ -47,6 +47,7 @@ import edi                  # noqa: E402
 import jsoncargo            # noqa: E402
 import maersk_public        # noqa: E402
 import tracking             # noqa: E402
+import curate               # noqa: E402
 import sync as sync_mod      # noqa: E402
 from encar import encar, image_url, detail_photo_paths  # noqa: E402
 from translate import (LANGS, breaker_status, schedule_translation,  # noqa: E402
@@ -98,7 +99,7 @@ def listing_out(doc):
         "model": doc.get("model"),
         "badge": doc.get("badge"),
         "manufacturer_t": doc.get("manufacturer_t"),
-        "model_t": doc.get("model_t"),
+        "model_t": curate.display(2, doc.get("model"), doc.get("model_t")),
         "badge_t": doc.get("badge_t"),
         "badge_detail": doc.get("badge_detail"),
         "badge_detail_t": doc.get("badge_detail_t"),
@@ -160,12 +161,13 @@ def build_query(p):
 
     if p.get("makes"):
         q["manufacturer"] = {"$in": p["makes"]}
+    # A model or trim the owner merged others into must return their cars too (curate.py).
     if p.get("models"):
-        q["model"] = {"$in": p["models"]}
+        q["model"] = {"$in": curate.expand(2, p["models"])}
     if p.get("badges"):
-        q["badge"] = {"$in": p["badges"]}
+        q["badge"] = {"$in": curate.expand(3, p["badges"])}
     if p.get("badge_details"):
-        q["badge_detail"] = {"$in": p["badge_details"]}
+        q["badge_detail"] = {"$in": curate.expand(4, p["badge_details"])}
     if p.get("fuels"):
         q["fuel_type"] = {"$in": p["fuels"]}
     if p.get("regions"):
@@ -579,6 +581,7 @@ async def _remember_search(request, p):
 async def search(body: SearchBody, request: Request):
     lang = norm_lang(body.lang)
     p = body.model_dump()
+    await curate.refresh(db)
     query = build_query(p)
     sort = SORTS.get(body.sort, SORTS["newest"])
 
@@ -962,6 +965,7 @@ async def meta_taxonomy(
     badge: str = "",
     lang: str = "bg",
     limit: int = 600,
+    raw: bool = False,
 ):
     """Cascading Make -> Model -> Trim -> Sub-trim dropdown data.
 
@@ -1000,6 +1004,15 @@ async def meta_taxonomy(
         .sort([("value", 1)])          # alphabetical, not by popularity
         .limit(limit)
     ]
+    # The owner folds Encar's near-duplicate trims together and renames what reads badly
+    # (curate.py). `raw=1` skips it, which is how the admin screen sees what to merge.
+    await curate.refresh(db)
+    try:
+        await curate.ensure_years(db)
+    except Exception as e:
+        log.warning("model year spans failed: %s", str(e)[:160])
+    if not raw:
+        rows = curate.collapse(rows, level)
     values = [r["value"] for r in rows]
     # Levels 1 and 2 are marques and model names: proper nouns, always English.
     label_lang = "en" if level <= 2 else lang
@@ -1015,7 +1028,12 @@ async def meta_taxonomy(
     built = await db.sync_state.find_one({"_id": "taxonomy"})
     return {
         "level": level,
-        "items": [{**r, "label": tmap.get(r["value"], r["value"])} for r in rows],
+        "items": [{**r,
+                   "label": curate.display(level, r["value"],
+                                           tmap.get(r["value"], r["value"])),
+                   "merged_into": curate.merged_into(level, r["value"]),
+                   "renamed": bool(curate.label_for(level, r["value"]))}
+                  for r in rows],
         "built_at": jsonable((built or {}).get("built_at")),
     }
 
@@ -1431,9 +1449,11 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
         "sales_status": (listing or {}).get("sales_status") or adv.get("status"),
         "active": bool((listing or {}).get("active", True)),
         "title": " ".join(filter(None, [T(cat.get("manufacturerName")),
-                                        T(cat.get("modelName"))])),
+                                        curate.display(2, (listing or {}).get("model") or "",
+                                                       T(cat.get("modelName")))])),
         "manufacturer": T(cat.get("manufacturerName")),
-        "model": T(cat.get("modelName")),
+        "model": curate.display(2, (listing or {}).get("model") or "",
+                                T(cat.get("modelName"))),
         "grade": T(cat.get("gradeName")) or cat.get("gradeEnglishName"),
         "badge_detail": (listing or {}).get("badge_detail"),
         "year_month": cat.get("yearMonth"),
@@ -2287,6 +2307,72 @@ async def admin_buyers(request: Request, x_admin_token: str = Header(default="")
         r["last_search"] = describe(s)
         r["last_search_at"] = s.get("at")
     return {"items": out}
+
+
+class TaxonomyOverrideBody(BaseModel):
+    level: int = 2
+    make: str = ""
+    model: str = ""
+    value: str
+    target: str = ""
+    label: str = ""
+
+
+@api.get("/admin/taxonomy/overrides")
+async def admin_taxonomy_overrides(request: Request, x_admin_token: str = Header(default="")):
+    """Every rename and merge the owner has made, newest first."""
+    await _require_admin(request, x_admin_token)
+    rows = [d async for d in db.taxonomy_overrides.find({}).sort("at", -1).limit(500)]
+    words = {v for d in rows for v in (d.get("value"), d.get("target")) if v}
+    en = await translate_cached_only(db, list(words), "en") if words else {}
+    return {"items": [{
+        "id": d["_id"], "level": d.get("level"), "make": d.get("make") or "",
+        "model": d.get("model") or "", "value": d.get("value") or "",
+        "value_label": en.get(d.get("value") or "", d.get("value") or ""),
+        "target": d.get("target") or "",
+        "target_label": en.get(d.get("target") or "", d.get("target") or ""),
+        "label": d.get("label") or "", "at": d.get("at"),
+    } for d in rows]}
+
+
+@api.post("/admin/taxonomy/overrides")
+async def admin_taxonomy_override_save(body: TaxonomyOverrideBody, request: Request,
+                                      x_admin_token: str = Header(default="")):
+    """Rename a model or trim, or fold it into another one.
+
+    One override per value, so saving again replaces the previous one. Merging into something
+    that is itself merged follows the chain to whatever actually survives, which keeps the
+    dropdown from ever pointing at an entry a buyer cannot see.
+    """
+    await _require_admin(request, x_admin_token)
+    value = (body.value or "").strip()
+    if not value:
+        raise HTTPException(400, "which value?")
+    await curate.refresh(db, force=True)
+    target = curate.root(body.level, (body.target or "").strip()) if body.target else ""
+    if target == value:
+        raise HTTPException(400, "a value cannot be merged into itself")
+    label = (body.label or "").strip()[:80]
+    if not target and not label:
+        raise HTTPException(400, "give a new name or something to merge into")
+    doc = {"level": int(body.level), "make": body.make.strip(), "model": body.model.strip(),
+           "value": value, "target": target, "label": label,
+           "at": datetime.now(timezone.utc).isoformat()}
+    # Deterministic id: one override per value, so saving again simply replaces it (and no
+    # ObjectId ever reaches the admin screen).
+    oid = f"{doc['level']}|{value}"
+    await db.taxonomy_overrides.update_one({"_id": oid}, {"$set": doc}, upsert=True)
+    await curate.refresh(db, force=True)
+    return {"saved": True, "id": oid, **doc}
+
+
+@api.delete("/admin/taxonomy/overrides/{oid}")
+async def admin_taxonomy_override_remove(oid: str, request: Request,
+                                        x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
+    res = await db.taxonomy_overrides.delete_one({"_id": oid})
+    await curate.refresh(db, force=True)
+    return {"removed": bool(res.deleted_count)}
 
 
 @api.get("/admin/tracking-quota")

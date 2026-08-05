@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Activity, BadgeEuro, Inbox, PieChart, RefreshCcw, Ship, Users } from "lucide-react";
+import { Activity, BadgeEuro, Inbox, Layers, PieChart, RefreshCcw, Ship, Users } from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
@@ -14,6 +14,7 @@ import { AdminCatalogueSync } from "@/components/admin/AdminCatalogueSync";
 import { AdminShipments } from "@/components/admin/AdminShipments";
 import { AdminBuyers } from "@/components/admin/AdminBuyers";
 import { AdminDeposits } from "@/components/admin/AdminDeposits";
+import { AdminTaxonomy } from "@/components/admin/AdminTaxonomy";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
@@ -23,6 +24,7 @@ const TABS = [
   { id: "shipments", label: "Shipments", icon: Ship },
   { id: "deposits", label: "Deposits", icon: BadgeEuro },
   { id: "buyers", label: "Buyers", icon: Users },
+  { id: "taxonomy", label: "Models & trims", icon: Layers },
 ];
 
 export default function AdminPage() {
@@ -102,6 +104,7 @@ export default function AdminPage() {
           {tab === "shipments" && <AdminShipments />}
           {tab === "deposits" && <AdminDeposits />}
           {tab === "buyers" && <AdminBuyers />}
+          {tab === "taxonomy" && <AdminTaxonomy />}
         </div>
       </main>
     </div>

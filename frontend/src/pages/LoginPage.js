@@ -293,17 +293,23 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <button
-          type="button"
-          data-testid="auth-switch-mode"
-          onClick={() => {
-            setError("");
-            setMode(registering ? "login" : "register");
-          }}
-          className="mt-5 text-[13.5px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          {registering ? t("haveAccount") : t("noAccount")}
-        </button>
+        <div className="mt-6 flex flex-col items-center gap-2.5">
+          <p className="text-base text-muted-foreground">
+            {registering ? t("haveAccountPrompt") : t("noAccountPrompt")}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            data-testid="auth-switch-mode"
+            onClick={() => {
+              setError("");
+              setMode(registering ? "login" : "register");
+            }}
+            className="h-11 w-full text-[15px] font-semibold"
+          >
+            {registering ? t("login") : t("register")}
+          </Button>
+        </div>
           </>
         )}
 
