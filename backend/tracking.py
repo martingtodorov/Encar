@@ -310,7 +310,7 @@ async def _cargo(db, ref, by, refresh=False):
 
 
 DELIVERY_DAYS = int(os.environ.get("DELIVERY_LEAD_DAYS", "7"))
-CUSTOMS_DAYS = int(os.environ.get("CUSTOMS_LEAD_DAYS", "3"))
+CUSTOMS_DAYS = int(os.environ.get("CUSTOMS_LEAD_DAYS", "4"))
 
 
 def _stone(code, text, when, place="", country=""):
@@ -323,16 +323,19 @@ async def _last_leg(db, stones, owner_id):
     """The two steps the carrier never reports: clearing customs, then the buyer's door.
 
     Ocean tracking ends at the destination terminal, but nobody is waiting at a terminal.
-    Customs clearance runs about three days after the ship berths and the lorry arrives
-    about a week after that same date, so both are appended as CLEARLY ESTIMATED steps —
-    the delivery one named with the city from the buyer's billing address when we have it.
+    Customs clearance runs about four days after the box comes OFF THE SHIP and the lorry
+    arrives about a week after that, so both are appended as CLEARLY ESTIMATED steps — the
+    delivery one named with the country from the buyer's billing address when we have it.
     """
     if not stones:
         return []
-    # Both dates hang off the ship BERTHING at the destination port, not off whatever event
-    # happens to be last: an inland move after arrival must not push customs back.
-    arrival = next((s for s in reversed(stones)
-                    if s.get("code") in ("AV", "VA", "ARRI")), stones[-1])
+    # Both dates hang off the box being DISCHARGED, not off whatever event happens to be
+    # last: a barge leg onward to Bergen op Zoom pushed customs a week past the day the
+    # container was already standing on the quay in Rotterdam.
+    arrival = next((s for s in reversed(stones) if s.get("code") == "UV"), None)
+    if not arrival:
+        arrival = next((s for s in reversed(stones)
+                        if s.get("code") in ("AV", "VA", "ARRI")), stones[-1])
     port = arrival.get("location") or ""
     try:
         base = datetime.fromisoformat(arrival["when"])

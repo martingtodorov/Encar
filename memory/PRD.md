@@ -101,7 +101,13 @@ DROPPED FEATURE (owner's decision, 2026-06): "3rd and 4th card photo must be int
 NOT being built. Encar's search feed returns only 4 photos per car and all of them are
 exterior; interior shots exist only in the per-car detail (587 of ~215k cached), so it would
 cost one upstream detail request per car. The owner chose to skip it entirely — do not
-re-propose it. -->
+re-propose it.
+Tracking forecast: the "Customs cleared" and "Delivery" estimates used to hang off the
+BERTHING/arrival event, so a barge leg onward to Bergen op Zoom pushed customs to 12.08 when
+the box had been on the quay in Rotterdam since 01.08. `_last_leg` now bases both on the
+DISCHARGE event (code `UV`, falling back to arrival), and `CUSTOMS_LEAD_DAYS` is 4 by the
+owner's rule — customs = discharge + 4 days, delivery = customs + 7. Verified: discharge
+01.08 19:04 Rotterdam -> customs 05.08, delivery 12.08. -->
 
 
 
