@@ -1744,12 +1744,42 @@ async def _is_admin_request(request: Request):
 async def _require_admin(request: Request, token: str = ""):
     """Admin access via a signed-in admin account (the normal path, per the login
     requirement) or the pre-existing header token (for scripts/curl)."""
-    if token and token == ADMIN_TOKEN:
+    if token and ADMIN_TOKEN and secrets.compare_digest(token, ADMIN_TOKEN):
         return None
     user = await auth.optional_user(request)
     if not (user and user.get("is_admin")):
         raise HTTPException(status_code=401, detail="administrator sign-in required")
     return user
+
+
+def _actor(admin):
+    """Who did it. `None` means the master token was used rather than an account."""
+    return (admin or {}).get("email") or "master token"
+
+
+async def _audit(request, actor, action, target, detail=""):
+    """A trail of everything an operator changes or throws away.
+
+    Deletions and merges are invisible after the fact — the row is simply not there any more —
+    so each one is written down with who, what and when before it happens.
+    """
+    await db.audit_log.insert_one({
+        "_id": str(uuid.uuid4()),
+        "at": datetime.now(timezone.utc).isoformat(),
+        "actor": actor, "action": action, "target": target, "detail": detail,
+        "ip": request.client.host if request.client else "",
+    })
+
+
+@api.get("/admin/audit")
+async def admin_audit(request: Request, limit: int = 200,
+                      x_admin_token: str = Header(default="")):
+    """The trail, newest first."""
+    await _require_admin(request, x_admin_token)
+    rows = await db.audit_log.find({}).sort("at", -1).limit(min(limit, 500)).to_list(500)
+    return {"items": [{"id": r["_id"], "at": r.get("at"), "actor": r.get("actor"),
+                       "action": r.get("action"), "target": r.get("target"),
+                       "detail": r.get("detail") or ""} for r in rows]}
 
 
 @api.put("/settings")
@@ -2359,7 +2389,7 @@ async def admin_taxonomy_override_save(body: TaxonomyOverrideBody, request: Requ
     that is itself merged follows the chain to whatever actually survives, which keeps the
     dropdown from ever pointing at an entry a buyer cannot see.
     """
-    await _require_admin(request, x_admin_token)
+    who = _actor(await _require_admin(request, x_admin_token))
     value = (body.value or "").strip()
     if not value:
         raise HTTPException(400, "which value?")
@@ -2378,15 +2408,19 @@ async def admin_taxonomy_override_save(body: TaxonomyOverrideBody, request: Requ
     oid = f"{doc['level']}|{value}"
     await db.taxonomy_overrides.update_one({"_id": oid}, {"$set": doc}, upsert=True)
     await curate.refresh(db, force=True)
+    await _audit(request, who, "merged" if target else "renamed", value,
+                 f"-> {target}" if target else f'"{label}"')
     return {"saved": True, "id": oid, **doc}
 
 
 @api.delete("/admin/taxonomy/overrides/{oid}")
 async def admin_taxonomy_override_remove(oid: str, request: Request,
                                         x_admin_token: str = Header(default="")):
-    await _require_admin(request, x_admin_token)
+    who = _actor(await _require_admin(request, x_admin_token))
     res = await db.taxonomy_overrides.delete_one({"_id": oid})
     await curate.refresh(db, force=True)
+    if res.deleted_count:
+        await _audit(request, who, "merge/rename undone", oid)
     return {"removed": bool(res.deleted_count)}
 
 
@@ -2398,12 +2432,14 @@ async def admin_enquiry_delete(enquiry_id: str, request: Request,
     A `new` one is never deletable: that is a lead nobody has spoken to yet, and losing it to
     a stray click would cost real money. Mark it contacted or closed first.
     """
-    await _require_admin(request, x_admin_token)
-    doc = await db.enquiries.find_one({"_id": enquiry_id}, {"status": 1})
+    who = _actor(await _require_admin(request, x_admin_token))
+    doc = await db.enquiries.find_one({"_id": enquiry_id}, {"status": 1, "name": 1, "email": 1})
     if not doc:
         raise HTTPException(404, "no such enquiry")
     if (doc.get("status") or "new") == "new":
         raise HTTPException(400, "mark it contacted or closed before deleting it")
+    await _audit(request, who, "enquiry deleted",
+                 doc.get("email") or enquiry_id, doc.get("name") or "")
     await db.enquiries.delete_one({"_id": enquiry_id})
     return {"removed": True}
 
@@ -2417,7 +2453,7 @@ async def admin_user_delete(email: str, request: Request,
     so an account with a live, unrefunded deposit is refused. Purchase records keep the email
     for the paperwork; everything that could sign the person in goes.
     """
-    await _require_admin(request, x_admin_token)
+    who = _actor(await _require_admin(request, x_admin_token))
     email = (email or "").strip().lower()
     user = await db.users.find_one({"email": email}, {"_id": 1})
     if not user:
@@ -2521,5 +2557,8 @@ async def on_shutdown():
     # still open, otherwise it dies mid-write and leaves the job stuck on "running".
     await syncjob_mod.stop(db)
     await maersk_public.close()
+    await encar.close()
+    client.close()
+_public.close()
     await encar.close()
     client.close()

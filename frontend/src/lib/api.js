@@ -146,6 +146,11 @@ export async function getHealth() {
 }
 
 // ── admin ──────────────────────────────────────────────────────────────────
+export async function getAuditLog() {
+  const { data } = await http.get("/admin/audit");
+  return data.items;
+}
+
 export async function deleteEnquiry(id) {
   const { data } = await http.delete(`/admin/enquiries/${encodeURIComponent(id)}`);
   return data;
