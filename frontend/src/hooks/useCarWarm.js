@@ -23,11 +23,16 @@ export const useCarWarm = (id) => {
     }
   };
 
+  // A prefetch that fails is never worth reporting: an ad the dealer has just pulled answers
+  // 410, and without this the rejection reached the browser as "Request failed with status
+  // code 410" while the visitor was only hovering or swiping a card.
+  const prefetch = () => warmCar(id, lang).catch(() => {});
+
   const arm = (ms) => {
     cancel();
     timer.current = setTimeout(() => {
       timer.current = null;
-      warmCar(id, lang);
+      prefetch();
     }, ms);
   };
 
@@ -35,7 +40,7 @@ export const useCarWarm = (id) => {
 
   const warmNow = () => {
     cancel();
-    warmCar(id, lang);
+    prefetch();
   };
 
   return [
