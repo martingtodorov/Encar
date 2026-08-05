@@ -24,7 +24,7 @@ export const ResultsPagination = ({ page, pages, onChange }) => {
   return (
     <nav
       data-testid="pagination"
-      className="flex flex-nowrap items-center justify-center gap-2 py-8 sm:justify-between sm:gap-4"
+      className="flex flex-col items-center gap-3 py-8 sm:flex-row sm:justify-between sm:gap-4"
       aria-label={t("page")}
     >
       <div className="flex flex-nowrap items-center gap-1 sm:gap-1.5">
@@ -90,9 +90,7 @@ export const ResultsPagination = ({ page, pages, onChange }) => {
           }
         }}
       >
-        {/* The label and the total only fit once there is room; on a phone the input's
-            own placeholder (the current page) says what the field is for. */}
-        <span className="hidden whitespace-nowrap text-[13px] text-muted-foreground sm:inline">
+        <span className="whitespace-nowrap text-[13px] text-muted-foreground">
           {t("goToPage")}
         </span>
         <Input
@@ -111,7 +109,7 @@ export const ResultsPagination = ({ page, pages, onChange }) => {
         >
           {t("go")}
         </Button>
-        <span className="tnum hidden whitespace-nowrap text-[13px] text-muted-foreground sm:inline">
+        <span className="tnum whitespace-nowrap text-[13px] text-muted-foreground">
           / {formatNumber(pages, lang)}
         </span>
       </form>
