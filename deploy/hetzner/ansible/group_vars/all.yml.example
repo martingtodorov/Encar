@@ -1,0 +1,72 @@
+---
+# Copy to group_vars/all.yml, fill in, then:  ansible-vault encrypt group_vars/all.yml
+# Nothing here is ever committed. The playbooks refuse to run without the first three.
+
+# ── identity ──────────────────────────────────────────────────────────────────
+app_name: encar
+# Every domain this build answers on. The first one is the canonical site URL used in
+# emails and share links.
+site_domains:
+  - encar.autoandbid.bg
+  - encar.autoandbid.com
+  - encar.autoandbid.ro
+
+# Where things live on the hosts (mirrors the Auto&Bid layout).
+app_dir: /opt/encar                  # backend releases + venv
+web_root: /var/www/encar             # frontend releases + the `build` symlink
+env_dir: /etc/encar                  # backend.env
+media_dir: /var/lib/encar/media      # archived photos of purchased cars (PERSISTENT)
+ssl_dir: /etc/ssl/encar              # Cloudflare Origin cert.pem + key.pem (dropped by hand)
+
+# Code source. "Save to GitHub" in Emergent gives you this; deploy with -e ref=main.
+repo_url: git@github.com:you/europe-encar.git
+ref: main
+
+# The port YOUR sshd listens on — the firewall opens this one and nothing else from the
+# internet. Set it before the first run or you will lock yourself out.
+ssh_port: 22
+private_cidr: 10.0.0.0/16
+
+# ── backend secrets ───────────────────────────────────────────────────────────
+db_name: encar
+mongo_url: mongodb://localhost:27017
+
+# openssl rand -base64 24
+admin_token: ""
+admin_seed_password: ""
+# openssl rand -base64 32
+totp_encryption_key: ""
+
+# Your OWN key: the Emergent universal key does not work off-platform. Claude does every
+# translation in this app.
+anthropic_api_key: ""
+anthropic_model: claude-sonnet-5
+anthropic_fast_model: claude-haiku-4-5-20251001
+gemini_api_key: ""
+gemini_model: gemini-2.5-flash
+
+stripe_secret_key: ""
+stripe_publishable_key: ""
+stripe_webhook_secret: ""
+stripe_mode: live
+stripe_account_id: ""
+
+resend_api_key: ""
+sender_email: ""
+admin_notify_email: ""
+
+jsoncargo_api_key: ""
+jsoncargo_shipping_line: ""
+edi_ingest_token: ""
+# Reading Maersk's public page needs an egress IP Akamai accepts; it is OFF here.
+maersk_public_track: 0
+
+vapid_public_key: ""
+vapid_private_key: ""
+vapid_subject: "mailto:you@example.com"
+
+# ── behaviour ─────────────────────────────────────────────────────────────────
+releases_kept: 5
+node_major: 20
+mongo_major: "7.0"
+backup_dir: /var/backups/encar

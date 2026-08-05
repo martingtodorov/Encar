@@ -1,0 +1,127 @@
+# Written by Ansible. One build, every brand domain — the app picks its language from the
+# hostname and the URL prefix, so nothing here is per-domain.
+
+# Real visitor addresses behind Cloudflare, or every rate limit and audit line would read a
+# Cloudflare edge IP.
+set_real_ip_from 173.245.48.0/20;
+set_real_ip_from 103.21.244.0/22;
+set_real_ip_from 103.22.200.0/22;
+set_real_ip_from 103.31.4.0/22;
+set_real_ip_from 141.101.64.0/18;
+set_real_ip_from 108.162.192.0/18;
+set_real_ip_from 190.93.240.0/20;
+set_real_ip_from 188.114.96.0/20;
+set_real_ip_from 197.234.240.0/22;
+set_real_ip_from 198.41.128.0/17;
+set_real_ip_from 162.158.0.0/15;
+set_real_ip_from 104.16.0.0/13;
+set_real_ip_from 104.24.0.0/14;
+set_real_ip_from 172.64.0.0/13;
+set_real_ip_from 131.0.72.0/22;
+set_real_ip_from 2400:cb00::/32;
+set_real_ip_from 2606:4700::/32;
+set_real_ip_from 2803:f800::/32;
+set_real_ip_from 2405:b500::/32;
+set_real_ip_from 2405:8100::/32;
+set_real_ip_from 2a06:98c0::/29;
+set_real_ip_from 2c0f:f248::/32;
+real_ip_header CF-Connecting-IP;
+
+upstream {{ app_name }}_backend {
+    server encar-back1:8001 max_fails=0;
+    keepalive 32;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {% for d in site_domains %}{{ d }} www.{{ d }} {% endfor %};
+
+    # Prepared in case Let's Encrypt is ever wanted; no certbot is installed.
+    location /.well-known/acme-challenge/ { root /var/www/certbot; }
+    location / { return 301 https://$host$request_uri; }
+}
+
+{% for d in site_domains %}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name www.{{ d }};
+    ssl_certificate     {{ ssl_dir }}/cert.pem;
+    ssl_certificate_key {{ ssl_dir }}/key.pem;
+    return 301 https://{{ d }}$request_uri;
+}
+{% endfor %}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name {% for d in site_domains %}{{ d }} {% endfor %};
+
+    ssl_certificate     {{ ssl_dir }}/cert.pem;
+    ssl_certificate_key {{ ssl_dir }}/key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    root {{ web_root }}/build;
+    index index.html;
+
+    add_header X-Content-Type-Options nosniff always;
+    add_header Referrer-Policy strict-origin-when-cross-origin always;
+    add_header X-Frame-Options SAMEORIGIN always;
+
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    client_max_body_size 32m;
+
+    # ── the API ───────────────────────────────────────────────────────────────
+    location /api/ {
+        proxy_pass http://{{ app_name }}_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header CF-Connecting-IP  $http_cf_connecting_ip;
+        proxy_set_header Connection        "";
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
+        # The dealer-description translation is streamed over SSE — buffering it would hold
+        # the whole answer back and the visitor would watch a spinner instead of words.
+        proxy_buffering off;
+        proxy_request_buffering off;
+    }
+
+    # Archived photos of purchased cars. Immutable once written, so they are cached hard.
+    location /api/media/ {
+        proxy_pass http://{{ app_name }}_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header Connection "";
+        proxy_cache_valid 200 30d;
+        add_header Cache-Control "public, max-age=2592000";
+    }
+
+    # ── the app ───────────────────────────────────────────────────────────────
+    location /static/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # A pinned service worker would serve a broken build forever.
+    location = /service-worker.js {
+        add_header Cache-Control "no-store";
+    }
+
+    location = /sitemap.xml { try_files $uri =404; }
+    location = /robots.txt  { try_files $uri =404; }
+
+    # Every route is client side: /bg, /ro, /en and everything under them.
+    location / {
+        try_files $uri /index.html;
+    }
+}

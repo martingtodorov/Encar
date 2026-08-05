@@ -1,0 +1,246 @@
+---
+# Backend on ab-back1-style host: systemd + venv, no Docker.
+#
+#   ansible-playbook -i inventory.ini playbooks/deploy_backend.yml -e "ref=main"
+#
+# Tags: base, mongo, code, config, service, firewall, backup.
+- name: Europe Encar backend
+  hosts: backend
+  become: true
+
+  vars:
+    release_dir: "{{ app_dir }}/releases/{{ ref }}-{{ ansible_date_time.iso8601_basic_short }}"
+    venv: "{{ app_dir }}/venv"
+    unit: "{{ app_name }}-backend"
+
+  pre_tasks:
+    - name: Refuse to run half-configured
+      ansible.builtin.assert:
+        that:
+          - site_domains | default([]) | length > 0
+          - admin_token | default('') | length > 0
+          - anthropic_api_key | default('') | length > 0
+        fail_msg: >-
+          site_domains, admin_token and anthropic_api_key are the minimum. Copy
+          group_vars/all.yml.example and fill it in (ansible-vault encrypt it, please).
+
+  tasks:
+    # ── base ──────────────────────────────────────────────────────────────────
+    - name: Base packages
+      ansible.builtin.apt:
+        name: [git, curl, gnupg, ca-certificates, ufw, rsync,
+               python3-venv, python3-pip, python3-dev, build-essential]
+        update_cache: true
+      tags: [base]
+
+    - name: Directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner | default('root') }}"
+        group: "{{ item.group | default('root') }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "{{ app_dir }}", mode: "0755" }
+        - { path: "{{ app_dir }}/releases", mode: "0755" }
+        - { path: "{{ env_dir }}", mode: "0750", group: www-data }
+        # Archived photos of purchased cars are served from here — never wipe it.
+        - { path: "{{ media_dir }}", mode: "0755", owner: www-data, group: www-data }
+        - { path: "{{ backup_dir }}", mode: "0700" }
+      tags: [base]
+
+    # ── mongodb 7, native, loopback only ──────────────────────────────────────
+    - name: MongoDB apt key
+      ansible.builtin.get_url:
+        url: "https://pgp.mongodb.com/server-{{ mongo_major }}.asc"
+        dest: /etc/apt/keyrings/mongodb.asc
+        mode: "0644"
+      tags: [mongo]
+
+    - name: MongoDB repository
+      # MongoDB has no Noble pool yet; the jammy channel runs fine on 24.04, exactly as on
+      # the Auto&Bid box.
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch=amd64 signed-by=/etc/apt/keyrings/mongodb.asc]
+          https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/{{ mongo_major }} multiverse
+        filename: mongodb-org
+      tags: [mongo]
+
+    - name: MongoDB server
+      ansible.builtin.apt:
+        name: mongodb-org
+        update_cache: true
+      tags: [mongo]
+
+    - name: MongoDB listens on loopback only
+      ansible.builtin.lineinfile:
+        path: /etc/mongod.conf
+        regexp: '^\s*bindIp:'
+        line: "  bindIp: 127.0.0.1"
+      notify: Restart mongod
+      tags: [mongo]
+
+    - name: MongoDB running at boot
+      ansible.builtin.service:
+        name: mongod
+        state: started
+        enabled: true
+      tags: [mongo]
+
+    # ── code ──────────────────────────────────────────────────────────────────
+    - name: Check out {{ ref }}
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ release_dir }}"
+        version: "{{ ref }}"
+        depth: 1
+        single_branch: true
+        accept_hostkey: true
+      tags: [code]
+
+    - name: Python virtualenv
+      ansible.builtin.command:
+        cmd: "python3 -m venv {{ venv }}"
+        creates: "{{ venv }}/bin/python"
+      tags: [code]
+
+    - name: Python dependencies
+      ansible.builtin.pip:
+        requirements: "{{ release_dir }}/backend/requirements.txt"
+        virtualenv: "{{ venv }}"
+        extra_args: --upgrade
+      tags: [code]
+
+    # ── configuration ─────────────────────────────────────────────────────────
+    - name: Environment file
+      ansible.builtin.template:
+        src: ../templates/backend.env.j2
+        dest: "{{ env_dir }}/backend.env"
+        owner: root
+        group: www-data
+        mode: "0640"
+      notify: Restart backend
+      tags: [config]
+
+    - name: Systemd unit
+      ansible.builtin.template:
+        src: ../templates/backend.service.j2
+        dest: "/etc/systemd/system/{{ unit }}.service"
+        mode: "0644"
+      notify: [Reload systemd, Restart backend]
+      tags: [config, service]
+
+    # ── flip the symlink ──────────────────────────────────────────────────────
+    - name: Remember the release we are replacing
+      ansible.builtin.stat:
+        path: "{{ app_dir }}/current"
+      register: current_link
+      tags: [service]
+
+    - name: Keep it as `previous` for a one-command rollback
+      ansible.builtin.file:
+        src: "{{ current_link.stat.lnk_source }}"
+        dest: "{{ app_dir }}/previous"
+        state: link
+        force: true
+      when: current_link.stat.islnk | default(false)
+      tags: [service]
+
+    - name: Point `current` at the new release
+      ansible.builtin.file:
+        src: "{{ release_dir }}"
+        dest: "{{ app_dir }}/current"
+        state: link
+        force: true
+      notify: Restart backend
+      tags: [service]
+
+    - name: Flush handlers so the health check tests the new code
+      ansible.builtin.meta: flush_handlers
+      tags: [service]
+
+    - name: Service enabled and running
+      ansible.builtin.systemd:
+        name: "{{ unit }}"
+        state: started
+        enabled: true
+        daemon_reload: true
+      tags: [service]
+
+    - name: Wait for /api/health
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8001/api/health
+        status_code: 200
+      register: health
+      retries: 30
+      delay: 4
+      until: health is succeeded
+      tags: [service]
+
+    - name: Prune old releases
+      ansible.builtin.shell: >-
+        ls -1dt {{ app_dir }}/releases/*/ | tail -n +{{ (releases_kept | int) + 1 }}
+        | xargs -r rm -rf
+      args:
+        executable: /bin/bash
+      changed_when: false
+      tags: [code]
+
+    # ── firewall: the private network only ────────────────────────────────────
+    - name: Allow ssh
+      community.general.ufw:
+        rule: allow
+        port: "{{ ssh_port | string }}"
+        proto: tcp
+      tags: [firewall]
+
+    - name: Backend and Mongo reachable from the private network only
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+        src: "{{ private_cidr }}"
+      loop: ["8001", "27017"]
+      tags: [firewall]
+
+    - name: Outbound stays open (Encar, Claude, Stripe, Resend, web push)
+      community.general.ufw:
+        direction: outgoing
+        policy: allow
+      tags: [firewall]
+
+    - name: Firewall on, default deny inbound
+      community.general.ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+      tags: [firewall]
+
+    # ── backups ───────────────────────────────────────────────────────────────
+    - name: Nightly mongodump, kept a fortnight
+      ansible.builtin.cron:
+        name: "{{ app_name }}-mongodump"
+        hour: "3"
+        minute: "20"
+        job: >-
+          mongodump --gzip --db={{ db_name }}
+          --archive={{ backup_dir }}/{{ app_name }}-$(date +\%F).archive.gz
+          && find {{ backup_dir }} -name '{{ app_name }}-*.archive.gz' -mtime +14 -delete
+      tags: [backup]
+
+  handlers:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Restart backend
+      ansible.builtin.systemd:
+        name: "{{ app_name }}-backend"
+        state: restarted
+        daemon_reload: true
+
+    - name: Restart mongod
+      ansible.builtin.service:
+        name: mongod
+        state: restarted

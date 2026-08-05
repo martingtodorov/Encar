@@ -1,0 +1,143 @@
+---
+# Frontend build on ab-front1-style host: CRA build served straight off disk by nginx.
+#
+#   ansible-playbook -i inventory.ini playbooks/deploy_frontend.yml -e "ref=main"
+#
+# Tags: base, code, build, publish.
+- name: Europe Encar frontend
+  hosts: frontend
+  become: true
+
+  vars:
+    release_dir: "{{ web_root }}/releases/{{ ref }}-{{ ansible_date_time.iso8601_basic_short }}"
+
+  pre_tasks:
+    - name: Refuse to run half-configured
+      ansible.builtin.assert:
+        that:
+          - site_domains | default([]) | length > 0
+          - repo_url | default('') | length > 0
+        fail_msg: "site_domains and repo_url are required — see group_vars/all.yml.example."
+
+  tasks:
+    # ── base ──────────────────────────────────────────────────────────────────
+    - name: Base packages
+      ansible.builtin.apt:
+        name: [git, curl, gnupg, ca-certificates, ufw, rsync]
+        update_cache: true
+      tags: [base]
+
+    - name: NodeSource apt key
+      ansible.builtin.get_url:
+        url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+        dest: /etc/apt/keyrings/nodesource.asc
+        mode: "0644"
+      tags: [base]
+
+    - name: NodeSource repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch=amd64 signed-by=/etc/apt/keyrings/nodesource.asc]
+          https://deb.nodesource.com/node_{{ node_major }}.x nodistro main
+        filename: nodesource
+      tags: [base]
+
+    - name: Node.js
+      ansible.builtin.apt:
+        name: "nodejs"
+        update_cache: true
+      tags: [base]
+
+    - name: Yarn through corepack
+      ansible.builtin.command: corepack enable yarn
+      changed_when: false
+      tags: [base]
+
+    - name: Directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ web_root }}"
+        - "{{ web_root }}/releases"
+      tags: [base]
+
+    # ── code ──────────────────────────────────────────────────────────────────
+    - name: Check out {{ ref }}
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ release_dir }}"
+        version: "{{ ref }}"
+        depth: 1
+        single_branch: true
+        accept_hostkey: true
+      tags: [code]
+
+    - name: Dependencies (yarn, frozen lockfile)
+      ansible.builtin.command:
+        cmd: yarn install --frozen-lockfile
+        chdir: "{{ release_dir }}/frontend"
+      tags: [build]
+
+    - name: Build
+      # REACT_APP_BACKEND_URL is baked in at BUILD time by CRA. Empty means "same origin",
+      # so the app talks to /api on whatever domain served it — one build, three TLDs.
+      # CI=false keeps a warning from failing the build.
+      ansible.builtin.command:
+        cmd: yarn build
+        chdir: "{{ release_dir }}/frontend"
+      environment:
+        CI: "false"
+        REACT_APP_BACKEND_URL: ""
+        NODE_OPTIONS: "--max-old-space-size=2048"
+      tags: [build]
+
+    - name: Sitemap and robots for the real domain
+      ansible.builtin.command:
+        cmd: "node scripts/gen-seo.js"
+        chdir: "{{ release_dir }}/frontend"
+      environment:
+        SITE_URL: "https://{{ site_domains[0] }}"
+      failed_when: false          # nice to have, never worth failing a deploy
+      tags: [build]
+
+    # ── publish ───────────────────────────────────────────────────────────────
+    - name: Remember the build we are replacing
+      ansible.builtin.stat:
+        path: "{{ web_root }}/build"
+      register: current_build
+      tags: [publish]
+
+    - name: Keep it as `build.previous` for a one-command rollback
+      ansible.builtin.file:
+        src: "{{ current_build.stat.lnk_source }}"
+        dest: "{{ web_root }}/build.previous"
+        state: link
+        force: true
+      when: current_build.stat.islnk | default(false)
+      tags: [publish]
+
+    - name: Point `build` at the new one (atomic swap, nginx needs no reload)
+      ansible.builtin.file:
+        src: "{{ release_dir }}/frontend/build"
+        dest: "{{ web_root }}/build"
+        state: link
+        force: true
+      tags: [publish]
+
+    - name: Prune old releases
+      ansible.builtin.shell: >-
+        ls -1dt {{ web_root }}/releases/*/ | tail -n +{{ (releases_kept | int) + 1 }}
+        | xargs -r rm -rf
+      args:
+        executable: /bin/bash
+      changed_when: false
+      tags: [publish]
+
+    - name: Reload nginx so a changed root is picked up
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded
+      failed_when: false          # nginx is installed by deploy_nginx.yml
+      tags: [publish]

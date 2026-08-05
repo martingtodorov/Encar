@@ -1,0 +1,16 @@
+; Copy to inventory.ini. Same shape as the Auto&Bid inventory: the frontend host is
+; reachable from the internet, the backend host only over the private network through it.
+;
+;   ssh -i ~/.ssh/autoandbid_root -o IdentitiesOnly=yes root@178.105.37.1
+;   ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -J root@178.105.37.1 deploy@10.0.0.3
+
+[frontend]
+front1 ansible_host=178.105.37.1 ansible_user=root ansible_ssh_private_key_file=~/.ssh/autoandbid_root
+
+[backend]
+back1 ansible_host=10.0.0.3 ansible_user=deploy ansible_ssh_private_key_file=~/.ssh/id_ed25519 ansible_ssh_common_args='-o IdentitiesOnly=yes -J root@178.105.37.1'
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+; The private address nginx proxies /api to. Keep it in sync with [backend].
+backend_private_ip=10.0.0.3

@@ -1,0 +1,126 @@
+---
+# nginx on the frontend host: serves the static build, proxies /api to the backend over the
+# private network, terminates TLS with the Cloudflare Origin certificate.
+#
+#   ansible-playbook -i inventory.ini playbooks/deploy_nginx.yml -e "ref=main"
+#
+# Tags: base, config, firewall.
+- name: nginx for Europe Encar
+  hosts: frontend
+  become: true
+
+  tasks:
+    - name: nginx
+      ansible.builtin.apt:
+        name: nginx
+        update_cache: true
+      tags: [base]
+
+    - name: Certificate directory (the cert itself is dropped by hand, never by Ansible)
+      ansible.builtin.file:
+        path: "{{ ssl_dir }}"
+        state: directory
+        mode: "0700"
+      tags: [base]
+
+    - name: ACME webroot, in case Let's Encrypt is ever wanted
+      ansible.builtin.file:
+        path: /var/www/certbot
+        state: directory
+        mode: "0755"
+      tags: [base]
+
+    - name: The Cloudflare Origin certificate must already be there
+      ansible.builtin.stat:
+        path: "{{ ssl_dir }}/{{ item }}"
+      register: certs
+      loop: [cert.pem, key.pem]
+      tags: [config]
+
+    - name: Say plainly what is missing
+      ansible.builtin.assert:
+        that: certs.results | map(attribute='stat.exists') | select | list | length == 2
+        fail_msg: >-
+          Put the Cloudflare Origin certificate on this host first:
+          {{ ssl_dir }}/cert.pem and {{ ssl_dir }}/key.pem (chmod 600). Cloudflare dashboard
+          -> SSL/TLS -> Origin Server -> Create Certificate. Ansible never writes secrets.
+      tags: [config]
+
+    - name: Backend name resolves over the private network
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '\sencar-back1$'
+        line: "{{ backend_private_ip }} encar-back1"
+      tags: [config]
+
+    - name: Site configuration
+      ansible.builtin.template:
+        src: ../templates/nginx-site.conf.j2
+        dest: "/etc/nginx/sites-available/{{ app_name }}.conf"
+        mode: "0644"
+      notify: Reload nginx
+      tags: [config]
+
+    - name: Enable it
+      ansible.builtin.file:
+        src: "/etc/nginx/sites-available/{{ app_name }}.conf"
+        dest: "/etc/nginx/sites-enabled/{{ app_name }}.conf"
+        state: link
+      notify: Reload nginx
+      tags: [config]
+
+    - name: Drop the distro default site
+      ansible.builtin.file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload nginx
+      tags: [config]
+
+    - name: Configuration is valid
+      ansible.builtin.command: nginx -t
+      changed_when: false
+      tags: [config]
+
+    - name: nginx running at boot
+      ansible.builtin.service:
+        name: nginx
+        state: started
+        enabled: true
+      tags: [config]
+
+    # ── firewall ──────────────────────────────────────────────────────────────
+    # Only ssh and the web ports from the internet; the private network is trusted so the
+    # backend can be reached and so it can use this host as its route out.
+    - name: Allow ssh
+      community.general.ufw:
+        rule: allow
+        port: "{{ ssh_port | string }}"
+        proto: tcp
+      tags: [firewall]
+
+    - name: Allow http and https
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop: ["80", "443"]
+      tags: [firewall]
+
+    - name: Trust the private network
+      community.general.ufw:
+        rule: allow
+        src: "{{ private_cidr }}"
+      tags: [firewall]
+
+    - name: Firewall on, default deny inbound
+      community.general.ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+      tags: [firewall]
+
+  handlers:
+    - name: Reload nginx
+      ansible.builtin.service:
+        name: nginx
+        state: reloaded

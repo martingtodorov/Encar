@@ -811,6 +811,40 @@ Anthropic whenever `ANTHROPIC_API_KEY` is set (`ANTHROPIC_MODEL=claude-sonnet-5`
 dealer-description stream uses `ANTHROPIC_FAST_MODEL`. Gemini and the Emergent key are dormant
 `elif` fallbacks that only fire if the Anthropic key disappears.
 
+## Deploy: Hetzner, systemd, no Docker (2026-06) — matches the owner's Auto&Bid pattern
+The owner deploys their other app with plain Ansible playbooks per component, systemd units and
+a venv — NO Docker — so `/app/deploy/hetzner/ansible/` now mirrors that exactly and the old
+Docker/Caddy tree moved to `/app/deploy/legacy-docker/` (do not extend it).
+Two hosts: `front1` public (nginx + the static build, root over ssh) and `back1` private-only
+(`deploy@10.0.0.3`, reached through front1 as a jump host).
+- `playbooks/deploy_backend.yml` — apt base, MongoDB 7 native (jammy pool, Noble has none)
+  bound to 127.0.0.1, git checkout per release into `/opt/encar/releases/<ref>-<stamp>`, venv at
+  `/opt/encar/venv`, env file `/etc/encar/backend.env` (0640 root:www-data) from `group_vars`,
+  systemd unit `encar-backend.service` (User=www-data, 0.0.0.0:8001, **--workers 1**,
+  ProtectSystem=strict with `ReadWritePaths` for the media dir, TimeoutStopSec=45 so the
+  shutdown hook can record an interrupted crawl), `current`/`previous` symlink swap,
+  `/api/health` gate, prune to 5 releases, ufw (ssh from anywhere, 8001+27017 from
+  `10.0.0.0/16` only, outbound allow), nightly mongodump kept 14 days.
+- `playbooks/deploy_frontend.yml` — Node 20 + yarn via corepack, `yarn install --frozen-lockfile`,
+  build with `CI=false` and **`REACT_APP_BACKEND_URL=""`** (same origin, so ONE build serves every
+  brand domain), `gen-seo.js` with the real domain, atomic `build` symlink swap +
+  `build.previous`, prune to 5.
+- `playbooks/deploy_nginx.yml` — nginx, `/etc/ssl/encar` created but NEVER written (Cloudflare
+  Origin cert is dropped by hand; the playbook asserts both files exist and says where to get
+  them), `/etc/hosts` entry `encar-back1`, site config, `nginx -t`, ufw.
+- `templates/nginx-site.conf.j2` — Cloudflare `set_real_ip_from` list + `CF-Connecting-IP`,
+  80 → 301, `www.*` → apex per TLD, one server block for all domains, SPA `try_files`,
+  immutable `/static/`, `no-store` on `service-worker.js`, `/api/` proxy with
+  **`proxy_buffering off`** (the description translation is SSE), long-cached `/api/media/`.
+- `playbooks/site.yml` runs backend → frontend → nginx. `-e ref=main` selects branch/tag/commit.
+- Verified here: `ansible-playbook --syntax-check` passes on all three (with
+  `community.general` + `ansible.posix` installed) and all three Jinja templates render from
+  `group_vars/all.yml.example`. `inventory.ini` and `group_vars/all.yml` are gitignored.
+- SSH: nothing in the tree touches sshd, keys or `authorized_keys`. The only lockout risk is
+  ufw, so `ssh_port` is a variable (default 22) and the private CIDR is trusted on both hosts.
+- Known gap to watch: if `back1` has no public IPv4, outbound (Encar, Claude, Stripe, Resend)
+  needs a NAT gateway on front1 — the playbooks deliberately do NOT configure NAT.
+
 ## Reference
 - Test credentials: `/app/memory/test_credentials.md`
 - Implementation log: `/app/memory/CHANGELOG.md`

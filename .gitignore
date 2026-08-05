@@ -86,3 +86,7 @@ android-sdk/
 credentials.json
 *.key
 .credentials
+
+# Ansible: the real inventory and the vault-worthy secrets never go in git
+deploy/hetzner/ansible/inventory.ini
+deploy/hetzner/ansible/group_vars/all.yml

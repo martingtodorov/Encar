@@ -1,0 +1,8 @@
+---
+# Everything, in the order that never breaks: backend first (nginx has something to proxy
+# to), then the build, then nginx.
+#
+#   ansible-playbook -i inventory.ini playbooks/site.yml -e "ref=main"
+- ansible.builtin.import_playbook: deploy_backend.yml
+- ansible.builtin.import_playbook: deploy_frontend.yml
+- ansible.builtin.import_playbook: deploy_nginx.yml

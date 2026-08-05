@@ -1,0 +1,36 @@
+[Unit]
+Description=Europe Encar backend (FastAPI)
+After=network-online.target mongod.service
+Wants=network-online.target
+Requires=mongod.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory={{ app_dir }}/current/backend
+EnvironmentFile={{ env_dir }}/backend.env
+# ONE worker on purpose: the catalogue sync, the FX watchdog, the price watch and the saved
+# search watch all schedule IN-PROCESS, so a second worker would double-run the crawl and
+# send every alert twice.
+ExecStart={{ venv }}/bin/uvicorn server:app --host 0.0.0.0 --port 8001 --workers 1 \
+    --proxy-headers --forwarded-allow-ips='*'
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+# The shutdown hook stops a running crawl and records it while Mongo is still open; give it
+# room so a restart never leaves the sync job stuck on "running".
+TimeoutStopSec=45
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ReadWritePaths={{ media_dir }} {{ app_dir }}/current/backend
+MemoryHigh=2G
+MemoryMax=3G
+
+[Install]
+WantedBy=multi-user.target
