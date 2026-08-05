@@ -76,6 +76,12 @@ export const CarCard = ({ car, onOpen, showRegion = true }) => {
             ctaLabel={t("viewListing")}
             ctaHint={t("tapToOpen")}
             onCtaReached={warmNow}
+            // Swiping to the second photo is intent: nobody flicks past the cover shot of a
+            // car they are not considering. The ad is fetched in the background from there
+            // on (warmCar dedupes, so the extra calls cost nothing) and the tap is instant.
+            onIndexChange={(n) => {
+              if (n >= 1) warmNow();
+            }}
           />
         </div>
 

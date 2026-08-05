@@ -107,7 +107,11 @@ BERTHING/arrival event, so a barge leg onward to Bergen op Zoom pushed customs t
 the box had been on the quay in Rotterdam since 01.08. `_last_leg` now bases both on the
 DISCHARGE event (code `UV`, falling back to arrival), and `CUSTOMS_LEAD_DAYS` is 4 by the
 owner's rule — customs = discharge + 4 days, delivery = customs + 7. Verified: discharge
-01.08 19:04 Rotterdam -> customs 05.08, delivery 12.08. -->
+01.08 19:04 Rotterdam -> customs 05.08, delivery 12.08.
+Mobile cards: swiping to the SECOND photo now warms the ad in the background —
+`CarCard` passes `onIndexChange` to `PhotoSwiper` and calls `warmNow()` from slide 2 onward
+(`warmCar` dedupes, so later slides cost nothing). Verified in isolation: scrolling the deck
+with JS only, pointer nowhere near the card, produced exactly ONE `/api/car/{id}` request. -->
 
 
 
