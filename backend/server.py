@@ -43,6 +43,7 @@ import pricing               # noqa: E402
 import slugs as slugs_mod    # noqa: E402
 import syncjob as syncjob_mod  # noqa: E402
 import pricewatch as pricewatch_mod  # noqa: E402
+import searchwatch as searchwatch_mod  # noqa: E402
 import edi                  # noqa: E402
 import jsoncargo            # noqa: E402
 import maersk_public        # noqa: E402
@@ -2186,6 +2187,14 @@ async def admin_price_watch_run(request: Request, first_seen: bool = False,
     """Check saved cars for price drops now, instead of waiting for the next sync."""
     await _require_admin(request, x_admin_token)
     return jsonable(await pricewatch_mod.run(db, notify_first_seen=first_seen))
+
+
+@api.post("/admin/search-watch/run")
+async def admin_search_watch_run(request: Request, first_seen: bool = False,
+                                x_admin_token: str = Header(default="")):
+    """Check saved searches for new matches now, instead of waiting for the next sync."""
+    await _require_admin(request, x_admin_token)
+    return jsonable(await searchwatch_mod.run(db, notify_first_seen=first_seen))
 
 
 

@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 import slugs as slugs_mod
 import pricewatch as pricewatch_mod
+import searchwatch as searchwatch_mod
 import sync as sync_mod
 
 log = logging.getLogger("syncjob")
@@ -298,6 +299,9 @@ async def _run(db, trigger, resume_run_id=None):
         # Prices have just been refreshed, so this is the one moment when checking saved
         # cars for a drop is worth anything. Detached: the job is already finished.
         pricewatch_mod.run_later(db)
+        # The catalogue has just grown: this is also the moment a standing saved search can
+        # have picked something up.
+        searchwatch_mod.run_later(db)
     except asyncio.CancelledError:
         await db.sync_state.update_one(
             {"_id": JOB_ID}, {"$set": {"status": "cancelled", "finished_at": _now()}})

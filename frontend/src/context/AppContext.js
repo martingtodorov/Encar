@@ -123,7 +123,8 @@ export function AppProvider({ children }) {
         name,
         query,
         seen_total: total ?? null,
-        alerts: false,   // reserved: "email me when a new car matches this search"
+        alerts: false,   // opt-in: "email me when a new car matches this search"
+        lang,            // the alert email speaks the language the search was saved in
         created_at: new Date().toISOString(),
       };
       setSearches((prev) => {
@@ -133,8 +134,18 @@ export function AppProvider({ children }) {
       });
       return item;
     },
-    []
+    [lang]
   );
+
+  // "Email me when a new car matches this search". The backend keeps its own baseline per
+  // search, so turning it on never mails out cars that were already in the index.
+  const toggleSearchAlerts = useCallback((id) => {
+    setSearches((prev) => {
+      const next = prev.map((s) => (s.id === id ? { ...s, alerts: !s.alerts } : s));
+      localStorage.setItem(LS_SEARCHES, JSON.stringify(next));
+      return next;
+    });
+  }, []);
 
   const renameSearch = useCallback((id, name) => {
     setSearches((prev) => {
@@ -188,6 +199,7 @@ export function AppProvider({ children }) {
       isFavourite: (id) => favourites.includes(id),
       searches,
       saveSearch,
+      toggleSearchAlerts,
       renameSearch,
       removeSearch,
       markSearchSeen,
@@ -197,7 +209,7 @@ export function AppProvider({ children }) {
     }),
     [lang, setLang, currency, setCurrency, theme, toggleTheme, rates, favourites,
      toggleFavourite, replaceFavourites, searches, saveSearch, renameSearch,
-     removeSearch, markSearchSeen, replaceSearches, isSearchSaved]
+     removeSearch, markSearchSeen, replaceSearches, isSearchSaved, toggleSearchAlerts]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

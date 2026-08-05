@@ -1,14 +1,16 @@
 import { useState } from "react";
-import { Check, Pencil, Trash2, X } from "lucide-react";
+import { Bell, BellOff, Check, Pencil, Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ImageWithFallback } from "@/components/ImageWithFallback";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import { formatNumber } from "@/lib/format";
 
 /** One saved search: what it matches right now, and what has arrived since it was saved. */
-export const SavedSearchCard = ({ item, state, onOpen, onRename, onRemove }) => {
+export const SavedSearchCard = ({ item, state, onOpen, onRename, onRemove, onToggleAlerts }) => {
   const { t, lang } = useApp();
+  const { user } = useAuth();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(item.name);
 
@@ -108,6 +110,26 @@ export const SavedSearchCard = ({ item, state, onOpen, onRename, onRemove }) => 
           >
             <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
             {t("rename")}
+          </Button>
+          <Button
+            data-testid={`saved-search-alerts-${item.id}`}
+            variant="outline"
+            onClick={() => onToggleAlerts(item.id)}
+            disabled={!user}
+            title={!user ? t("alertsNeedAccount") : item.alerts ? t("alertsOn") : t("alertsOff")}
+            aria-pressed={!!item.alerts}
+            className={`h-9 gap-1.5 rounded-[10px] px-3 text-[13.5px] ${
+              item.alerts
+                ? "border-[hsl(var(--primary))]/45 bg-[hsl(var(--primary))]/10 font-medium text-[hsl(var(--primary))]"
+                : "border-border bg-card text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {item.alerts ? (
+              <Bell className="h-3.5 w-3.5" aria-hidden="true" />
+            ) : (
+              <BellOff className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            {item.alerts ? t("alertsOn") : t("alertsOff")}
           </Button>
           <Button
             data-testid={`saved-search-delete-${item.id}`}

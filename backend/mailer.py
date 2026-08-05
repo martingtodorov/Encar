@@ -221,6 +221,69 @@ async def send_price_drop(to, rows, lang="en"):
     return await _send(to, t["subject"], html)
 
 
+# ── new cars matching a saved search ─────────────────────────────────────────
+MATCHES = {
+    "bg": {
+        "subject": "Нови автомобили по вашето търсене",
+        "heading": "Нови обяви по запазено търсене",
+        "body": "Открихме {n} нови автомобила по търсенето „{name}“:",
+        "body_unnamed": "Открихме {n} нови автомобила по едно от запазените ви търсения:",
+        "more": "и още {n}",
+        "footer": ("Получавате това, защото сте включили известия за това търсене. "
+                   "Можете да ги изключите в „Запазени търсения“."),
+    },
+    "ro": {
+        "subject": "Automobile noi pentru căutarea ta",
+        "heading": "Anunțuri noi pentru o căutare salvată",
+        "body": "Am găsit {n} automobile noi pentru căutarea „{name}”:",
+        "body_unnamed": "Am găsit {n} automobile noi pentru una dintre căutările tale salvate:",
+        "more": "și încă {n}",
+        "footer": ("Primești acest mesaj pentru că ai activat notificările pentru această "
+                   "căutare. Le poți opri din „Căutări salvate”."),
+    },
+    "en": {
+        "subject": "New cars match your search",
+        "heading": "New listings for a saved search",
+        "body": "We found {n} new cars for your search “{name}”:",
+        "body_unnamed": "We found {n} new cars for one of your saved searches:",
+        "more": "and {n} more",
+        "footer": ("You are getting this because you turned alerts on for this search. "
+                   "You can turn them off under Saved searches."),
+    },
+}
+
+
+def _car_link(car_id, text, lang):
+    """The title links to the ad when we know our own address; plain text otherwise."""
+    base = os.environ.get("PUBLIC_SITE_URL", "").strip().rstrip("/")
+    if not base:
+        return text
+    return (f'<a href="{base}/{lang}/car/{car_id}" '
+            f'style="color:#d0021b;text-decoration:none">{text}</a>')
+
+
+async def send_new_matches(to, name, rows, total, lang="en"):
+    """One email per saved search, listing the newest cars that now match it."""
+    t = MATCHES.get(lang) or MATCHES["en"]
+    intro = (t["body"].format(n=total, name=_esc(name)) if name
+             else t["body_unnamed"].format(n=total))
+    body = "".join(
+        _row(_car_link(r["car_id"], _esc(r["title"]), lang),
+             " · ".join(x for x in [
+                 f'€{r["price_eur"]:,.0f}' if r.get("price_eur") else "",
+                 str(r["year"]) if r.get("year") else "",
+                 f'{r["mileage"]:,} km' if r.get("mileage") else "",
+             ] if x))
+        for r in rows)
+    if total > len(rows):
+        body += _row("", t["more"].format(n=total - len(rows)))
+    html = _shell(t["heading"],
+                  f'<tr><td colspan="2" style="padding:0 0 12px;color:#111">{intro}'
+                  f'</td></tr>{body}',
+                  t["footer"])
+    return await _send(to, t["subject"], html)
+
+
 # ── deposit returned ─────────────────────────────────────────────────────────
 RETURNED = {
     "bg": {

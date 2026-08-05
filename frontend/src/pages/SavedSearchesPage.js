@@ -43,7 +43,8 @@ async function resolveState(params) {
  * arrived since, so the stored query is re-run on every visit rather than cached.
  */
 export default function SavedSearchesPage() {
-  const { t, lang, searches, renameSearch, removeSearch, markSearchSeen } = useApp();
+  const { t, lang, searches, renameSearch, removeSearch, markSearchSeen,
+          toggleSearchAlerts } = useApp();
   const { path, go } = useLangNav();
   const [states, setStates] = useState({});
 
@@ -119,6 +120,7 @@ export default function SavedSearchesPage() {
                 onOpen={open}
                 onRename={renameSearch}
                 onRemove={removeSearch}
+                onToggleAlerts={toggleSearchAlerts}
               />
             ))}
           </div>

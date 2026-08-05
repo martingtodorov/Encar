@@ -541,7 +541,7 @@ async def merge_favourites(body: FavouritesBody, user=Depends(current_user)):
 
 
 # ── saved searches, synced to the account -------------------------------------
-_SEARCH_KEYS = ("id", "name", "query", "seen_total", "alerts", "created_at")
+_SEARCH_KEYS = ("id", "name", "query", "seen_total", "alerts", "created_at", "lang")
 
 
 def _clean_searches(items):
@@ -557,6 +557,8 @@ def _clean_searches(items):
         item["id"], item["query"] = sid, query
         item["name"] = str(raw.get("name") or "")[:120]
         item["alerts"] = bool(raw.get("alerts"))
+        # The language the search was saved in, so the alert email speaks it.
+        item["lang"] = str(raw.get("lang") or "")[:2].lower() or "en"
         out.append(item)
     return out[:60]
 

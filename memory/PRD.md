@@ -743,6 +743,34 @@ estimated steps hang off the DISCHARGE date, so simply appending them printed "C
 departure 07.06 → discharge Rotterdam 01.08 → ready 01.08 → customs 05.08 → arrival Bergen op
 Zoom 09.08 → delivery 12.08. The frontend renders payload order, so nothing changed there.
 
+## New-match alerts for saved searches (2026-06, VERIFIED — delivery still blocked)
+`backend/searchwatch.py`. A saved search is a standing order, so its stored query string
+(English slugs) is resolved back to upstream values (`slugs.resolve_taxonomy` +
+`facet_slugs`, mirroring `/meta/resolve`), turned into `server.build_query` params and re-run
+after every catalogue sync, filtered on `first_seen > baseline`. `first_seen` is the marker,
+NOT `last_seen` or the crawl id: a re-crawled car is not news. Baseline per (person, search)
+in `search_watch` (`_id = "{user_id}:{search_id}"`), set WITHOUT alerting on the first pass,
+and rebased from scratch when the search's `query` changes (different question). Up to 6 cars
+per email plus an "and N more" tail; `mailer.send_new_matches` (BG/RO/EN) links each title to
+the ad through `PUBLIC_SITE_URL`. Push goes out too when the buyer opted in
+(`notify.wants(user, "push"|"email", "saved_search")`).
+Scheduling: `searchwatch.run_later(db)` next to `pricewatch` at the end of a catalogue sync;
+manual trigger `POST /api/admin/search-watch/run?first_seen=0|1`.
+UI: per-search bell in `SavedSearchCard` ("Известия" / "Известия вкл.",
+`data-testid="saved-search-alerts-{id}"`), `AppContext.toggleSearchAlerts`, disabled for
+guests with a "sign in" tooltip. `alerts` was already carried through `auth._clean_searches`
+and the existing debounced PUT syncs it to the account; `lang` was ADDED to `_SEARCH_KEYS`
+and is stored on save, so the alert speaks the language the search was made in (searches
+saved before this change fall back to English).
+Verified: 6/6 in `backend/tests/test_search_watch.py` (baseline-only first pass, real matches
+and exactly one email on the second, silence on the third, alerts-off never checked, rebasing
+on a filter change, slug resolution, and the rendered HTML carrying titles/prices/links), plus
+the toggle flipped in the browser and read back from `GET /auth/saved-searches` as
+`alerts=true`. NOTE: no pytest-asyncio in this pod — tests drive their own loop with
+`asyncio.run`, like the deposit tests.
+EMAIL DELIVERY IS STILL BLOCKED for this and every other message: `ADMIN_NOTIFY_EMAIL` is
+unset and `SENDER_EMAIL` is Resend's shared sender, so `mailer._send` drops everything.
+
 ## Reference
 - Test credentials: `/app/memory/test_credentials.md`
 - Implementation log: `/app/memory/CHANGELOG.md`
