@@ -1,0 +1,162 @@
+---
+# Provision a fresh Hetzner box and run the whole stack on it.
+#
+#   cd deploy/ansible
+#   cp inventory.ini.example inventory.ini          # your server's IP
+#   cp group_vars/all.yml.example group_vars/all.yml # domain + every secret
+#   ansible-playbook -i inventory.ini deploy.yml
+#
+# Re-run it for every release: it is idempotent, and only the app containers are rebuilt.
+# Tags: docker, code, config, run, firewall.
+- name: Europe Encar on a Hetzner host
+  hosts: encar
+  become: true
+
+  vars:
+    app_dir: /opt/europe-encar
+    compose_file: "{{ app_dir }}/deploy/docker-compose.yml"
+
+  pre_tasks:
+    - name: Refuse to run half-configured
+      ansible.builtin.assert:
+        that:
+          - site_domain is defined and site_domain | length > 0
+          - admin_token is defined and admin_token | length > 0
+          - anthropic_api_key is defined and anthropic_api_key | length > 0
+        fail_msg: >-
+          site_domain, admin_token and anthropic_api_key are the minimum. Copy
+          group_vars/all.yml.example and fill it in (ansible-vault encrypt it, please).
+
+  tasks:
+    # ── docker ────────────────────────────────────────────────────────────────
+    - name: Base packages
+      ansible.builtin.apt:
+        name: [ca-certificates, curl, git, gnupg, python3-pip, ufw]
+        update_cache: true
+      tags: [docker]
+
+    - name: Docker apt key
+      ansible.builtin.get_url:
+        url: https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: "0644"
+      tags: [docker]
+
+    - name: Docker repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/{{ ansible_distribution | lower }}
+          {{ ansible_distribution_release }} stable
+        filename: docker
+      tags: [docker]
+
+    - name: Docker engine and compose plugin
+      ansible.builtin.apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        update_cache: true
+      notify: Restart docker
+      tags: [docker]
+
+    - name: Docker running at boot
+      ansible.builtin.service:
+        name: docker
+        state: started
+        enabled: true
+      tags: [docker]
+
+    # ── firewall: only ssh and the web ports ──────────────────────────────────
+    - name: Allow ssh, http, https
+      community.general.ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop: ["22", "80", "443"]
+      tags: [firewall]
+
+    - name: Firewall on, default deny inbound
+      community.general.ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+      tags: [firewall]
+
+    # ── the code ──────────────────────────────────────────────────────────────
+    - name: Application directory
+      ansible.builtin.file:
+        path: "{{ app_dir }}"
+        state: directory
+        mode: "0750"
+      tags: [code]
+
+    - name: Check out the repository
+      ansible.builtin.git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: "{{ repo_branch | default('main') }}"
+        force: true
+      when: repo_url is defined and repo_url | length > 0
+      notify: Rebuild the stack
+      tags: [code]
+
+    # ── configuration ─────────────────────────────────────────────────────────
+    - name: Environment file
+      ansible.builtin.template:
+        src: templates/env.j2
+        dest: "{{ app_dir }}/deploy/.env"
+        mode: "0600"
+      notify: Rebuild the stack
+      tags: [config]
+
+    # ── run ───────────────────────────────────────────────────────────────────
+    - name: Build and start
+      community.docker.docker_compose_v2:
+        project_src: "{{ app_dir }}/deploy"
+        files: [docker-compose.yml]
+        env_files: ["{{ app_dir }}/deploy/.env"]
+        build: policy
+        state: present
+        remove_orphans: true
+      tags: [run]
+
+    - name: Wait for the backend to answer
+      ansible.builtin.uri:
+        url: "https://{{ site_domain }}/api/health"
+        validate_certs: true
+        status_code: 200
+      register: health
+      retries: 30
+      delay: 10
+      until: health is succeeded
+      tags: [run]
+
+    - name: Nightly database dump, kept for a fortnight
+      ansible.builtin.cron:
+        name: encar-mongodump
+        hour: "3"
+        minute: "20"
+        job: >-
+          docker compose -f {{ compose_file }} exec -T mongo
+          mongodump --archive --gzip --db={{ db_name | default('encar') }}
+          > /var/backups/encar-$(date +\%F).archive.gz
+          && find /var/backups -name 'encar-*.archive.gz' -mtime +14 -delete
+      tags: [run]
+
+  handlers:
+    - name: Restart docker
+      ansible.builtin.service:
+        name: docker
+        state: restarted
+
+    - name: Rebuild the stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ app_dir }}/deploy"
+        files: [docker-compose.yml]
+        env_files: ["{{ app_dir }}/deploy/.env"]
+        build: always
+        state: present

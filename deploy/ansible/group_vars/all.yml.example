@@ -1,0 +1,42 @@
+---
+# Copy to group_vars/all.yml and fill in, then:  ansible-vault encrypt group_vars/all.yml
+# The playbook refuses to run without site_domain, admin_token and anthropic_api_key.
+
+site_domain: cars.example.com
+letsencrypt_email: you@example.com
+db_name: encar
+
+# Where Ansible pulls the code from ("Save to GitHub" in Emergent gives you this).
+repo_url: git@github.com:you/europe-encar.git
+repo_branch: main
+
+# openssl rand -base64 24
+admin_token: ""
+admin_seed_password: ""
+# openssl rand -base64 32
+totp_encryption_key: ""
+
+# Your OWN keys: the Emergent universal key does not work off-platform.
+anthropic_api_key: ""
+gemini_api_key: ""
+
+stripe_secret_key: ""
+stripe_publishable_key: ""
+stripe_webhook_secret: ""
+stripe_mode: live
+commission_eur: 0
+
+resend_api_key: ""
+sender_email: ""
+admin_notify_email: ""
+
+jsoncargo_api_key: ""
+jsoncargo_shipping_line: ""
+edi_ingest_token: ""
+
+# python3 -c "from pywebpush import Vapid; ..." or keep the pair you already have.
+vapid_public_key: ""
+vapid_private_key: ""
+
+# 1 pulls a Chromium into the image; only needed for the Maersk public tracker.
+with_playwright: 0

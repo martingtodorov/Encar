@@ -1,0 +1,6 @@
+[encar]
+# Your Hetzner box. Ansible needs root over ssh.
+1.2.3.4 ansible_user=root
+
+[encar:vars]
+ansible_python_interpreter=/usr/bin/python3

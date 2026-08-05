@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Mail, Phone, Search, User } from "lucide-react";
+import { Mail, Phone, Search, Trash2, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { getAdminEnquiries, setEnquiryStatus } from "@/lib/api";
+import { deleteEnquiry, getAdminEnquiries, setEnquiryStatus } from "@/lib/api";
 import { Spinner, num } from "@/components/admin/AdminBits";
 
 const STATUSES = ["", "new", "contacted", "closed"];
@@ -38,6 +38,17 @@ export const AdminEnquiries = () => {
       await load();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "could not update");
+    }
+  };
+
+  const remove = async (id) => {
+    if (!window.confirm("Delete this enquiry for good?")) return;
+    try {
+      await deleteEnquiry(id);
+      toast.success("Enquiry deleted");
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "could not delete");
     }
   };
 
@@ -178,6 +189,17 @@ export const AdminEnquiries = () => {
                       Mark {s}
                     </Button>
                   ))}
+                {e.status !== "new" && (
+                  <Button
+                    variant="outline"
+                    data-testid="enquiry-delete"
+                    onClick={() => remove(e.id)}
+                    className="ml-auto h-8 gap-1.5 rounded-[8px] border-border bg-card px-3 text-[12px] font-medium text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)/0.08)]"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    Delete
+                  </Button>
+                )}
               </div>
             </li>
           ))}

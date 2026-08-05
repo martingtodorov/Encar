@@ -1,0 +1,38 @@
+# FastAPI backend. Build from the REPO ROOT:  docker build -f deploy/Dockerfile.backend .
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /srv
+
+COPY backend/requirements.txt ./requirements.txt
+# emergentintegrations lives on its own index. It is only the FALLBACK translator, so if that
+# index is unreachable the build still succeeds without it.
+RUN pip install --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ \
+        -r requirements.txt \
+    || (grep -v emergentintegrations requirements.txt > /tmp/req.txt && pip install -r /tmp/req.txt)
+
+# Only needed for the Maersk public-tracking scraper (MAERSK_PUBLIC_TRACK=1).
+ARG WITH_PLAYWRIGHT=0
+RUN if [ "$WITH_PLAYWRIGHT" = "1" ]; then playwright install --with-deps chromium; fi
+
+COPY backend/ ./backend/
+
+# Archived photos of purchased cars live here and are served from /api/media, so mount a
+# volume on it — otherwise a rebuild loses them.
+ENV MEDIA_ROOT=/data/media
+RUN mkdir -p /data/media
+
+WORKDIR /srv/backend
+EXPOSE 8001
+
+# ONE worker on purpose: the catalogue sync and the price watcher schedule themselves inside
+# the process, so a second worker would run the crawl and the emails twice.
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001", "--workers", "1", \
+     "--proxy-headers", "--forwarded-allow-ips", "*"]

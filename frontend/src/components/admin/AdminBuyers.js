@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Users } from "lucide-react";
-import { getBuyers } from "@/lib/api";
+import { Trash2, Users } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { deleteCustomer, getBuyers } from "@/lib/api";
 import { Spinner, ago } from "@/components/admin/AdminBits";
 
 const money = (n) => (n ? `€${Math.round(n).toLocaleString("en-GB")}` : "—");
@@ -14,10 +16,27 @@ const range = (low, high, fmt) =>
 /** What each customer is after, so the operator can offer the right car. */
 export const AdminBuyers = () => {
   const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState("");
+
+  const load = () => getBuyers().then(setRows).catch(() => setRows([]));
 
   useEffect(() => {
-    getBuyers().then(setRows).catch(() => setRows([]));
+    load();
   }, []);
+
+  const remove = async (email) => {
+    if (!window.confirm(`Delete ${email} and everything that signs them in?`)) return;
+    setBusy(email);
+    try {
+      await deleteCustomer(email);
+      toast.success("Customer deleted");
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "could not delete");
+    } finally {
+      setBusy("");
+    }
+  };
 
   if (!rows) return <Spinner />;
 
@@ -51,6 +70,7 @@ export const AdminBuyers = () => {
                 <th className="pb-2 pr-3 font-medium">Mileage</th>
                 <th className="pb-2 pr-3 font-medium">Saved</th>
                 <th className="pb-2 font-medium">Last active</th>
+                <th className="pb-2" />
               </tr>
             </thead>
             <tbody>
@@ -112,6 +132,18 @@ export const AdminBuyers = () => {
                   </td>
                   <td className="py-2.5 text-[12.5px] text-muted-foreground">
                     {r.updated_at ? ago(r.updated_at) : "—"}
+                  </td>
+                  <td className="py-2.5 pl-2 text-right">
+                    <Button
+                      variant="ghost"
+                      data-testid={`buyer-delete-${r.email}`}
+                      disabled={busy === r.email}
+                      onClick={() => remove(r.email)}
+                      aria-label={`Delete ${r.email}`}
+                      className="h-8 w-8 p-0 text-muted-foreground hover:bg-[hsl(var(--destructive)/0.08)] hover:text-[hsl(var(--destructive))]"
+                    >
+                      <Trash2 className="h-4 w-4" aria-hidden="true" />
+                    </Button>
                   </td>
                 </tr>
               ))}

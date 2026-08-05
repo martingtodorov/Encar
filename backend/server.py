@@ -2390,6 +2390,51 @@ async def admin_taxonomy_override_remove(oid: str, request: Request,
     return {"removed": bool(res.deleted_count)}
 
 
+@api.delete("/admin/enquiries/{enquiry_id}")
+async def admin_enquiry_delete(enquiry_id: str, request: Request,
+                               x_admin_token: str = Header(default="")):
+    """Throw away an enquiry that has been dealt with.
+
+    A `new` one is never deletable: that is a lead nobody has spoken to yet, and losing it to
+    a stray click would cost real money. Mark it contacted or closed first.
+    """
+    await _require_admin(request, x_admin_token)
+    doc = await db.enquiries.find_one({"_id": enquiry_id}, {"status": 1})
+    if not doc:
+        raise HTTPException(404, "no such enquiry")
+    if (doc.get("status") or "new") == "new":
+        raise HTTPException(400, "mark it contacted or closed before deleting it")
+    await db.enquiries.delete_one({"_id": enquiry_id})
+    return {"removed": True}
+
+
+@api.delete("/admin/users/{email}")
+async def admin_user_delete(email: str, request: Request,
+                            x_admin_token: str = Header(default="")):
+    """Erase a customer account and everything that signs them in.
+
+    Deposits are NOT deleted — they are money that moved, and a refund has to stay traceable —
+    so an account with a live, unrefunded deposit is refused. Purchase records keep the email
+    for the paperwork; everything that could sign the person in goes.
+    """
+    await _require_admin(request, x_admin_token)
+    email = (email or "").strip().lower()
+    user = await db.users.find_one({"email": email}, {"_id": 1})
+    if not user:
+        raise HTTPException(404, "no such customer")
+    live = await db.purchases.count_documents(
+        {"user_id": user["_id"], "refunded": {"$ne": True}})
+    if live:
+        raise HTTPException(
+            400, f"this customer has {live} deposit(s) that are not refunded — refund first")
+    uid = user["_id"]
+    for coll in ("sessions", "webauthn_credentials", "challenges"):
+        await db[coll].delete_many({"user_id": uid})
+    await db.totp_setup.delete_one({"_id": uid})
+    await db.users.delete_one({"_id": uid})
+    return {"removed": True, "email": email}
+
+
 @api.get("/admin/tracking-quota")
 async def admin_tracking_quota(request: Request, refresh: bool = False,
                               x_admin_token: str = Header(default="")):

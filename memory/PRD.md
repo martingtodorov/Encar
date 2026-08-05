@@ -169,7 +169,23 @@ succeeds (294 kB gzip), backend imports clean. What the owner must still do on t
 7. ONE backend process: `syncjob` and `pricewatch` schedule in-process, so multiple uvicorn
    workers would double-run the crawl and the price emails.
 8. Translations already use the owner's own `ANTHROPIC_API_KEY`/`GEMINI_API_KEY` directly; the
-   Emergent universal key is only a FALLBACK and stops working off-platform, which is fine. -->
+   Emergent universal key is only a FALLBACK and stops working off-platform, which is fine.
+9. Deploy package lives in `/app/deploy`: `ansible/deploy.yml` (installs docker, ufw, checks
+   out the repo, templates `.env` from `group_vars`, builds and starts the stack, waits on
+   `/api/health`, installs a nightly mongodump kept a fortnight), `Dockerfile.backend`
+   (one uvicorn worker on purpose), `Dockerfile.frontend` (CRA build served by nginx with
+   `REACT_APP_BACKEND_URL=""` so the app talks to /api on its own origin), `nginx.conf`,
+   `docker-compose.yml`, `Caddyfile` (automatic TLS), `.env.example` and `README.md`.
+   `export_data.py` / `import_data.py` move the collections worth keeping as gzipped JSON —
+   round-trip verified here on 29 816 docs (1.5 MB).
+
+## Admin deletions (2026-06)
+`DELETE /admin/enquiries/{id}` refuses while the status is still `new` (that is an unanswered
+lead) and works once it is contacted or closed. `DELETE /admin/users/{email}` erases the
+account, its sessions, passkeys, 2FA secret and challenges, but REFUSES while the customer has
+an unrefunded deposit — money that moved has to stay traceable, so refund it first. Purchase
+rows are deliberately kept. UI: trash button per row in `AdminBuyers`, "Delete" on contacted
+or closed cards in `AdminEnquiries`, both behind a confirm. Verified end to end. -->
 
 
 

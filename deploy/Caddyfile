@@ -1,0 +1,10 @@
+# HTTPS with no work: Caddy asks Let's Encrypt for the certificate on first boot and renews
+# it on its own. The app REQUIRES https — sessions and passkeys use Secure cookies.
+{
+	email {$LETSENCRYPT_EMAIL}
+}
+
+{$SITE_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy web:80
+}

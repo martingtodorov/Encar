@@ -146,6 +146,16 @@ export async function getHealth() {
 }
 
 // ── admin ──────────────────────────────────────────────────────────────────
+export async function deleteEnquiry(id) {
+  const { data } = await http.delete(`/admin/enquiries/${encodeURIComponent(id)}`);
+  return data;
+}
+
+export async function deleteCustomer(email) {
+  const { data } = await http.delete(`/admin/users/${encodeURIComponent(email)}`);
+  return data;
+}
+
 export async function getRawTaxonomy({ level, make = "", model = "" }) {
   const { data } = await http.get("/meta/taxonomy", {
     params: { level, make, model, lang: "en", raw: true },
