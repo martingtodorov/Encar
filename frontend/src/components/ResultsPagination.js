@@ -12,12 +12,19 @@ export const ResultsPagination = ({ page, pages, onChange }) => {
 
   if (!pages || pages <= 1) return null;
 
+  // A phone gets a sliding run of five consecutive pages (clamped at both ends); the desktop
+  // row adds the first and last page around it with ellipses.
+  const RUN = 5;
+  const start = Math.max(1, Math.min(page - Math.floor(RUN / 2), pages - RUN + 1));
+  const near = new Set();
+  for (let p = start; p < start + RUN && p <= pages; p += 1) near.add(p);
+
   const window = [];
   const push = (p) => {
     if (p >= 1 && p <= pages && !window.includes(p)) window.push(p);
   };
   push(1);
-  for (let p = page - 2; p <= page + 2; p += 1) push(p);
+  near.forEach(push);
   push(pages);
   window.sort((a, b) => a - b);
 
@@ -41,13 +48,12 @@ export const ResultsPagination = ({ page, pages, onChange }) => {
 
         {window.map((p, i) => {
           const gap = i > 0 && p - window[i - 1] > 1;
-          // A phone has room for the current page and its neighbours only: everything
-          // else (first, last, the ellipses) is desktop-only so the row stays ONE line.
-          const near = Math.abs(p - page) <= 1;
           return (
             <span
               key={p}
-              className={`items-center gap-1 sm:gap-1.5 ${near ? "flex" : "hidden sm:flex"}`}
+              className={`items-center gap-1 sm:gap-1.5 ${
+                near.has(p) ? "flex" : "hidden sm:flex"
+              }`}
             >
               {gap && <span className="px-1 text-muted-foreground">{"\u2026"}</span>}
               <Button
