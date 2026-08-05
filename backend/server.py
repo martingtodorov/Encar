@@ -1027,7 +1027,8 @@ async def meta_taxonomy(
         rows = curate.collapse(rows, level)
     values = [r["value"] for r in rows]
     # Levels 1 and 2 are marques and model names: proper nouns, always English.
-    label_lang = "en" if level <= 2 else lang
+    # Marques, models AND trims are proper nouns — always Latin, never transliterated.
+    label_lang = "en"
     try:
         tmap = await translate_many(db, values, label_lang)
     except Exception as e:
@@ -1467,7 +1468,9 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
         "model": curate.display(2, (listing or {}).get("model") or "",
                                 T(cat.get("modelName"))),
         "grade": T(cat.get("gradeName")) or cat.get("gradeEnglishName"),
-        "badge_detail": (listing or {}).get("badge_detail"),
+        "badge": (listing or {}).get("badge_t") or (listing or {}).get("badge"),
+        "badge_detail": (listing or {}).get("badge_detail_t")
+        or (listing or {}).get("badge_detail"),
         "year_month": cat.get("yearMonth"),
         "form_year": cat.get("formYear"),
         "origin_price_manwon": cat.get("originPrice"),

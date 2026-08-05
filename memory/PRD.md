@@ -132,6 +132,10 @@ with JS only, pointer nowhere near the card, produced exactly ONE `/api/car/{id}
   pass over `form_year`, cached a week in `model_years`). Open span while still on sale:
   "더 뉴 스포티지 5세대" -> "Sportage (2024-)", "올 뉴 쏘렌토" -> "Sorento (2015-2017)". Applied in
   the model dropdown, `listing_out.model_t` and the car page title.
+* Trims are Latin everywhere now: `translate.LATIN_FIELDS` gained `badge` and `badge_detail`,
+  and `/meta/taxonomy` uses `label_lang = "en"` at every level, so "M2 Купе" is gone — the
+  dropdown, the cards and the car page all read "M2 Coupe", "E220d 4MATIC AMG Line". A card
+  still shows the car's OWN trim (e.g. "M2 Black Shadow"); only the filter option is merged.
 * Filter pill bug: the inputs hand over STRINGS, so `Number.isFinite("60000")` was false and
   the mileage pill read "Пробег: –— км". `AppliedFiltersChips` now coerces every bound and
   words one-sided ranges as "≤ 60 000 км" / "≥ …" (same fix for price and year).

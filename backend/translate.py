@@ -456,7 +456,9 @@ ALWAYS_FIELDS = ("manufacturer", "model", "badge", "badge_detail")
 # language, per the owner. Bulgarian was Cyrillicising some of them ("Дайхацу",
 # "Серия 2 Gran Coupe") and Romanian was translating "Series" to "Seria", which reads
 # wrong on a car and does not match what a buyer searches for.
-LATIN_FIELDS = ("manufacturer", "model")
+# Marques, model names AND trim names are proper nouns: "M2 Coupe", "E220d 4MATIC AMG Line".
+# They are shown in Latin in every language rather than transliterated ("M2 Купе" was wrong).
+LATIN_FIELDS = ("manufacturer", "model", "badge", "badge_detail")
 LATIN_LANG = "en"
 
 
