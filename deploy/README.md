@@ -24,7 +24,11 @@ certificate on the first run, and that only works once DNS resolves.
 ansible-playbook -i inventory.ini deploy.yml --ask-vault-pass
 ```
 
-What it does: installs Docker, closes every port except 22/80/443, checks out the repo into
+Your ssh access: nothing in here touches sshd, your keys or `authorized_keys`. The only thing
+that could shut you out is the firewall, so the ssh port is a variable — set `ssh_port` in
+`group_vars/all.yml` if your sshd is not on 22.
+
+What it does: installs Docker, closes every port except ssh/80/443, checks out the repo into
 `/opt/europe-encar`, writes `deploy/.env` from your vars, builds and starts Mongo + backend +
 nginx + Caddy, waits for `https://<domain>/api/health`, and installs a nightly `mongodump`
 into `/var/backups` (kept a fortnight). Re-running is safe; use `--tags run` to restart

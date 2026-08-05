@@ -71,12 +71,15 @@
       tags: [docker]
 
     # ── firewall: only ssh and the web ports ──────────────────────────────────
+    # The ssh port is a VARIABLE on purpose. `default deny incoming` is what locks people
+    # out of their own box: if you moved sshd off 22, set ssh_port in group_vars (or pass
+    # -e ssh_port=NNNN) BEFORE running this, or the firewall will shut the door behind you.
     - name: Allow ssh, http, https
       community.general.ufw:
         rule: allow
         port: "{{ item }}"
         proto: tcp
-      loop: ["22", "80", "443"]
+      loop: "{{ [ssh_port | default(ansible_port | default(22)) | string, '80', '443'] }}"
       tags: [firewall]
 
     - name: Firewall on, default deny inbound

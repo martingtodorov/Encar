@@ -6,6 +6,10 @@ site_domain: cars.example.com
 letsencrypt_email: you@example.com
 db_name: encar
 
+# The port YOUR sshd listens on. The firewall opens this one plus 80/443 and denies the
+# rest, so if you moved ssh off 22 you MUST set it here or you will lock yourself out.
+ssh_port: 22
+
 # Where Ansible pulls the code from ("Save to GitHub" in Emergent gives you this).
 repo_url: git@github.com:you/europe-encar.git
 repo_branch: main
