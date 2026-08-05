@@ -24,6 +24,12 @@ ref: main
 # internet. Set it before the first run or you will lock yourself out.
 ssh_port: 22
 private_cidr: 10.0.0.0/16
+# back1 has no public IPv4, so it leaves through front1 (deploy_nat.yml). This is front1's
+# address ON THE PRIVATE NETWORK — back1's default route points at it.
+frontend_private_ip: 10.0.0.2
+# The interface on front1 that faces the internet. Left unset it is taken from facts, which
+# is right on a standard Hetzner box (eth0 / enp1s0).
+# nat_public_iface: eth0
 
 # ── backend secrets ───────────────────────────────────────────────────────────
 db_name: encar

@@ -842,8 +842,21 @@ Two hosts: `front1` public (nginx + the static build, root over ssh) and `back1`
   `group_vars/all.yml.example`. `inventory.ini` and `group_vars/all.yml` are gitignored.
 - SSH: nothing in the tree touches sshd, keys or `authorized_keys`. The only lockout risk is
   ufw, so `ssh_port` is a variable (default 22) and the private CIDR is trusted on both hosts.
-- Known gap to watch: if `back1` has no public IPv4, outbound (Encar, Claude, Stripe, Resend)
-  needs a NAT gateway on front1 — the playbooks deliberately do NOT configure NAT.
+- **Known gap to watch**: back1 has no public IPv4, so `deploy_nat.yml` makes front1 its way
+  out. Without it every integration fails.
+
+## Deploy: NAT gateway (2026-06)
+`playbooks/deploy_nat.yml`, first in `site.yml`. front1 masquerades `10.0.0.0/16` out its
+public interface; back1 gets a default route via `frontend_private_ip` (10.0.0.2). The
+MASQUERADE rule lives in `/etc/ufw/before.rules` ON PURPOSE — ufw rewrites the nat table on
+every `ufw reload`, so an iptables-persistent rule silently disappears. Plus
+`net/ipv4/ip_forward=1` in `/etc/ufw/sysctl.conf` and `DEFAULT_FORWARD_POLICY="ACCEPT"` in
+`/etc/default/ufw` (ufw's FORWARD chain defaults to DROP, which would break NAT even with the
+nat rule in place). On back1 the route is applied live with `ip route replace` and persisted in
+a netplan drop-in, WITHOUT `netplan apply` (that bounces the interface Ansible is connected
+over). The play then proves egress: `curl https://ifconfig.me` (must print front1's public
+address) plus HEAD requests to Stripe, Anthropic, Resend and Encar. Must run BEFORE
+`deploy_backend.yml` on a fresh box or apt and pip have no way out.
 
 ## Reference
 - Test credentials: `/app/memory/test_credentials.md`

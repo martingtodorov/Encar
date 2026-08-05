@@ -1,0 +1,168 @@
+---
+# NAT gateway: back1 has no public IPv4, so every outbound connection it makes (Encar,
+# Claude, Stripe, Resend, web push) leaves through front1.
+#
+#   ansible-playbook -i inventory.ini playbooks/deploy_nat.yml
+#
+# Run this BEFORE deploy_backend.yml on a fresh box — apt and pip need the way out.
+#
+# Why the rule lives in /etc/ufw/before.rules and not in iptables-persistent: ufw rewrites
+# the filter AND nat tables from its own files on every `ufw reload`, so a rule added with
+# plain iptables (or restored by netfilter-persistent) disappears the next time anything
+# touches the firewall. before.rules is ufw's own hook, so it survives.
+#
+# Tags: gateway, client, verify.
+- name: front1 becomes the way out
+  hosts: frontend
+  become: true
+
+  tasks:
+    - name: ufw present
+      ansible.builtin.apt:
+        name: ufw
+        update_cache: true
+      tags: [gateway]
+
+    - name: Which interface faces the internet
+      ansible.builtin.set_fact:
+        public_iface: "{{ nat_public_iface | default(ansible_default_ipv4.interface) }}"
+      tags: [gateway]
+
+    - name: Forwarding on now
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        sysctl_set: true
+        reload: true
+      tags: [gateway]
+
+    - name: Forwarding on after a reboot (ufw owns this file)
+      ansible.builtin.lineinfile:
+        path: /etc/ufw/sysctl.conf
+        regexp: '^#?net/ipv4/ip_forward='
+        line: "net/ipv4/ip_forward=1"
+      notify: Reload ufw
+      tags: [gateway]
+
+    - name: ufw may forward packets
+      ansible.builtin.lineinfile:
+        path: /etc/default/ufw
+        regexp: '^DEFAULT_FORWARD_POLICY='
+        line: 'DEFAULT_FORWARD_POLICY="ACCEPT"'
+      notify: Reload ufw
+      tags: [gateway]
+
+    - name: Masquerade the private network
+      ansible.builtin.blockinfile:
+        path: /etc/ufw/before.rules
+        insertbefore: BOF
+        marker: "# {mark} ANSIBLE MANAGED: {{ app_name }} NAT"
+        block: |
+          *nat
+          :POSTROUTING ACCEPT [0:0]
+          -A POSTROUTING -s {{ private_cidr }} -o {{ public_iface }} -j MASQUERADE
+          COMMIT
+      notify: Reload ufw
+      tags: [gateway]
+
+    - name: Apply it before the client half runs
+      ansible.builtin.meta: flush_handlers
+      tags: [gateway]
+
+    - name: Firewall on (it must be, or none of the above is loaded)
+      community.general.ufw:
+        state: enabled
+      tags: [gateway]
+
+  handlers:
+    - name: Reload ufw
+      ansible.builtin.command: ufw reload
+      changed_when: true
+
+- name: back1 routes through front1
+  hosts: backend
+  become: true
+
+  tasks:
+    - name: Which interface carries the private address
+      # `ip route get` cannot help here: on a private-only box there is no default route yet,
+      # which is the whole point of this play.
+      ansible.builtin.shell: >-
+        ip -o -4 addr show | awk -v ip={{ backend_private_ip }}
+        '$4 ~ "^"ip"/" {print $2; exit}'
+      register: iface
+      changed_when: false
+      tags: [client]
+
+    - name: Refuse to guess
+      ansible.builtin.assert:
+        that: iface.stdout | length > 0
+        fail_msg: >-
+          No interface holds {{ backend_private_ip }} on this host. Fix backend_private_ip in
+          the inventory (it must be the address of the private network interface).
+      tags: [client]
+
+    - name: Default route via front1, now
+      ansible.builtin.command: "ip route replace default via {{ frontend_private_ip }}"
+      register: route
+      changed_when: true
+      tags: [client]
+
+    - name: Default route via front1, after a reboot
+      # A netplan drop-in, merged by interface name with whatever Hetzner's cloud-init wrote.
+      # Deliberately NOT followed by `netplan apply`: the live route is already in place and
+      # re-applying netplan bounces the interface Ansible is talking over.
+      ansible.builtin.copy:
+        dest: /etc/netplan/99-{{ app_name }}-nat.yaml
+        mode: "0600"
+        content: |
+          # Written by Ansible. back1 has no public IPv4; front1 is its way out.
+          network:
+            version: 2
+            ethernets:
+              {{ iface.stdout }}:
+                routes:
+                  - to: default
+                    via: {{ frontend_private_ip }}
+      tags: [client]
+
+    - name: A resolver that answers
+      # With no public address the box may have inherited nothing usable; systemd-resolved
+      # keeps its own list, so this is only a fallback for hosts without it.
+      ansible.builtin.lineinfile:
+        path: /etc/resolv.conf
+        line: "nameserver {{ item }}"
+        state: present
+      loop: ["185.12.64.1", "185.12.64.2"]        # Hetzner's own resolvers
+      when: not (ansible_facts.services['systemd-resolved.service'] is defined)
+      failed_when: false
+      tags: [client]
+
+    - name: Prove the way out works
+      ansible.builtin.command: curl -sS --max-time 20 https://ifconfig.me
+      register: egress
+      changed_when: false
+      retries: 3
+      delay: 3
+      until: egress is succeeded
+      tags: [verify]
+
+    - name: Say which address the world sees
+      ansible.builtin.debug:
+        msg: >-
+          back1 reaches the internet as {{ egress.stdout }} — that should be front1's public
+          address. Stripe, Claude, Resend and the Encar crawl all leave through it.
+      tags: [verify]
+
+    - name: TLS to the services this app actually calls
+      ansible.builtin.uri:
+        url: "{{ item }}"
+        method: HEAD
+        status_code: [200, 301, 302, 400, 401, 403, 404, 405]
+        timeout: 20
+      loop:
+        - https://api.stripe.com/
+        - https://api.anthropic.com/
+        - https://api.resend.com/
+        - https://api.encar.com/
+      tags: [verify]

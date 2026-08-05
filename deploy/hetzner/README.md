@@ -27,13 +27,34 @@ scp cert.pem key.pem root@178.105.37.1:/etc/ssl/encar/   # chmod 600
 ## Deploy
 
 ```bash
+ansible-playbook -i inventory.ini playbooks/deploy_nat.yml                      # once
 ansible-playbook -i inventory.ini playbooks/deploy_backend.yml  -e "ref=main"
 ansible-playbook -i inventory.ini playbooks/deploy_frontend.yml -e "ref=main"
 ansible-playbook -i inventory.ini playbooks/deploy_nginx.yml    -e "ref=main"
 ```
 
-`playbooks/site.yml` runs all three in that order. `ref` is any branch, tag or commit.
-Tags: `base`, `mongo`, `code`, `build`, `config`, `service`, `publish`, `firewall`, `backup`.
+`playbooks/site.yml` runs all four in that order. `ref` is any branch, tag or commit.
+Tags: `base`, `mongo`, `code`, `build`, `config`, `service`, `publish`, `firewall`, `backup`,
+`gateway`, `client`, `verify`.
+
+## The way out (deploy_nat.yml)
+
+back1 has no public IPv4, so front1 is its route to the internet: the catalogue crawl, Claude,
+Stripe, Resend and web push all leave through it and the world sees front1's address.
+
+- front1: `net.ipv4.ip_forward=1`, `DEFAULT_FORWARD_POLICY="ACCEPT"`, and a `MASQUERADE` rule
+  for `10.0.0.0/16`. The rule lives in **`/etc/ufw/before.rules`**, not in
+  iptables-persistent — ufw rewrites the nat table on every `ufw reload`, so a hand-added
+  iptables rule silently vanishes the next time anything touches the firewall.
+- back1: default route via `frontend_private_ip`, applied live with `ip route replace` and
+  written to `/etc/netplan/99-encar-nat.yaml` for reboots. `netplan apply` is deliberately NOT
+  run — the live route is already there and re-applying bounces the interface Ansible is on.
+- Then it proves it: `curl https://ifconfig.me` from back1 (should print front1's public
+  address) and a HEAD request to Stripe, Anthropic, Resend and Encar.
+
+Run it **before** `deploy_backend.yml` on a fresh box, or apt and pip have nowhere to go.
+If you ever give back1 its own public IPv4, this playbook simply becomes unnecessary — drop
+the netplan file and the route.
 
 ## Layout on the hosts
 
