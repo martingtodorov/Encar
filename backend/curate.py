@@ -19,7 +19,7 @@ _cache = {"at": 0.0, "target": {}, "members": {}, "label": {}, "years": {}}
 # Encar names generations the way a Korean dealer speaks: "The New Sportage", "All New
 # Tucson", "Sportage 5th Generation". A buyer in Europe reads YEARS, so the marketing words
 # come off and the production span our own catalogue can see goes on instead.
-_NEW = re.compile(r"^\s*(the\s+)?(all[\s\-]*new|brand[\s\-]*new|new)\s+", re.I)
+_NEW = re.compile(r"^\s*(the\s+)?(all[\s\-]*new|brand[\s\-]*new|next|new)\s+", re.I)
 _GEN = re.compile(r"[\s(]*\b\d{1,2}(?:st|nd|rd|th)\s+gen(?:eration)?\b\)?", re.I)
 
 

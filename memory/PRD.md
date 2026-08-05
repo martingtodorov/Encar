@@ -122,7 +122,11 @@ with JS only, pointer nowhere near the card, produced exactly ONE `/api/car/{id}
   `AdminTaxonomy.js`, tab "Models & trims". Nothing touches `listings`, so every change is
   undoable and a re-crawl cannot overwrite it. Applied for the owner: M2 Coupe M Performance
   Steering Wheel Edition + M2 Black Shadow -> M2 Coupe (16 cars), M2 Competition Final
-  Edition -> M2 Competition (16 cars); verified end to end.
+  Edition -> M2 Competition (16 cars); Chevrolet (GM Daewoo) -> Chevrolet (one entry, 6 897
+  cars, 70 models from both, slug `chevrolet`). Merging at LEVEL 1 also needed the scope of
+  `/meta/taxonomy` itself to expand (`q["make"] = {"$in": curate.expand(1, [make])}`, same for
+  model/badge) plus a de-dupe pass, so the survivor lists the children of everything folded
+  into it; `build_query` expands `makes` too. Verified end to end.
 * Model names: `curate.model_label` strips "The New / All New / New" and "5th Generation" and
   appends the production span read from our own catalogue (`curate.ensure_years`, one grouped
   pass over `form_year`, cached a week in `model_years`). Open span while still on sale:

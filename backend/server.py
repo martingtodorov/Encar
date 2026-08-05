@@ -159,9 +159,10 @@ def build_query(p):
     # under contract on Encar means effectively sold: never shown, never crawled again
     q = {"active": True, "duplicate": {"$ne": True}, "under_contract": {"$ne": True}}
 
+    # A make, model or trim the owner merged others into must return their cars too
+    # (curate.py).
     if p.get("makes"):
-        q["manufacturer"] = {"$in": p["makes"]}
-    # A model or trim the owner merged others into must return their cars too (curate.py).
+        q["manufacturer"] = {"$in": curate.expand(1, p["makes"])}
     if p.get("models"):
         q["model"] = {"$in": curate.expand(2, p["models"])}
     if p.get("badges"):
@@ -990,27 +991,38 @@ async def meta_taxonomy(
     except Exception as e:
         log.warning("taxonomy slug fill failed: %s", str(e)[:160])
 
-    q = {"level": level}
-    if level >= 2:
-        q["make"] = make
-    if level >= 3:
-        q["model"] = model
-    if level >= 4:
-        q["badge"] = badge
-
-    rows = [
-        {"value": d["value"], "count": d["count"], "slug": d.get("slug") or ""}
-        async for d in db.taxonomy.find(q, {"value": 1, "count": 1, "slug": 1})
-        .sort([("value", 1)])          # alphabetical, not by popularity
-        .limit(limit)
-    ]
-    # The owner folds Encar's near-duplicate trims together and renames what reads badly
-    # (curate.py). `raw=1` skips it, which is how the admin screen sees what to merge.
+    # The owner's curation (curate.py) has to be loaded BEFORE the query is built: if a make
+    # was merged into another, the surviving make's dropdown must list the models of both.
     await curate.refresh(db)
     try:
         await curate.ensure_years(db)
     except Exception as e:
         log.warning("model year spans failed: %s", str(e)[:160])
+
+    q = {"level": level}
+    if level >= 2:
+        q["make"] = {"$in": curate.expand(1, [make])}
+    if level >= 3:
+        q["model"] = {"$in": curate.expand(2, [model])}
+    if level >= 4:
+        q["badge"] = {"$in": curate.expand(3, [badge])}
+
+    found = [
+        {"value": d["value"], "count": d["count"], "slug": d.get("slug") or ""}
+        async for d in db.taxonomy.find(q, {"value": 1, "count": 1, "slug": 1})
+        .sort([("value", 1)])          # alphabetical, not by popularity
+        .limit(limit)
+    ]
+    # Two merged makes can list the same model name; it must appear once, with both counts.
+    rows = []
+    seen = {}
+    for r in found:
+        if r["value"] in seen:
+            seen[r["value"]]["count"] += r["count"]
+            continue
+        seen[r["value"]] = r
+        rows.append(r)
+    # `raw=1` skips the collapse, which is how the admin screen sees what to merge.
     if not raw:
         rows = curate.collapse(rows, level)
     values = [r["value"] for r in rows]
