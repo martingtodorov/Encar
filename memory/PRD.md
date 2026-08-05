@@ -771,6 +771,46 @@ the toggle flipped in the browser and read back from `GET /auth/saved-searches` 
 EMAIL DELIVERY IS STILL BLOCKED for this and every other message: `ADMIN_NOTIFY_EMAIL` is
 unset and `SENDER_EMAIL` is Resend's shared sender, so `mailer._send` drops everything.
 
+## Merged trims cleared on Back — root cause and fix (2026-06)
+The owner's report: after filtering on the merged "S63 AMG 4MATIC+ Coupe" and opening an ad,
+Back cleared the submodel select and the merge "stopped working". REPRODUCED, one root cause:
+`slugs.ensure_taxonomy_slugs` scoped slug uniqueness by `(level, make, model, badge)`, but a
+level-3 document carries `badge` equal to its OWN value (and a level-2 document `model`), so
+every trim sat in a scope of its own. "S63 AMG 4MATIC" and "S63 AMG 4MATIC+" both slugify to
+`s63-amg-4matic` (slugify drops "+") and BOTH kept it; `resolve_taxonomy` then returned
+whichever Mongo found first — the value the owner had merged AWAY — which is not in the
+collapsed dropdown, so the select cleared. 17 real collisions existed (16 at level 3, 1 at
+level 2: LS/LS+, 솔/솔+, 뉴SM5/뉴SM5(신형)…). Note this CONTRADICTS the earlier PRD claim that
+"only ONE real collision exists" — merging creates new ones, so do not trust that line.
+Fixes, both in `slugs.py`:
+1. Uniqueness is scoped by the PARENTS only — level 1 `()`, 2 `(make)`, 3 `(make, model)`,
+   4 `(make, model, badge)` — and documents are numbered survivors-first (`curate.root`), so a
+   folded value can never steal the plain slug from the value that survives.
+2. `resolve_taxonomy` maps whatever it finds through `curate.root`, so even an old link
+   carrying a folded value's slug (`s63-amg-4matic-coupe-2`) lands on the survivor. Parent
+   constraints use `curate.expand`, because the children of a merged make/model still carry
+   the folded parent.
+Slugs were rewritten once with `ensure_taxonomy_slugs(db, force=True)`: 0 collisions left,
+0 empty slugs. Verified in a browser: load the slug URL, open an ad, Back — trim still reads
+"S63 AMG 4MATIC+ Coupe (15)" and the 15 results (both the "+" and non-"+" cars) are intact.
+Regression test: `TestMergedValuesResolve` in `backend/tests/test_english_slugs.py` walks every
+level-3 merge and asserts the survivor's slug never resolves to a folded value.
+The stale `test_level1_62_unique_makes_and_slugs` assertion was made merge-aware (62 marques
+minus the owner's merges) instead of the hardcoded 62.
+
+## Untranslated submodels — cause and fix (2026-06)
+35 taxonomy values (34 trims, 1 sub-trim) had NO English cache entry, so they rendered as
+Hangul ("A200 CDI 나이트", "럭셔리 블랙"). Warming already covers every distinct badge, but the
+cache had drifted behind the crawl. All four levels are now 100% English (level 1: 62,
+level 2: 1 252, level 3: 4 215, level 4: 520 — 0 missing, 0 still Hangul) and the newly
+translated values got proper slugs in the same rebuild. `warm_translations` no longer warms
+LATIN_FIELDS (make/model/badge/badge_detail) in bg/ro — they are read from the English cache in
+every language, so those calls were paying for translations nothing renders.
+CLAUDE IS THE ONLY TRANSLATOR IN USE (owner's instruction): `translate._llm_translate` picks
+Anthropic whenever `ANTHROPIC_API_KEY` is set (`ANTHROPIC_MODEL=claude-sonnet-5`), and the
+dealer-description stream uses `ANTHROPIC_FAST_MODEL`. Gemini and the Emergent key are dormant
+`elif` fallbacks that only fire if the Anthropic key disappears.
+
 ## Reference
 - Test credentials: `/app/memory/test_credentials.md`
 - Implementation log: `/app/memory/CHANGELOG.md`

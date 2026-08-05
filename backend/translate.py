@@ -550,7 +550,10 @@ async def warm_translations(db, langs=None, per_field=600):
         if limit:
             pipe.append({"$limit": limit})
         values = [d["_id"] async for d in db.listings.aggregate(pipe, allowDiskUse=True)]
-        for lang in langs:
+        # Makes, models and trims are shown in Latin in EVERY language, so only the English
+        # cache is ever read for them — warming them in bg/ro was paying for translations
+        # nothing renders.
+        for lang in ([LATIN_LANG] if field in LATIN_FIELDS else langs):
             cached = await translate_cached_only(db, values, lang)
             todo = [v for v in values if v not in cached]
             if todo:

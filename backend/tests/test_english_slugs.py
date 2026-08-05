@@ -20,11 +20,17 @@ def sess():
 
 # ── /api/meta/taxonomy: slugs present, unique, no duplicate values ────────────
 class TestTaxonomySlugs:
-    def test_level1_62_unique_makes_and_slugs(self, sess):
+    def test_level1_unique_makes_and_slugs(self, sess):
         r = sess.get(f"{API}/meta/taxonomy", params={"level": 1, "lang": "en"}, timeout=30)
         assert r.status_code == 200, r.text
         items = r.json()["items"]
-        assert len(items) == 62, f"expected 62 makes, got {len(items)}"
+        # Encar has 62 marques; the owner's curation folds some into another (Chevrolet
+        # (GM Daewoo) -> Chevrolet), so the list is 62 minus the merges, never more.
+        raw = sess.get(f"{API}/meta/taxonomy",
+                       params={"level": 1, "lang": "en", "raw": 1}, timeout=30).json()["items"]
+        merged = len([i for i in raw if i.get("merged_into")])
+        assert len(items) == len(raw) - merged, (
+            f"expected {len(raw) - merged} makes after {merged} merges, got {len(items)}")
         values = [i["value"] for i in items]
         assert len(set(values)) == len(values), "duplicate taxonomy values found"
         slugs = [i["slug"] for i in items if i.get("slug")]
@@ -183,3 +189,43 @@ def hyundai_model_value(sess, hyundai_value):
             return i["value"]
     assert items, "no models for hyundai"
     return items[0]["value"]
+
+
+# ── merged values must never come back from /meta/resolve ─────────────────────
+# The bug this guards: a level-3 document carries `badge` equal to its OWN value, so slug
+# uniqueness was scoped per trim and "S63 AMG 4MATIC" / "S63 AMG 4MATIC+" (slugify drops
+# "+") both kept `s63-amg-4matic`. Resolve then returned whichever Mongo found first — the
+# value the owner had merged away — and the dropdown cleared on Back because the collapsed
+# list only offers survivors.
+class TestMergedValuesResolve:
+    @pytest.fixture(scope="class")
+    def overrides(self, sess):
+        # A quoted value in .env keeps its quotes when exported by a shell; strip them.
+        token = (os.environ.get("ADMIN_TOKEN") or "").strip().strip('"').strip("'")
+        if not token:
+            pytest.skip("ADMIN_TOKEN not set")
+        r = sess.get(f"{API}/admin/taxonomy/overrides", headers={"x-admin-token": token})
+        assert r.status_code == 200, r.text
+        return [o for o in r.json()["items"] if o.get("target") and int(o["level"]) == 3]
+
+    def test_every_merged_trim_slug_resolves_to_the_survivor(self, sess, overrides):
+        if not overrides:
+            pytest.skip("no level-3 merges configured")
+        folded = {o["value"] for o in overrides}
+        checked = 0
+        for o in overrides:
+            tax = sess.get(f"{API}/meta/taxonomy",
+                           params={"level": 3, "make": o["make"], "model": o["model"],
+                                   "lang": "en"}).json()["items"]
+            by_value = {i["value"]: i for i in tax}
+            survivor = by_value.get(o["target"])
+            if not survivor or not survivor.get("slug"):
+                continue                       # merged into something outside this scope
+            got = sess.get(f"{API}/meta/resolve",
+                           params={"make": o["make"], "model": o["model"],
+                                   "badge": survivor["slug"]}).json()["badge"]
+            assert got not in folded, (
+                f"{survivor['slug']} resolved to the merged-away {got!r}")
+            assert got == o["target"], f"{survivor['slug']} -> {got!r}, want {o['target']!r}"
+            checked += 1
+        assert checked, "no merged trim could be checked"

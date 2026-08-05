@@ -15,6 +15,8 @@ import unicodedata
 
 from translate import translate_cached_only
 
+import curate
+
 log = logging.getLogger("slugs")
 
 DIMS = ("make", "model", "badge", "badge_detail")
@@ -46,13 +48,25 @@ async def ensure_taxonomy_slugs(db, force=False):
         {}, {"level": 1, "value": 1, "make": 1, "model": 1, "badge": 1})]
     labels = await _en_labels(db, [d["value"] for d in docs])
 
-    # Uniqueness only has to hold inside the scope a slug is resolved in: level 1 is
-    # global, deeper levels are scoped by their parents.
+    # Uniqueness has to hold inside the scope a slug is RESOLVED in, and that scope is the
+    # PARENTS only. A level-3 document carries `badge` equal to its own value, so including
+    # it put every trim in a scope of its own: "S63 AMG 4MATIC" and "S63 AMG 4MATIC+" both
+    # slugify to `s63-amg-4matic` (slugify drops "+") and both kept it, after which
+    # `resolve_taxonomy` picked whichever Mongo returned first — the merged-away one — and
+    # the dropdown cleared because that value is not in the collapsed list. Same defect one
+    # level up, where `model` is the document's own value.
+    parents = {1: (), 2: ("make",), 3: ("make", "model"), 4: ("make", "model", "badge")}
+    # A merged value must never win the plain slug from the value that survives the merge,
+    # so survivors are numbered first and anything folded into them takes the suffix.
+    await curate.refresh(db)
+    docs.sort(key=lambda d: (curate.root(d["level"], d["value"]) != d["value"],
+                             d.get("value") or ""))
+
     taken = {}
     ops = []
     from pymongo import UpdateOne
     for d in docs:
-        scope = (d["level"], d.get("make", ""), d.get("model", ""), d.get("badge", ""))
+        scope = (d["level"],) + tuple(d.get(k, "") for k in parents.get(d["level"], ()))
         base = slugify(labels.get(d["value"]) or d["value"])
         if not base:
             continue                       # untranslated: keep the raw value in the URL
@@ -110,22 +124,29 @@ async def resolve_taxonomy(db, make="", model="", badge="", badge_detail=""):
 
     Anything that does not match a slug is passed through unchanged, so links created
     before slugs existed keep working.
+
+    A slug that lands on a value the owner has MERGED AWAY resolves to the value that
+    survives (`curate.root`): the collapsed dropdown only offers survivors, so returning the
+    folded value cleared the select on Back. The parent constraints are expanded for the same
+    reason — the children of a merged make or model still carry the folded parent.
     """
+    await curate.refresh(db)
     out = {}
     ctx = {"make": "", "model": "", "badge": ""}
     for dim, token in (("make", make), ("model", model), ("badge", badge),
                        ("badge_detail", badge_detail)):
         if not token:
             break
-        q = {"level": LEVEL_OF[dim], "slug": token}
+        level = LEVEL_OF[dim]
+        q = {"level": level, "slug": token}
         if dim != "make":
-            q["make"] = ctx["make"]
+            q["make"] = {"$in": curate.expand(1, [ctx["make"]])}
         if dim in ("badge", "badge_detail"):
-            q["model"] = ctx["model"]
+            q["model"] = {"$in": curate.expand(2, [ctx["model"]])}
         if dim == "badge_detail":
-            q["badge"] = ctx["badge"]
+            q["badge"] = {"$in": curate.expand(3, [ctx["badge"]])}
         doc = await db.taxonomy.find_one(q, {"value": 1})
-        value = doc["value"] if doc else token
+        value = curate.root(level, doc["value"]) if doc else token
         out[dim] = value
         if dim in ctx:
             ctx[dim] = value
