@@ -2201,7 +2201,11 @@ async def admin_deposit_refund(session_id: str, request: Request,
                                x_admin_token: str = Header(default="")):
     """Refund a deposit in full and put the car back on the market."""
     admin = await _require_admin(request, x_admin_token)
-    return jsonable(await deposits.refund(session_id, (admin or {}).get("email") or ""))
+    who = _actor(admin)
+    out = await deposits.refund(session_id, (admin or {}).get("email") or "")
+    await _audit(request, who, "deposit refunded", session_id,
+                 f"car {out.get('car_id') or '?'}")
+    return jsonable(out)
 
 
 
@@ -2468,6 +2472,7 @@ async def admin_user_delete(email: str, request: Request,
         await db[coll].delete_many({"user_id": uid})
     await db.totp_setup.delete_one({"_id": uid})
     await db.users.delete_one({"_id": uid})
+    await _audit(request, who, "customer deleted", email)
     return {"removed": True, "email": email}
 
 
@@ -2557,8 +2562,5 @@ async def on_shutdown():
     # still open, otherwise it dies mid-write and leaves the job stuck on "running".
     await syncjob_mod.stop(db)
     await maersk_public.close()
-    await encar.close()
-    client.close()
-_public.close()
     await encar.close()
     client.close()
