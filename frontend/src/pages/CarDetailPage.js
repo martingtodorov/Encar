@@ -27,6 +27,8 @@ import { ReserveCar } from "@/components/ReserveCar";
 import { useApp } from "@/context/AppContext";
 import { EnquiryDialog } from "@/components/EnquiryDialog";
 import { DescriptionPanelBody } from "@/components/DescriptionPanelBody";
+import { PriceNote } from "@/components/PriceNote";
+import { YouMightLike } from "@/components/YouMightLike";
 import { useLangNav } from "@/hooks/useLangNav";
 import { getCar, warmCar, forgetCar, countView } from "@/lib/api";
 import { noteView, WEIGHT } from "@/lib/taste";
@@ -34,7 +36,8 @@ import Lightbox from "@/components/Lightbox";
 import BodyDiagram from "@/components/BodyDiagram";
 import MechChecks from "@/components/MechChecks";
 import { useSeo, useJsonLd } from "@/lib/seo";
-import { formatMileage, formatMoney, formatNumber, formatYearMonth } from "@/lib/format";
+import { formatMileage, formatMoney, formatNumber, formatYearMonth,
+         stripGenerationYears } from "@/lib/format";
 
 // Panels stay in the site's palette: white card, grey tile, red only where something is
 // actually wrong. Coloured tiles (blue/amber/green) fought with the rest of the page, so any
@@ -366,7 +369,7 @@ export default function CarDetailPage() {
                   data-testid="detail-title"
                   className="text-2xl font-semibold leading-tight text-foreground sm:text-3xl"
                 >
-                  {car.title}
+                  {stripGenerationYears(car.title)}
                 </h1>
                 <p className="mt-1 text-[14px] text-muted-foreground">
                   {[car.grade, car.badge_detail].filter(Boolean).join(" \u00b7 ")}
@@ -374,11 +377,14 @@ export default function CarDetailPage() {
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 <div className="text-right">
-                  <div
-                    data-testid="detail-price"
-                    className="tnum text-3xl font-semibold tracking-tight text-foreground"
-                  >
-                    {money(q?.suggested_sale ?? 0)}
+                  <div className="flex items-center justify-end gap-1.5">
+                    <div
+                      data-testid="detail-price"
+                      className="tnum text-3xl font-semibold tracking-tight text-foreground"
+                    >
+                      {money(q?.suggested_sale ?? 0)}
+                    </div>
+                    <PriceNote testId="detail-price-note" />
                   </div>
                   <div className="text-[12px] text-muted-foreground">{t("finalPrice")}</div>
                 </div>
@@ -811,6 +817,13 @@ export default function CarDetailPage() {
                 </Panel>
               </div>
             )}
+
+            {/* Read the description, liked the car — the next question is "what else?" */}
+            <YouMightLike
+              car={car}
+              excludeId={id}
+              onOpen={(c) => navigate(path(`/car/${c.id}`))}
+            />
 
           </>
         )}

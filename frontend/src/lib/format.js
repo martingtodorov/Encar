@@ -46,6 +46,18 @@ export function formatYearMonth(ym, formYear) {
   return m >= 1 && m <= 12 ? `${String(m).padStart(2, "0")}/${y}` : String(y);
 }
 
+/**
+ * Encar spells a generation into the model name — "Santa Fe DM (2013-2016)". That range is
+ * the model's identity upstream, so it stays in filters, slugs and the taxonomy; it is only
+ * dropped where the car itself is being named, because the car has one year, not a range.
+ */
+export function stripGenerationYears(text) {
+  return String(text || "")
+    .replace(/[(（]\s*\d{4}\s*[-–~]\s*\d{0,4}\s*[)）]/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 export function carTitle(car) {
   const parts = [
     car.manufacturer_t || car.manufacturer,

@@ -47,6 +47,14 @@ export const SiteFooter = () => {
           <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
             {t("footerNote")}
           </p>
+          {/* Every price is a won amount converted at the day's rate, so it really does move
+              overnight. Saying so here stops it reading as a mistake. */}
+          <p
+            data-testid="footer-fx-note"
+            className="mt-2 text-[12px] leading-relaxed text-muted-foreground"
+          >
+            {t("fxNote")}
+          </p>
         </div>
 
         {FOOTER_COLUMNS.map((column) => (

@@ -858,6 +858,32 @@ over). The play then proves egress: `curl https://ifconfig.me` (must print front
 address) plus HEAD requests to Stripe, Anthropic, Resend and Encar. Must run BEFORE
 `deploy_backend.yml` on a fresh box or apt and pip have no way out.
 
+## Price note, recommendation shelf, clean title (2026-06)
+Prices are won amounts converted at the day's rate, so they really do move overnight and the
+owner wanted that said out loud.
+- `components/PriceNote.js` — an ⓘ beside the price (detail header `detail-price-note` and the
+  sticky bar `sticky-price-note`), plus the same sentence in the footer (`footer-fx-note`).
+  i18n: `fxNote`, `fxNoteLabel` in bg/ro/en.
+  DO NOT rebuild this on Radix. The tooltip never opens on touch, and the popover hands focus
+  to its panel and hands it BACK on close, which re-fired the trigger's focus handler and
+  reopened the note the moment the mouse left — it looked stuck open permanently (the owner
+  reported exactly that). It is now a plain absolutely-positioned panel closed by mouseleave,
+  Escape and outside `pointerdown`.
+  Hover handlers are bound ONLY when `matchMedia("(hover: hover) and (pointer: fine)")` says the
+  device hovers. Without that guard iOS fires mouseenter on the first tap and then click, so the
+  note opened and shut in one gesture and needed a SECOND tap — the owner's second report.
+  Verified: desktop hover opens and closes; with CDP `Emulation.setEmulatedMedia`
+  (hover:none/pointer:coarse) + touch emulation ONE tap opens, a second closes, outside closes.
+- `components/YouMightLike.js` — "You might also like" carousel under the dealer description
+  (`you-might-like`, arrows on desktop, free-scrolling strip on mobile, 12 cards verified). It
+  POSTs `/api/recommendations` with the DEVICE taste profile plus the car in front of the buyer
+  weighted at 4 (heavier than a favourite), excluding the current id. Raw upstream values
+  (`manufacturer`/`model`/`fuel_type`) because that is what the recommender matches; it hides
+  itself below 2 results and the backend still falls back to the fortnight's most-opened ads.
+- `format.stripGenerationYears()` drops "(2013-2016)" from the DISPLAYED car name on the detail
+  page and the sticky bar only. Encar spells the generation into the model name, and that range
+  is the model's identity upstream, so filters, slugs and the taxonomy keep it.
+
 ## Reference
 - Test credentials: `/app/memory/test_credentials.md`
 - Implementation log: `/app/memory/CHANGELOG.md`
