@@ -5,7 +5,7 @@ usd_eur    = EUR per 1 USD (multiplies the USD fees)
 eur_bgn    = fixed by the Bulgarian currency board peg
 eur_ron    = live
 
-A 0.4681% haircut is held back on EUR/KRW as an exchange buffer (see HAIRCUT).
+A 1% haircut is held back on EUR/KRW as an exchange buffer (see HAIRCUT).
 
 On the source: Google Finance was tried and rejected. It has no API, and its quote page
 carries no stable hook for the rate - no data-last-price, no data-source/data-target, no
@@ -32,7 +32,7 @@ EUR_BGN_PEG = 1.95583  # Bulgarian lev is pegged to the euro
 # We buy KRW at a worse rate than the mid-market quote, so part of the rate is held back
 # as a buffer. A LOWER KRW-per-EUR means each car costs slightly more euros, which is
 # what protects the margin when the rate moves between quoting and paying.
-HAIRCUT = 0.995319
+HAIRCUT = 0.99
 
 # Listings carry a precomputed sale price, so when the rate moves the whole catalogue has
 # to be repriced or search rows drift away from detail pages. Anything larger than this

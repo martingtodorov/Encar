@@ -1,5 +1,7 @@
 """FX haircut buffer + price consistency tests (iteration 12)."""
 import os
+import sys
+
 import httpx
 import pytest
 from pathlib import Path
@@ -12,8 +14,12 @@ def _read_backend_url():
     raise RuntimeError("REACT_APP_BACKEND_URL not found")
 
 BASE = _read_backend_url().rstrip("/")
-ADMIN_HDR = {"x-admin-token": "encar-admin"}
-HAIRCUT = 0.995319
+# The token is enforced from .env now; a hardcoded one 401s.
+ADMIN_HDR = {"x-admin-token": (os.environ.get("ADMIN_TOKEN") or "").strip().strip('"')}
+# Read from the module, never copied: the owner changes the buffer from time to time and a
+# hardcoded number here would fail the next time they do.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from fx import HAIRCUT  # noqa: E402
 
 
 # ---------- /api/fx ----------
