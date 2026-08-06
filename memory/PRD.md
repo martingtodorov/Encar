@@ -913,6 +913,25 @@ in code does NOT reach an install that has already seeded — delete the doc or 
 - Two bugs found and fixed during the browser check: `key.replace("_","-")` only replaced the
   FIRST underscore so half the test ids were wrong, and the contract number was unreadable.
 
+## Deploy blocker: requirements.txt was not installable off-platform (2026-06, FIXED)
+The owner's first Hetzner run died on `No matching distribution found for
+emergentintegrations==0.2.0`. Cause: `pip freeze` inside the Emergent pod captures
+`emergentintegrations` (private index only) and a `litellm` wheel pinned to an
+emergentagent.com URL. Neither is imported by the app — `translate._emergent_call` is a
+last-resort fallback that is only selected when there is NO `ANTHROPIC_API_KEY`, its import is
+function-local and the caller already catches every exception. Both lines removed.
+Also removed `ansible-core` + `resolvelib`, which my own `pip freeze` leaked in after I
+installed Ansible here to syntax-check the playbooks (confirmed by diffing the two commits).
+The same freeze legitimately ADDED PyOTP, qrcode, pywebpush, py-vapid, http_ece, lxml and
+python-docx, which were installed in the pod but missing from the file — a fresh server would
+have installed cleanly and then crashed at import. Keep them.
+Verified: `pip install --dry-run --ignore-installed -r requirements.txt` resolves all 143 lines
+from PyPI, every runtime import still loads, backend healthy.
+GUARD: `backend/tests/test_requirements_portable.py` (5 tests) fails on any URL/file pin,
+unpinned line, platform-only package or agent tooling, and checks the packages the app imports
+are actually listed. NEVER run a bare `pip freeze > requirements.txt` in this pod again without
+running that test.
+
 ## Reference
 - Test credentials: `/app/memory/test_credentials.md`
 - Implementation log: `/app/memory/CHANGELOG.md`

@@ -95,6 +95,13 @@ journalctl -fu nginx      # or /var/log/nginx/error.log
   origin", so one build answers on every brand domain through nginx's `/api`.
 - **`/var/lib/encar/media` must survive a deploy.** Photos of cars people have paid a deposit
   on live there and are served from `/api/media`.
+- **`requirements.txt` must stay installable off this platform.** The first deploy died on
+  `No matching distribution found for emergentintegrations==0.2.0` — `pip freeze` in the
+  Emergent pod captures that private wrapper and a `litellm` wheel pinned to an
+  emergentagent.com URL. Neither is imported by the app (the universal-key fallback only fires
+  when there is no Anthropic key), so both were removed.
+  `backend/tests/test_requirements_portable.py` now fails if a URL pin, a platform-only package
+  or agent tooling ever creeps back in — run it before a deploy.
 - **A fresh Mongo is empty.** Either restore a dump or run the catalogue sync from
   Admin → Catalogue sync (a full crawl takes hours). Worth carrying over from the old box:
   `translations` (already paid for), `taxonomy_overrides` (your merges), `users`, `purchases`,
