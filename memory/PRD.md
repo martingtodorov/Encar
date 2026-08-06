@@ -802,6 +802,38 @@ listing view counter were firing without consent.
   an explicit gesture.
 
 
+## Permanent per-set label cache for the taxonomy dropdowns (2026-06, self-verified)
+Owner: "Wait on model and submodel translation from the llm. Cache all models of a brand
+permanently once translated once to English. Permanently cache all brand translations. And the
+trim models too."
+Before: `_labels()` looked labels up value by value, gave the provider a 2.5s budget and then
+served the raw Korean while a background job filled in — so a cold set showed Hangul to everyone
+until the job landed, and every request re-checked.
+* `translate.cached_label_set(db, set_id, values, lang, wait=90)` — the whole dropdown is ONE
+  document in the new `label_sets` collection (`{labels, complete, n, lang, at}`), read back in a
+  single indexed lookup. A brand's model list is a closed set, so once complete there is no
+  provider call and no per-value query, ever. Only a genuinely new value (Encar added a model)
+  costs anything, and only that value.
+* It WAITS for the provider instead of serving Korean: the wait is paid once per set for the life
+  of the site, whereas the Hangul would be seen by everyone until the background fill landed.
+* All FOUR levels go through it — makes (1), models (2), trims (3), sub-trims (4) — keyed
+  `tax:en:{level}:{make}|{model}|{badge}`, plus `tax:en:1:|||filters` for the make list in
+  `/api/meta/filters`.
+* `_looks_translated()` guards the permanent write: `translate_many` falls back to the SOURCE
+  string when a provider fails, and freezing that into a permanent cache would nail Korean into
+  the site forever. Anything containing Hangul is rejected as an answer.
+  IMPORTANT SUBTLETY (cost a bug): a value already in Latin script ("BMW", "GMC") IS its own
+  label, so identity is correct there. Rejecting it left every set containing a western marque
+  permanently `complete: false` and re-asked the provider on every single request. Those values
+  are now filled from the shared cache first (so curation overrides still win), then identity.
+* `db.translations` has no TTL and never did — it was already permanent; the missing piece was
+  the per-set completeness marker.
+Verified by curl and in the browser: all 4 levels return 0 Hangul; a deliberately wiped cold set
+(Lotus models) waited 2.39s, came back fully in English and was stored `complete: true`; the same
+call then took 0.25s; all 5 sets read `complete: true`; the UI cascade Make -> Model -> Trim shows
+Latin labels only.
+
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **A real Maersk reference** to finish validating the public reader against live data, and

@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import time
+from datetime import datetime, timezone
 
 log = logging.getLogger("translate")
 
@@ -432,6 +433,84 @@ async def stream_description(db, text, lang):
             {"$set": {"_id": cache_key(text, lang), "source": text,
                       "lang": lang, "target": full}},
             upsert=True)
+
+
+def _has_hangul(s):
+    return any("\uac00" <= ch <= "\ud7a3" for ch in s or "")
+
+
+def _looks_translated(src, tr):
+    """Is this a real answer, or the Korean handed back unchanged?
+
+    `translate_many` deliberately falls back to the source string when a provider fails, so
+    that a dropdown shows Hangul rather than a blank. That fallback must never be written into
+    a permanent cache, or a single bad minute freezes Korean into the site forever.
+
+    "BMW" and "GMC" are the exception that matters: a value already in Latin script IS its own
+    label, so identity is the correct answer there. Rejecting it left every set that contains a
+    western marque permanently incomplete and re-asking the provider for it on every request.
+    """
+    if not tr:
+        return False
+    if _has_hangul(tr):
+        return False
+    return tr != src or not _has_hangul(src)
+
+
+async def cached_label_set(db, set_id, values, lang, wait=90):
+    """The whole label set for one dropdown, cached permanently once it is complete.
+
+    A make's model list is a closed set: once every model of Hyundai has been translated once,
+    the answer can never change, so it is stored as ONE document and read back in one indexed
+    lookup - no per-value queries, no provider call, no timeout to lose. Only a genuinely new
+    value (Encar added a model) costs anything, and only that value.
+
+    We WAIT for the provider here rather than serving Korean and filling in behind the visitor:
+    a make/model/sub-model dropdown showing Hangul is worse than a slow one, and it is paid for
+    exactly once per set for the lifetime of the site.
+    """
+    if lang not in LANGS:
+        return {v: v for v in values}
+    values = [v for v in dict.fromkeys(v for v in values if v)]
+    if not values:
+        return {}
+
+    doc = await db.label_sets.find_one({"_id": set_id}) or {}
+    labels = {k: v for k, v in (doc.get("labels") or {}).items() if _looks_translated(k, v)}
+    missing = [v for v in values if v not in labels]
+
+    if missing:
+        # The shared translation cache first: another set, or the owner's curation overrides,
+        # may already hold the answer - including for a value that needs a renaming rather
+        # than a translation.
+        labels.update({k: v for k, v in (await translate_cached_only(db, missing, lang)).items()
+                       if _looks_translated(k, v)})
+        missing = [v for v in values if v not in labels]
+
+    # Whatever is left and is already in Latin script IS its own label: asking a provider about
+    # "BMW" only spends money to be told "BMW", and refusing to accept that answer left every
+    # set containing a western marque permanently incomplete.
+    for v in missing:
+        if not _has_hangul(v):
+            labels[v] = v
+    missing = [v for v in values if v not in labels]
+
+    if missing:
+        try:
+            got = await asyncio.wait_for(translate_many(db, missing, lang), timeout=wait)
+            labels.update({k: v for k, v in (got or {}).items() if _looks_translated(k, v)})
+        except Exception as e:
+            log.warning("label set %s: %s values unresolved: %s",
+                        set_id, len(missing), str(e)[:120])
+
+    complete = all(v in labels for v in values)
+    if labels != (doc.get("labels") or {}) or doc.get("complete") != complete:
+        await db.label_sets.update_one(
+            {"_id": set_id},
+            {"$set": {"labels": labels, "complete": complete, "n": len(values),
+                      "lang": lang, "at": datetime.now(timezone.utc)}},
+            upsert=True)
+    return labels
 
 
 async def translate_cached_only(db, texts, lang):

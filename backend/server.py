@@ -68,7 +68,8 @@ import tracking             # noqa: E402
 import curate               # noqa: E402
 import sync as sync_mod      # noqa: E402
 from encar import encar, image_url, detail_photo_paths  # noqa: E402
-from translate import (LANGS, breaker_status, schedule_translation,  # noqa: E402
+from translate import (LANGS, breaker_status, cached_label_set,  # noqa: E402
+                       schedule_translation,
                        stream_description, translate_cached_only,
                        translate_listings, translate_many, translate_one)
 
@@ -992,8 +993,9 @@ async def meta_filters(lang: str = "bg", refresh: bool = False):
     make_values = [x["value"] for x in cached.get("makes", [])]
     # Cache first, one short attempt for anything cold, background fill for the rest.
     tmap = await _labels(labels, lang)
-    # Marque names are proper nouns: English in every language.
-    make_labels = await _labels(make_values, "en")
+    # Marque names are proper nouns: English in every language. The full make list is a closed
+    # set, so it is cached permanently as one document rather than looked up value by value.
+    make_labels = await cached_label_set(db, "tax:en:1:|||filters", make_values, "en")
     tmap = {**tmap, **make_labels}
 
     # Slugs let the query string read `?fuels=petrol` instead of percent-encoded Hangul.
@@ -1109,10 +1111,13 @@ async def meta_taxonomy(
     # Levels 1 and 2 are marques and model names: proper nouns, always English.
     # Marques, models AND trims are proper nouns — always Latin, never transliterated.
     label_lang = "en"
-    # Cache first (instant when warm), then ONE short attempt for anything still cold, then
-    # the background fill. A freshly deployed server has an empty translations cache, and
-    # cache-only alone left it showing Korean model names.
-    tmap = await _labels(values, label_lang)
+    # One permanently cached set per dropdown: "every model of Hyundai" is a closed list, so
+    # once it has been translated it is one document read forever after. We WAIT for the
+    # provider on a genuinely new value instead of serving Hangul and fixing it behind the
+    # visitor - the wait happens once in the life of the site, the Korean would be seen by
+    # everyone until the background job landed.
+    set_id = f"tax:{label_lang}:{level}:{make}|{model}|{badge}"
+    tmap = await cached_label_set(db, set_id, values, label_lang)
 
     built = await db.sync_state.find_one({"_id": "taxonomy"})
     return {
