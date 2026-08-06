@@ -22,9 +22,14 @@ from bson import json_util
 from pymongo import MongoClient
 
 SETTINGS = ["translations", "taxonomy", "taxonomy_overrides", "model_years",
-            "settings", "sync_state", "facets", "option_dicts"]
-ACCOUNTS = ["users", "purchases", "shipments", "enquiries", "webauthn_credentials",
-            "totp_setup"]
+            "settings", "sync_state", "facets", "option_dicts",
+            # The pages, SEO titles and company details written in Admin -> Pages & SEO.
+            "site_pages", "site_settings"]
+# NOTE: these are the REAL collection names. An earlier version of this list asked for
+# "purchases", which does not exist, so every paid deposit was silently left behind.
+ACCOUNTS = ["users", "deposits", "purchased_listings", "shipments", "shipment_events",
+            "enquiries", "price_watch", "search_watch", "push_subscriptions",
+            "webauthn_credentials", "totp_setup", "audit_log"]
 CATALOGUE = ["listings", "car_details"]
 
 
