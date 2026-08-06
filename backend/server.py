@@ -23,7 +23,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import (APIRouter, Depends, FastAPI, Header, HTTPException, Query,
-                     Request)
+                     Request, Response)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -62,6 +62,7 @@ import contracts as contracts_mod  # noqa: E402
 import pricewatch as pricewatch_mod  # noqa: E402
 import searchwatch as searchwatch_mod  # noqa: E402
 import digest as digest_mod  # noqa: E402
+import csrf as csrf_mod  # noqa: E402
 import edi                  # noqa: E402
 import jsoncargo            # noqa: E402
 import maersk_public        # noqa: E402
@@ -2122,6 +2123,7 @@ async def create_enquiry(body: EnquiryBody, request: Request):
 auth.set_db(db)
 deposits.set_db(db)
 notify.set_db(db)
+csrf_mod.set_db(db)
 # ── shipment tracking ---------------------------------------------------------
 class TrackBody(BaseModel):
     ref: str
@@ -2686,6 +2688,18 @@ async def admin_shipment_remove(ref: str, request: Request,
     return {"removed": bool(doc)}
 
 
+@api.get("/csrf")
+async def csrf_token(request: Request, response: Response):
+    """Hand the caller the token their next unsafe request has to carry.
+
+    Safe by definition (it changes nothing but the secret we will accept next), and never
+    cached: a shared cache serving one visitor's token to another would defeat the point.
+    """
+    token, kind = await csrf_mod.issue(request, response)
+    response.headers["Cache-Control"] = "no-store"
+    return {"token": token, "scope": kind}
+
+
 api.include_router(auth.router)
 api.include_router(deposits.router)
 contracts_mod.set_db(db)
@@ -2711,10 +2725,26 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def csrf_middleware(request: Request, call_next):
+    """One gate for every unsafe request, rather than a dependency on ~150 routes.
+
+    A route added tomorrow is protected without anybody remembering to protect it, which is
+    the only version of this that stays true. Exemptions live in csrf.exempt.
+    """
+    try:
+        await csrf_mod.guard(request)
+    except HTTPException as e:
+        return JSONResponse({"detail": e.detail}, status_code=e.status_code)
+    return await call_next(request)
+
+
+
 @app.on_event("startup")
 async def on_startup():
     await sync_mod.ensure_indexes(db)
     await auth.ensure_indexes(db)
+    await csrf_mod.ensure_indexes(db)
     await auth.ensure_owner(db)
     # The owner's merges, renames and year spans travel in the repo, so a fresh server has
     # the same dropdowns without anybody copying a database.

@@ -6,6 +6,71 @@ export const API = `${BACKEND_URL}/api`;
 // withCredentials so the HttpOnly session cookie travels with every call.
 const http = axios.create({ baseURL: API, timeout: 60000, withCredentials: true });
 
+/**
+ * CSRF: every unsafe call carries a token another site cannot learn.
+ *
+ * A cross-origin page can make your browser POST to us with your session cookie attached, but
+ * it can neither read our JSON nor set a custom header - so the token in `X-CSRF-Token` is the
+ * thing it cannot produce. Held in memory only, per tab: localStorage would hand it to any
+ * script that manages to run on the page.
+ */
+const CSRF_HEADER = "X-CSRF-Token";
+const UNSAFE = new Set(["post", "put", "patch", "delete"]);
+let csrfToken = null;
+let csrfInFlight = null;
+
+async function freshToken() {
+  // One request even if ten calls discover the missing token at the same moment.
+  if (!csrfInFlight) {
+    csrfInFlight = http
+      .get("/csrf", { headers: { "Cache-Control": "no-store" } })
+      .then(({ data }) => {
+        csrfToken = data.token;
+        return csrfToken;
+      })
+      .finally(() => {
+        csrfInFlight = null;
+      });
+  }
+  return csrfInFlight;
+}
+
+/** Signing in or out replaces the session, so the token bound to the old one is worthless. */
+export function forgetCsrf() {
+  csrfToken = null;
+}
+
+http.interceptors.request.use(async (config) => {
+  const method = (config.method || "get").toLowerCase();
+  if (!UNSAFE.has(method)) return config;
+  if (!csrfToken) await freshToken();
+  config.headers[CSRF_HEADER] = csrfToken;
+  return config;
+});
+
+http.interceptors.response.use(
+  (res) => {
+    // A new session means a new token; drop ours rather than waiting to be refused.
+    if (/\/auth\/(login|register|logout|google\/session)/.test(res.config?.url || "")) {
+      forgetCsrf();
+    }
+    return res;
+  },
+  async (error) => {
+    const { response, config } = error;
+    const stale = response?.status === 403 &&
+      /csrf/i.test(response?.data?.detail || "") && config && !config._csrfRetried;
+    if (!stale) return Promise.reject(error);
+    // Exactly one retry: the token rotated under us (another tab signed in, or the session
+    // was replaced). Looping here would turn a real 403 into a storm.
+    config._csrfRetried = true;
+    csrfToken = null;
+    await freshToken();
+    config.headers[CSRF_HEADER] = csrfToken;
+    return http(config);
+  }
+);
+
 // Pages the visitor is ABOUT to ask for: they hovered a page button, or the pagination row
 // scrolled into view on a phone. A head start, not a cache layer — a handful of entries,
 // handed over to the first real request that matches and then forgotten.

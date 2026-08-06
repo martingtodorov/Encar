@@ -17,6 +17,14 @@ const doc = (title, intro, sections, updated = UPDATED) => ({
 
 // The owner's own privacy policy, as their lawyer settled it. Version and date come from that
 // document rather than from UPDATED, so a change to another page cannot silently restamp it.
+// The cookie policy moves on its own: adding the CSRF cookie changed that document only, and
+// it is strictly necessary, so no consent has to be asked again (consent.POLICY_VERSION stays).
+const COOKIE_STAMP = {
+  bg: "Версия 1.2 · Актуализирана на 6 август 2026 г.",
+  ro: "Versiunea 1.2 · Actualizată la 6 august 2026",
+  en: "Version 1.2 · Updated 6 August 2026",
+};
+
 const PRIVACY_STAMP = {
   bg: "Версия 1.1 · Актуализирана на 6 август 2026 г.",
   ro: "Versiunea 1.1 · Actualizată la 6 august 2026",
@@ -157,7 +165,9 @@ const BG = {
          `Изборът се записва — категории, дата и версия на политиката — и се пази 12 месеца, след което питаме отново, както и при съществена промяна на тази политика. Записът, който доказва даването или отказа на съгласие, се съхранява до 3 години като доказателство по чл. 7, § 1 GDPR.`,
          `Можеш да промениш или оттеглиш избора си по всяко време от „Настройки за бисквитки“ във футъра на всяка страница. При отказ или оттегляне съответните средства се изтриват веднага; оттеглянето не засяга законосъобразността на обработването преди него.`]],
       ["3. Строго необходими (без съгласие)",
-        [`encar_session — държи те влязъл в профила. HttpOnly и недостъпна за скриптове, Secure (само по HTTPS) и SameSite=Lax, което пази заявките ти от подправяне от друг сайт (CSRF) — отделен маркер за това не използваме. Изтрива се при изход от профила. Бисквитка, наша · до 30 дни от последната активност.`,
+        [`encar_session — държи те влязъл в профила. HttpOnly и недостъпна за скриптове, Secure (само по HTTPS) и SameSite=Lax. Изтрива се при изход от профила. Бисквитка, наша · до 30 дни от последната активност.`,
+         `Маркер срещу подправяне на заявки (CSRF) — еднократен таен маркер, свързан с твоята сесия. Всяко действие, което променя данни (вход, регистрация, смяна на парола, депозит, изтриване на профил), трябва да го носи, а чужд сайт не може да го прочете и не може да го изпрати. Не се съхранява на устройството ти: държи се само в паметта на отворената страница, а при нас пазим единствено необратим отпечатък от него. Маркер, наш · за сесията.`,
+         `encar_pre — техническа бисквитка само за посетители без профил, за да можем да свържем маркера срещу CSRF с браузъра ти, преди да имаш сесия (така са защитени и входът, и регистрацията). HttpOnly, не съдържа лични данни. Бисквитка, наша · 60 минути.`,
          `ab_consent — записва самия ти избор за бисквитките. Необходима е, защото пази и отказа ти — без нея банерът би те питал отново при всяко зареждане. Бисквитка, наша · 12 месеца.`,
          `encar.lang / encar.currency / encar.theme — избраният от теб език, валута и тема (светла/тъмна). localStorage, наш · до изтриване от теб.`,
          `encar.favourites / encar.searches — за посетители без профил: колите и търсенията, които сам си запазил на устройството си. localStorage, наш · до изтриване от теб.`,
@@ -203,7 +213,7 @@ const BG = {
       ["Бележка",
         [`Този текст е изготвен добросъвестно и подробно, но не замества юридическа консултация. Преди да разчиташ на него търговски, дай го за преглед на адвокат.`]],
     ],
-    PRIVACY_STAMP.bg
+    COOKIE_STAMP.bg
   ),
 };
 
@@ -338,7 +348,9 @@ const RO = {
          `Alegerea se salvează — categorii, dată și versiunea politicii — și se păstrează 12 luni, după care întrebăm din nou, la fel ca la o modificare importantă a acestei politici. Înregistrarea care dovedește acordarea sau refuzul consimțământului se păstrează până la 3 ani, ca dovadă conform art. 7 alin. 1 GDPR.`,
          `Poți schimba sau retrage alegerea oricând din „Setări cookie-uri”, în footerul fiecărei pagini. La refuz sau retragere, mijloacele respective se șterg imediat; retragerea nu afectează legalitatea prelucrării anterioare.`]],
       ["3. Strict necesare (fără consimțământ)",
-        [`encar_session — te menține autentificat. HttpOnly și inaccesibil scripturilor, Secure (numai prin HTTPS) și SameSite=Lax, ceea ce îți protejează cererile de falsificare de pe alt site (CSRF) — nu folosim un token separat pentru asta. Se șterge la deconectare. Cookie, al nostru · până la 30 de zile de la ultima activitate.`,
+        [`encar_session — te menține autentificat. HttpOnly și inaccesibil scripturilor, Secure (numai prin HTTPS) și SameSite=Lax. Se șterge la deconectare. Cookie, al nostru · până la 30 de zile de la ultima activitate.`,
+         `Token împotriva falsificării cererilor (CSRF) — un token secret, unic, legat de sesiunea ta. Orice acțiune care modifică date (autentificare, înregistrare, schimbarea parolei, depozit, ștergerea contului) trebuie să îl transmită, iar un site străin nu îl poate citi și nu îl poate trimite. Nu se stochează pe dispozitivul tău: este ținut doar în memoria paginii deschise, iar la noi păstrăm exclusiv o amprentă ireversibilă a lui. Token, al nostru · pe durata sesiunii.`,
+         `encar_pre — cookie tehnic doar pentru vizitatorii fără cont, ca să putem lega tokenul CSRF de browserul tău înainte să ai o sesiune (astfel sunt protejate și autentificarea și înregistrarea). HttpOnly, nu conține date personale. Cookie, al nostru · 60 de minute.`,
          `ab_consent — înregistrează chiar alegerea ta privind cookie-urile. Este necesar pentru că păstrează și refuzul tău — fără el bannerul te-ar întreba la fiecare încărcare. Cookie, al nostru · 12 luni.`,
          `encar.lang / encar.currency / encar.theme — limba, moneda și tema (deschis/închis) alese de tine. localStorage, al nostru · până la ștergerea de către tine.`,
          `encar.favourites / encar.searches — pentru vizitatorii fără cont: mașinile și căutările salvate de tine pe dispozitivul tău. localStorage, al nostru · până la ștergerea de către tine.`,
@@ -384,7 +396,7 @@ const RO = {
       ["Notă",
         [`Textul este redactat cu bună-credință și în detaliu, dar nu înlocuiește consultanța juridică. Cere avizul unui avocat înainte să te bazezi comercial pe el.`]],
     ],
-    PRIVACY_STAMP.ro
+    COOKIE_STAMP.ro
   ),
 };
 
@@ -519,7 +531,9 @@ const EN = {
          `Your choice is recorded — categories, date and policy version — and kept for 12 months, after which we ask again, as we do whenever this policy changes materially. The record proving that consent was given or refused is kept for up to 3 years as evidence under Art. 7(1) GDPR.`,
          `You can change or withdraw your choice at any time from "Cookie settings" in the footer of every page. On refusal or withdrawal the relevant means are deleted immediately; withdrawal does not affect the lawfulness of processing before it.`]],
       ["3. Strictly necessary (no consent needed)",
-        [`encar_session — keeps you signed in. HttpOnly and unreachable by scripts, Secure (HTTPS only) and SameSite=Lax, which is what protects your requests from being forged by another site (CSRF) — we use no separate token for that. Deleted when you sign out. Cookie, ours · up to 30 days from the last activity.`,
+        [`encar_session — keeps you signed in. HttpOnly and unreachable by scripts, Secure (HTTPS only) and SameSite=Lax. Deleted when you sign out. Cookie, ours · up to 30 days from the last activity.`,
+         `Anti-forgery (CSRF) token — a single secret token bound to your session. Every action that changes data (signing in, registering, changing a password, a deposit, deleting an account) has to carry it, and another site can neither read it nor send it. It is not stored on your device: it lives only in the memory of the open page, and we keep nothing but an irreversible fingerprint of it. Token, ours · for the session.`,
+         `encar_pre — a technical cookie for visitors without an account only, so we can bind the CSRF token to your browser before you have a session (which is what protects signing in and registering too). HttpOnly, holds no personal data. Cookie, ours · 60 minutes.`,
          `ab_consent — records your cookie choice itself. It is necessary because it also stores a refusal — without it the banner would ask you again on every load. Cookie, ours · 12 months.`,
          `encar.lang / encar.currency / encar.theme — the language, currency and light/dark theme you chose. localStorage, ours · until you delete it.`,
          `encar.favourites / encar.searches — for visitors without an account: the cars and searches you saved yourself on your own device. localStorage, ours · until you delete them.`,
@@ -565,7 +579,7 @@ const EN = {
       ["Note",
         [`This text was drafted in good faith and in detail, but it does not replace legal advice. Have a lawyer review it before you rely on it commercially.`]],
     ],
-    PRIVACY_STAMP.en
+    COOKIE_STAMP.en
   ),
   contact: doc(
     "Contact and company details",

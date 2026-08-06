@@ -908,6 +908,49 @@ strings, no `${` or `undefined` leftovers, 14 sections in the cookie policy and 
 policy, and the consent banner still works on top of them.
 
 
+## Real CSRF protection (2026-06, self-verified) — `backend/csrf.py`
+Owner asked for a real token so the cookie policy row is true. Built per the integration
+playbook: a SYNCHRONISER token, not a double-submit cookie — only its SHA-256 is stored, so a
+database leak hands over nothing usable.
+* `GET /api/csrf` issues a token. Signed in → stored as `csrf_hash` on the session document.
+  Not signed in → a PRE-AUTH record in `csrf_pre` (TTL index, 60 min) keyed by an HttpOnly
+  `encar_pre` cookie, so **login and registration are protected too** (login CSRF is real: an
+  attacker logs you into THEIR account and watches what you do next).
+* Per SESSION, not per request: consuming a token on every call breaks two tabs, a retry and an
+  upload, which is how CSRF protection ends up switched off. An existing `encar_pre` cookie is
+  reused on re-issue so a second tab does not invalidate the first.
+* Enforced by ONE `@app.middleware("http")` in `server.py` (`csrf_middleware`), not a dependency
+  on ~150 routes — a route added tomorrow is protected without anyone remembering to.
+  `csrf.exempt()` covers: safe methods, non-/api paths, `/api/csrf`, `/api/stripe/webhook`
+  (Stripe signs the raw body) and any request carrying `X-Admin-Token` (a cross-origin page
+  cannot set custom headers, and this is how the deploy/seed scripts call us).
+  DELIBERATELY NOT exempt: a request with no cookies at all.
+* `frontend/src/lib/api.js`: request interceptor adds `X-CSRF-Token` to every POST/PUT/PATCH/
+  DELETE, fetching a token on demand with a single in-flight promise; response interceptor
+  retries ONCE on a 403 whose detail matches /csrf/ and forgets the token after
+  login/register/logout/google-session. Token lives in memory only — localStorage would hand it
+  to any script that manages to run on the page. Nothing in the frontend bypasses `http`.
+* `POLICY_VERSION` in `consent.js` was NOT bumped: the new `encar_pre` cookie is strictly
+  necessary, so nobody has to consent again. The cookie policy has its own `COOKIE_STAMP`
+  (version 1.2) and now documents the token and `encar_pre` in all three languages; the privacy
+  policy stays at 1.1.
+* `backend/tests/conftest.py` is NEW: it wraps `requests.sessions.Session.request` so every
+  unsafe test call fetches a token through the SAME session first (inheriting that test's
+  cookies). This took the suite from 79 failed/46 errors back to green WITHOUT relaxing anything
+  in the app. If a new test 403s, it is missing this fixture, not a broken app.
+* Verified by curl: POST without a token → 403; with a pre-auth token → login 200; the old
+  token on the new session → 403; refreshed → 200 (`scope: session`); `X-Admin-Token` path →
+  200; Stripe webhook → 400 invalid signature (never 403); GETs untouched.
+  Verified in the browser: consent save, login, favourite, GDPR export — 14 unsafe calls, all
+  200, zero 403s, one token fetch per page load.
+* NOT verified end to end: the Google sign-in POST (`/api/auth/google/session`) — it goes
+  through the same axios client, but there are no Google credentials in this environment.
+* PRE-EXISTING test failures, unrelated to CSRF (all on GETs or missing config): `tests/
+  test_admin_features.py` hardcodes a stale `x-admin-token: "encar-admin"`; `test_recommendations`
+  reads an unset BASE_URL; tracking tests need the JsonCargo key; CMS translate needs a valid
+  ANTHROPIC_API_KEY; `test_deposit_refund_e2e` needs Playwright fixtures.
+
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **A real Maersk reference** to finish validating the public reader against live data, and
