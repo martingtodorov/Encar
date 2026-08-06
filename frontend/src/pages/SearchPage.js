@@ -683,6 +683,7 @@ export default function SearchPage() {
               page={result.page || page}
               pages={result.pages}
               onChange={changePage}
+              onPrefetch={prefetchPage}
             />
           </section>
         </div>

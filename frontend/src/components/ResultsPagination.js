@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,11 +6,36 @@ import { useApp } from "@/context/AppContext";
 import { formatNumber } from "@/lib/format";
 
 /** Deep pagination: Encar has no offset cap, so we must handle thousands of pages. */
-export const ResultsPagination = ({ page, pages, onChange }) => {
+export const ResultsPagination = ({ page, pages, onChange, onPrefetch }) => {
   const { t, lang } = useApp();
   const [jump, setJump] = useState("");
+  const navRef = useRef(null);
+
+  // On a phone nobody hovers, so the row scrolling into view is the signal: the visitor has
+  // reached the bottom of the results and the next page is the likely next click.
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el || !onPrefetch || page >= pages) return undefined;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          onPrefetch(page + 1);
+          io.disconnect();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [onPrefetch, page, pages]);
 
   if (!pages || pages <= 1) return null;
+
+  // Hover or keyboard focus on a page button warms exactly that page.
+  const warm = (n) => ({
+    onMouseEnter: () => onPrefetch && onPrefetch(n),
+    onFocus: () => onPrefetch && onPrefetch(n),
+  });
 
   // A phone gets a sliding run of five consecutive pages (clamped at both ends); the desktop
   // row adds the first and last page around it with ellipses.
@@ -30,6 +55,7 @@ export const ResultsPagination = ({ page, pages, onChange }) => {
 
   return (
     <nav
+      ref={navRef}
       data-testid="pagination"
       className="flex flex-col items-center gap-3 py-8 sm:flex-row sm:justify-between sm:gap-4"
       aria-label={t("page")}
@@ -39,6 +65,7 @@ export const ResultsPagination = ({ page, pages, onChange }) => {
           data-testid="pagination-prev"
           variant="outline"
           disabled={page <= 1}
+          {...warm(page - 1)}
           onClick={() => onChange(page - 1)}
           className="h-9 gap-1 border-border bg-card px-2 text-sm disabled:opacity-40 sm:h-10 sm:px-3"
           aria-label={t("page")}
@@ -59,6 +86,7 @@ export const ResultsPagination = ({ page, pages, onChange }) => {
               <Button
                 data-testid={`pagination-page-${p}`}
                 variant={p === page ? "default" : "outline"}
+                {...warm(p)}
                 onClick={() => onChange(p)}
                 aria-current={p === page ? "page" : undefined}
                 className={`tnum h-9 min-w-9 px-2 text-sm sm:h-10 sm:min-w-10 sm:px-3 ${
@@ -77,6 +105,7 @@ export const ResultsPagination = ({ page, pages, onChange }) => {
           data-testid="pagination-next"
           variant="outline"
           disabled={page >= pages}
+          {...warm(page + 1)}
           onClick={() => onChange(page + 1)}
           className="h-9 gap-1 border-border bg-card px-2 text-sm disabled:opacity-40 sm:h-10 sm:px-3"
           aria-label={t("page")}
