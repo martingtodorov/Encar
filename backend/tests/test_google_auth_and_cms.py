@@ -233,6 +233,8 @@ class TestCmsTranslate:
             f"{API}/admin/cms/page/how-it-works/translate",
             params={"source": "bg"}, headers=HDR_TOKEN, timeout=120,
         )
+        if r.status_code == 503:
+            pytest.skip(f"no translation provider available: {r.text[:120]}")
         assert r.status_code == 200, f"translate failed: {r.status_code} {r.text[:300]}"
         done = r.json().get("translated") or []
         assert set(done) == {"ro", "en"}

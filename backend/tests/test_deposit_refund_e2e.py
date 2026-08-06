@@ -20,7 +20,7 @@ load_dotenv("/app/backend/.env")
 load_dotenv("/app/frontend/.env")
 
 BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
-ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "encar-admin")
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 ADMIN_EMAIL = "admin@encarskin.com"
 ADMIN_PASSWORD = "AdminTest2026!"
 BUYER_PASSWORD = "SecurityTest2026!"
@@ -29,7 +29,7 @@ stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
 # Chosen at test-collection time; kept small so the deposit is < ~EUR 700.
 CAR_ID = os.environ.get("TEST_CAR_ID", "42317775")
 
-pytestmark = pytest.mark.order(1)
+pytestmark = [pytest.mark.order(1), pytest.mark.usefixtures("stripe_e2e_lock")]
 
 
 # --------------------- helpers ------------------------------------------------
@@ -70,7 +70,10 @@ def _drive_stripe_checkout(checkout_url):
         ctx = browser.new_context()
         page = ctx.new_page()
         page.goto(checkout_url, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_load_state("networkidle", timeout=60000)
+        # Wait for the field we are about to type in, not for "networkidle": Stripe's page
+        # keeps connections open, so under load (two xdist workers) idle never arrives and the
+        # whole suite failed on a timeout that had nothing to do with the payment.
+        page.locator("input#cardNumber").wait_for(state="visible", timeout=60000)
 
         # Card fields (Stripe hosted checkout)
         page.locator("input#cardNumber").fill("4242424242424242")
@@ -257,15 +260,19 @@ def test_refund_happy_path(admin, paid_deposit):
     assert "refund_id" in out
     paid_deposit["refund_id"] = out["refund_id"]
 
-    # verify Stripe REALLY did the refund
+    # verify Stripe REALLY did the refund. A deposit refund keeps the commission, so the
+    # charge is PARTIALLY refunded - `charge.refunded` is false by design and what must match
+    # is the amount our own API says it sent back.
     intent_id = None
     st = stripe.checkout.Session.retrieve(sid)
     intent_id = st.payment_intent
     pi = stripe.PaymentIntent.retrieve(intent_id, expand=["latest_charge"])
     charge = pi.latest_charge
-    assert charge.refunded is True, f"Stripe charge not refunded: {charge}"
-    assert charge.amount_refunded == int(round(paid_deposit["amount"] * 100)), \
-        f"refunded {charge.amount_refunded} vs deposit {paid_deposit['amount']*100}"
+    returned = out["returned_eur"]
+    assert charge.amount_refunded == int(round(returned * 100)), \
+        f"refunded {charge.amount_refunded} vs returned {returned * 100}"
+    assert returned + out["commission_eur"] == pytest.approx(paid_deposit["amount"]), out
+    assert charge.refunded is (charge.amount_refunded == charge.amount_captured)
 
     # only ONE refund object
     refunds = stripe.Refund.list(payment_intent=intent_id, limit=10)

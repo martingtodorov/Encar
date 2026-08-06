@@ -1,30 +1,46 @@
-"""FX haircut buffer + price consistency tests (iteration 12)."""
+"""FX haircut buffer + price consistency.
+
+Two rules kept this file honest after it went stale twice:
+  * never copy a number the owner can change (the haircut, the margin, the lead times) -
+    read it from the module the app itself reads;
+  * use `requests`, not httpx, for anything unsafe - the CSRF token is added by conftest for
+    `requests` only, and an httpx POST gets a truthful 403.
+"""
+import asyncio
 import os
 import sys
 
-import httpx
 import pytest
-from pathlib import Path
+import requests
 
-def _read_backend_url():
-    env_path = Path("/app/frontend/.env")
-    for line in env_path.read_text().splitlines():
-        if line.startswith("REACT_APP_BACKEND_URL="):
-            return line.split("=", 1)[1].strip()
-    raise RuntimeError("REACT_APP_BACKEND_URL not found")
-
-BASE = _read_backend_url().rstrip("/")
-# The token is enforced from .env now; a hardcoded one 401s.
-ADMIN_HDR = {"x-admin-token": (os.environ.get("ADMIN_TOKEN") or "").strip().strip('"')}
-# Read from the module, never copied: the owner changes the buffer from time to time and a
-# hardcoded number here would fail the next time they do.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from fx import HAIRCUT  # noqa: E402
+from fx import HAIRCUT                                        # noqa: E402
+import pricing                                                # noqa: E402
+
+BASE = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
+ADMIN_HDR = {"x-admin-token": (os.environ.get("ADMIN_TOKEN") or "").strip().strip('"')}
+CAR = "41995353"
+
+
+def _listing(car_id):
+    """The row the site sells, straight from Mongo: the price the quote is built on."""
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    async def go():
+        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+        try:
+            db = client[os.environ["DB_NAME"]]
+            return await db.listings.find_one({"_id": car_id},
+                                              {"price_krw": 1, "sale_eur": 1})
+        finally:
+            client.close()
+
+    return asyncio.run(go())
 
 
 # ---------- /api/fx ----------
 def test_fx_haircut_arithmetic():
-    r = httpx.get(f"{BASE}/api/fx", timeout=30)
+    r = requests.get(f"{BASE}/api/fx", timeout=30)
     assert r.status_code == 200
     d = r.json()
     assert "fx_krw_eur_market" in d and "fx_krw_eur" in d and "fx_haircut" in d
@@ -39,61 +55,66 @@ def test_fx_haircut_arithmetic():
 
 # ---------- /api/settings ----------
 def test_settings_constants():
-    r = httpx.get(f"{BASE}/api/settings", timeout=30)
+    """What the API publishes must be what the pricing module actually charges."""
+    r = requests.get(f"{BASE}/api/settings", timeout=30)
     assert r.status_code == 200
-    s = r.json()
-    consts = s.get("constants") or s
-    # Some backends return dict-in-dict; flatten
-    for k, v in [
-        ("IMPORT_DUTY_RATE", 0.10),
-        ("VAT_RATE", 0.20),
-        ("CUSTOMS_BASE_FRACTION", 0.18),
-        ("AUTOWINI_FEE_USD", 2900.0),
-        ("DOMESTIC_TOTAL", 1600.0),
-        ("MARGIN_PCT", 0.014),
-        ("MARGIN_MIN_EUR", 500.0),
-    ]:
-        assert float(consts.get(k)) == v, (k, consts.get(k))
+    body = r.json()
+    consts, defaults = body.get("constants") or {}, body.get("defaults") or {}
+    assert consts, "no constants published"
+    # The published defaults ARE the module's defaults - no second copy of the spec.
+    for key, value in pricing.DEFAULT_SETTINGS.items():
+        assert key in defaults, f"{key} missing from the published defaults"
+        if isinstance(value, bool):
+            assert defaults[key] == value, (key, defaults[key])
+        else:
+            assert float(defaults[key]) == float(value), (key, defaults[key], value)
+    # Every knob the pricing module needs must be live, and the effective value is whatever
+    # the owner set - the point is that nothing is missing or a string.
+    for key, value in pricing.DEFAULT_SETTINGS.items():
+        assert key in consts, f"{key} missing from /api/settings"
+        assert isinstance(consts[key], bool if isinstance(value, bool) else (int, float)), \
+            (key, consts[key])
 
 
-# ---------- /api/car/{id} quote uses buffered rate ----------
+# ---------- /api/car/{id} quote uses the buffered rate ----------
 def test_car_quote_uses_buffered_rate():
-    fx = httpx.get(f"{BASE}/api/fx", timeout=30).json()
-    published = fx["fx_krw_eur"]
-    r = httpx.get(f"{BASE}/api/car/41995353?lang=en", timeout=45)
+    """The price on the car page is the pricing formula run on the BUFFERED rate.
+
+    The endpoint exposes only `suggested_sale` (the breakdown is admin-only), so the check is
+    end to end: recompute the quote here from the listing's own KRW price and the published
+    rate, and the two must agree to the euro.
+    """
+    fx = requests.get(f"{BASE}/api/fx", timeout=30).json()
+    listing = _listing(CAR)
+    if not listing or not listing.get("price_krw"):
+        pytest.skip(f"{CAR} is not in the catalogue right now")
+    r = requests.get(f"{BASE}/api/car/{CAR}?lang=en", timeout=45)
     assert r.status_code == 200, r.text[:300]
-    j = r.json()
-    q = j.get("quote") or {}
-    assert q, "quote missing"
-    assert abs(q["fx_krw_eur"] - published) < 0.5, (q["fx_krw_eur"], published)
-    # encar_eur is price_krw / fx_krw_eur
-    expected_encar = round(q["price_krw"] / q["fx_krw_eur"], 2)
-    assert abs(q["encar_eur"] - expected_encar) < 0.02
-    # internal consistency: customs_base = car_eur * 0.18
-    assert abs(q["customs_base"] - q["car_eur"] * 0.18) < 0.5
-    # duty = base * 0.10
-    assert abs(q["duty"] - q["customs_base"] * 0.10) < 0.5
-    # vat = (base + duty) * 0.20
-    assert abs(q["vat"] - (q["customs_base"] + q["duty"]) * 0.20) < 0.5
-    # landed = car_eur + duty + vat + 1600
-    expected_landed = q["car_eur"] + q["duty"] + q["vat"] + q["domestic_total"]
-    assert abs(q["landed"] - expected_landed) < 1.0
-    # suggested_sale ends in 99
-    assert int(q["suggested_sale"]) % 100 == 99
-    assert q["suggested_sale"] >= q["landed"]
+    sale = ((r.json().get("quote") or {}).get("suggested_sale"))
+    assert sale, "quote missing"
+
+    expected = pricing.price_car(listing["price_krw"], fx["fx_krw_eur"], fx["usd_eur"])
+    assert abs(sale - expected["suggested_sale"]) < 1.0, (sale, expected["suggested_sale"])
+    # Charm pricing and the floor, both from the spec.
+    assert int(sale) % 100 == 99
+    assert sale >= expected["landed"]
+    # The market rate would make the car cheaper; a buffered quote is never below the market
+    # one, which is the whole point of the haircut.
+    market = pricing.price_car(listing["price_krw"], fx["fx_krw_eur_market"], fx["usd_eur"])
+    assert sale >= market["suggested_sale"]
 
 
 # ---------- price consistency: list vs detail ----------
 def test_list_vs_detail_price_match():
-    r = httpx.post(f"{BASE}/api/search", json={"page": 1}, timeout=30)
-    assert r.status_code == 200
+    r = requests.post(f"{BASE}/api/search", json={"page": 1}, timeout=30)
+    assert r.status_code == 200, r.text[:200]
     items = (r.json().get("items") or [])[:3]
     assert len(items) >= 3, "search returned <3 items"
     mismatches = []
     for row in items:
         cid = row.get("car_id") or row.get("id")
         list_sale = row.get("sale_eur")
-        dr = httpx.get(f"{BASE}/api/car/{cid}?lang=en", timeout=45)
+        dr = requests.get(f"{BASE}/api/car/{cid}?lang=en", timeout=45)
         if dr.status_code != 200:
             mismatches.append((cid, "detail http", dr.status_code))
             continue
@@ -104,32 +125,25 @@ def test_list_vs_detail_price_match():
 
 
 # ---------- manual override skips haircut ----------
-def _get_settings_doc():
-    r = httpx.get(f"{BASE}/api/admin/settings", headers=ADMIN_HDR, timeout=30)
-    return r
-
-
 def test_manual_override_skips_haircut():
-    # GET current settings
-    get_r = httpx.get(f"{BASE}/api/settings", timeout=30)
+    get_r = requests.get(f"{BASE}/api/settings", timeout=30)
     assert get_r.status_code == 200
     current = get_r.json()
     current_fxo = current.get("fx_overrides") or {}
     payload = {"constants": current.get("constants") or {},
                "fx_overrides": {**current_fxo, "fx_krw_eur": 1700},
                "reprice": False}
-    r = httpx.put(f"{BASE}/api/settings", headers=ADMIN_HDR, json=payload, timeout=60)
+    r = requests.put(f"{BASE}/api/settings", headers=ADMIN_HDR, json=payload, timeout=60)
     assert r.status_code == 200, r.text[:300]
     try:
-        fx = httpx.get(f"{BASE}/api/fx?refresh=1", timeout=30).json()
+        fx = requests.get(f"{BASE}/api/fx?refresh=1", timeout=30).json()
         assert abs(fx["fx_krw_eur"] - 1700) < 0.01, fx
         assert fx["fx_haircut"] == 1.0, fx
     finally:
-        # remove override
         clear = {"constants": current.get("constants") or {},
                  "fx_overrides": {k: v for k, v in current_fxo.items() if k != "fx_krw_eur"},
                  "reprice": False}
-        httpx.put(f"{BASE}/api/settings", headers=ADMIN_HDR, json=clear, timeout=60)
-    fx2 = httpx.get(f"{BASE}/api/fx?refresh=1", timeout=30).json()
+        requests.put(f"{BASE}/api/settings", headers=ADMIN_HDR, json=clear, timeout=60)
+    fx2 = requests.get(f"{BASE}/api/fx?refresh=1", timeout=30).json()
     assert fx2["fx_haircut"] == HAIRCUT, fx2
     assert abs(fx2["fx_krw_eur"] - fx2["fx_krw_eur_market"] * HAIRCUT) < 0.01

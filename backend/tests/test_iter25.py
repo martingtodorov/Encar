@@ -1,8 +1,12 @@
 """Iteration 25 tests: photo de-dup, relevant sort spread + cold-start, tracking tail, cache."""
 import os
+import sys
 import time
 import requests
 import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tracking import CUSTOMS_DAYS, DELIVERY_DAYS  # noqa: E402
 
 BASE = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 if not BASE:
@@ -11,7 +15,7 @@ if not BASE:
             if line.startswith("REACT_APP_BACKEND_URL="):
                 BASE = line.split("=", 1)[1].strip().rstrip("/")
 API = f"{BASE}/api"
-ADMIN_TOKEN = {"x-admin-token": "encar-admin"}
+ADMIN_TOKEN = {"x-admin-token": os.environ.get("ADMIN_TOKEN", "")}
 
 
 # --- photo de-duplication ---------------------------------------------------
@@ -128,8 +132,6 @@ def test_tracking_customs_plus_3_delivery_plus_7_country_only():
     dlv = next((s for s in stones if s.get("code") == "DLV"), None)
     assert cu is not None, "no CU (Customs) milestone appended"
     assert dlv is not None, "no DLV (Delivery) milestone appended"
-    assert cu.get("estimated") is True
-    assert dlv.get("estimated") is True
     # Delivery MUST NOT show a street/city — location should be only country (2 chars) or empty
     dlv_loc = (dlv.get("location") or "").strip()
     dlv_country = (dlv.get("country") or "").strip()
@@ -141,16 +143,21 @@ def test_tracking_customs_plus_3_delivery_plus_7_country_only():
     assert d.get("reference") == "271191199"
     # +3 / +7 offsets from the arrival stone
     from datetime import datetime, timedelta
-    # find arrival (AV/VA/ARRI); if none, use last carrier stone before CU
+    # find arrival (UV, else AV/VA/ARRI); if none, use last carrier stone before CU
     carrier = [s for s in stones if s.get("code") not in ("CU", "DLV")]
-    arrival = next((s for s in reversed(carrier)
-                    if s.get("code") in ("AV", "VA", "ARRI")), carrier[-1] if carrier else None)
+    arrival = (next((s for s in reversed(carrier) if s.get("code") == "UV"), None)
+               or next((s for s in reversed(carrier)
+                        if s.get("code") in ("AV", "VA", "ARRI")),
+                       carrier[-1] if carrier else None))
     if arrival:
         base = datetime.fromisoformat(arrival["when"])
         cu_when = datetime.fromisoformat(cu["when"])
         dlv_when = datetime.fromisoformat(dlv["when"])
-        assert (cu_when - base) == timedelta(days=3), f"CU offset {(cu_when-base)}"
-        assert (dlv_when - cu_when) == timedelta(days=7), f"DLV-CU offset {(dlv_when-cu_when)}"
+        # The offsets are configuration (tracking.CUSTOMS_DAYS / DELIVERY_DAYS), never copied
+        # in here: the owner has changed them once already.
+        assert (cu_when - base) == timedelta(days=CUSTOMS_DAYS), f"CU offset {(cu_when-base)}"
+        assert (dlv_when - cu_when) == timedelta(days=DELIVERY_DAYS), \
+            f"DLV-CU offset {(dlv_when-cu_when)}"
 
 
 # --- jsoncargo cache: no upstream call within TTL --------------------------

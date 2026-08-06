@@ -29,6 +29,10 @@ ADMIN_PASSWORD = "AdminTest2026!"
 BUYER_PASSWORD = "SecurityTest2026!"
 stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
 
+# Exclusive with the other Stripe browser suite: see `stripe_e2e_lock` in conftest.
+pytestmark = pytest.mark.usefixtures("stripe_e2e_lock")
+
+
 CAR_PARTIAL = os.environ.get("PARTIAL_CAR_ID", "42370582")   # ~619.90 EUR deposit
 CAR_EDGE = os.environ.get("EDGE_CAR_ID", "42462841")         # ~619.90 EUR deposit
 
@@ -60,7 +64,9 @@ def _drive_stripe_checkout(checkout_url):
         ctx = browser.new_context()
         page = ctx.new_page()
         page.goto(checkout_url, wait_until="domcontentloaded", timeout=60000)
-        page.wait_for_load_state("networkidle", timeout=60000)
+        # The card field, not "networkidle": Stripe holds connections open, so idle never
+        # arrives while the other xdist worker is busy.
+        page.locator("input#cardNumber").wait_for(state="visible", timeout=60000)
 
         page.locator("input#cardNumber").fill("4242424242424242")
         page.locator("input#cardExpiry").fill("12/34")

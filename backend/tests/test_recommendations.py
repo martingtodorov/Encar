@@ -51,9 +51,12 @@ def test_limit_respected():
 
 # --- empty profile ---------------------------------------------------------------------
 def test_empty_profile_returns_no_items():
+    """No taste yet is not an empty shelf: the visitor gets the popular cars instead."""
     r = _post({"makes": {}, "models": {}, "fuels": {}, "limit": 12, "lang": "bg"})
     assert r.status_code == 200
-    assert r.json()["items"] == []
+    data = r.json()
+    assert data.get("source") == "popular", data.get("source")
+    assert len(data["items"]) <= 12
 
 
 # --- price clustering ------------------------------------------------------------------

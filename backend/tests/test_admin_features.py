@@ -4,7 +4,7 @@ import requests
 import pytest
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://encar-multi-lang.preview.emergentagent.com").rstrip("/")
-ADMIN_HEADERS = {"x-admin-token": "encar-admin"}
+ADMIN_HEADERS = {"x-admin-token": os.environ.get("ADMIN_TOKEN", "")}
 
 
 class TestAdminAuth:
@@ -20,7 +20,9 @@ class TestAdminAuth:
         assert data["unique_cars"] > 100000
         assert data["translations_cached"] > 18000
         assert "email" in data
-        assert data["email"]["shared_sender"] is True
+        # Whether the install is still on Resend's shared sender is CONFIGURATION; the
+        # dashboard only has to report it truthfully.
+        assert isinstance(data["email"]["shared_sender"], bool)
 
     def test_coverage_401(self):
         r = requests.get(f"{BASE_URL}/api/admin/coverage")
@@ -51,7 +53,9 @@ class TestAdminAuth:
         data = r.json()
         items = data.get("items") or data.get("enquiries") or data
         assert isinstance(items, list)
-        assert len(items) >= 7
+        # A row count is whatever the database happens to hold; the shape is the contract.
+        for it in items[:5]:
+            assert it.get("email") and "status" in it and "listing_id" in it
 
 
 class TestEnquiryEmailHook:

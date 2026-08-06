@@ -604,3 +604,43 @@ withdraws; once the buyer wires the balance we return the deposit less a EUR 300
   constants (`MARGIN_PCT` is 0.016, the test still wants 0.014), a renamed quote field, and
   suites using `httpx` instead of `requests`, which bypasses the conftest CSRF wrapper → 403.
   None of these touch the digest.
+
+## 2026-06-06 (later) — Whole backend suite made green (183 passed, 3 honestly skipped)
+The suite had 21 failures and 17 errors, none of them a real application bug. What was wrong,
+and what it took:
+- Suites SKIPPED silently when run alone (they never loaded `.env`) and only failed in the full
+  run. `tests/conftest.py` now loads `backend/.env` AND `frontend/.env` once, so a file behaves
+  the same either way.
+- Playwright had no browser: `playwright install chromium` (now at
+  `/pw-browsers/chromium_headless_shell-1234`). That alone fixed 17 errors.
+- Admin token was hardcoded as `encar-admin` in six files — it comes from `ADMIN_TOKEN` in
+  `.env` now, with no fallback.
+- Stale expectations replaced with the live rule, never a copied number:
+  `MARGIN_PCT`/`MARGIN_MIN_EUR` now checked against `pricing.DEFAULT_SETTINGS`; the tracking
+  tail against `tracking.CUSTOMS_DAYS`/`DELIVERY_DAYS` (4 and 7, not the 3/7 asserted) and
+  relative to the port arrival instead of fixed dates; `email.shared_sender` is config so only
+  its type is asserted; the enquiry list is checked by shape, not by "at least 7 rows".
+- `/api/car/{id}` exposes only `suggested_sale` (the breakdown is admin-only), so the FX test
+  now recomputes the quote from the listing's own `price_krw` and the published buffered rate
+  and demands agreement to the euro. It also proves the buffered price is never below the
+  market-rate one.
+- A deposit refund keeps the EUR 300 commission, so the Stripe charge is PARTIALLY refunded:
+  the e2e test asserted `charge.refunded is True` and had been wrong since iteration 29.
+- An empty taste profile deliberately returns the popular shelf (`source: "popular"`); the test
+  still demanded an empty list.
+- `test_fx_haircut` used httpx, which bypasses the conftest CSRF wrapper and got a truthful
+  403 — switched to `requests`.
+- FLAKINESS UNDER LOAD, the last and least obvious part: the two Stripe browser suites landed
+  on both xdist workers at once and saturated the single preview backend, producing connection
+  timeouts and a login answered `403 csrf token missing or stale` (the token fetch itself had
+  timed out). Fixed with a `stripe_e2e_lock` file lock in conftest so those two modules are
+  mutually exclusive across workers, a one-retry CSRF fetch, and waiting for Stripe's card
+  field instead of `networkidle` (Stripe holds connections open, so idle never arrives).
+- `MSKU5285725` was asserted as "seeded" but nothing seeded it; the test now runs
+  `seed_track_test.py` itself and skips when `MAERSK_PUBLIC_TRACK=0` (it is), because with the
+  browser reader off there is no route to that cache.
+- Three skips remain, each with a truthful reason: the seeded container above, and two
+  translation tests. WORTH THE OWNER'S ATTENTION: translation is currently DOWN in the live
+  app — `ANTHROPIC_API_KEY` returns 401 (invalid) and Gemini answers 429 (quota spent), which
+  is why untranslated Korean shows up in recommendation payloads.
+- VERIFIED: two consecutive full runs, 183 passed / 3 skipped / 0 failed (~2m40s each).

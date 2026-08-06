@@ -143,7 +143,7 @@ def test_deposit_is_ten_percent_with_no_floor():
 
 
 def test_admin_customer_search():
-    token = {"x-admin-token": os.environ.get("ADMIN_TOKEN", "encar-admin")}
+    token = {"x-admin-token": os.environ.get("ADMIN_TOKEN", "")}
     rows = requests.get(f"{BASE}/admin/customers", params={"q": "admin"},
                         headers=token).json()["items"]
     assert any(r["email"] == "admin@encarskin.com" for r in rows), rows
