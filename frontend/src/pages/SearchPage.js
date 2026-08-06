@@ -51,6 +51,23 @@ let pendingRestore = null;
 // component, exactly like `pendingRestore`.
 let tasteSnapshot = { key: null, taste: null };
 
+// The state last painted for a given URL. A Back from a car remounts this page, and until the
+// English slugs in the query string have been translated back the page cannot search at all —
+// which is why Back used to paint a grid of skeletons and empty dropdowns for a few hundred
+// milliseconds. Hydrating from here means the FIRST render already carries the cars, the
+// upstream values and the labels; the quiet refresh that follows only confirms them.
+// In memory, like `pendingRestore`: a Back is a client-side navigation so the module survives
+// it, while a real reload should ask the server again.
+const VISITS_MAX = 6;
+const visits = new Map();
+
+function rememberVisit(search, snap) {
+  if (!visits.has(search) && visits.size >= VISITS_MAX) {
+    visits.delete(visits.keys().next().value);
+  }
+  visits.set(search, snap);
+}
+
 function tasteFor(key) {
   if (tasteSnapshot.key !== key) tasteSnapshot = { key, taste: getTaste() };
   return tasteSnapshot.taste;
@@ -67,12 +84,15 @@ export default function SearchPage() {
   // Read the URL ONCE on mount; after that this component owns the state and writes
   // back. Re-reading on every param change would fight the effect below.
   const initial = useMemo(() => paramsToState(searchParams), []);
+  // Everything this page painted the last time it stood on this exact URL, if it is still
+  // in memory (i.e. the visitor came back rather than reloading).
+  const restored = useMemo(() => visits.get(window.location.search) || null, []);
 
-  const [filters, setFilters] = useState(initial.filters);
-  const [tax, setTax] = useState(initial.tax);
+  const [filters, setFilters] = useState(restored?.filters || initial.filters);
+  const [tax, setTax] = useState(restored?.tax || initial.tax);
   // Translated labels for the current taxonomy selection, published by TaxonomySelects
   // so the applied-filter chips never show raw Korean values.
-  const [taxLabels, setTaxLabels] = useState(EMPTY_TAX);
+  const [taxLabels, setTaxLabels] = useState(restored?.taxLabels || EMPTY_TAX);
   const [sort, setSort] = useState(initial.sort || DEFAULT_SORT_BROWSE);
   // A non-default sort in the URL is a deliberate choice, so returning via Back or
   // sharing a link keeps it.
@@ -84,13 +104,18 @@ export default function SearchPage() {
   // value -> English slug, per dimension. Seeded from the URL on arrival and then kept
   // topped up by the facets and taxonomy responses, so the query string can always be
   // written in English even before every dropdown level has loaded.
-  const [slugs, setSlugs] = useState({});
-  // A URL carrying slugs cannot be searched until they are translated back.
-  const [resolving, setResolving] = useState(() => hasResolvableTokens(searchParams));
+  const [slugs, setSlugs] = useState(restored?.slugs || {});
+  // A URL carrying slugs cannot be searched until they are translated back — unless we
+  // already know the answer from the visit we are coming back to.
+  const [resolving, setResolving] = useState(
+    () => !restored && hasResolvableTokens(searchParams)
+  );
 
   const [facets, setFacets] = useState(null);
-  const [result, setResult] = useState({ items: [], total: 0, pages: 0 });
-  const [loading, setLoading] = useState(true);
+  const [result, setResult] = useState(
+    restored?.result || { items: [], total: 0, pages: 0 }
+  );
+  const [loading, setLoading] = useState(!restored);
   const [error, setError] = useState(null);
   const [catalogueSize, setCatalogueSize] = useState(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -325,6 +350,14 @@ export default function SearchPage() {
     if (resolving) return;
     setSearchParams(stateToParams({ filters, tax, sort, page }, slugFor), { replace: true });
   }, [filters, tax, sort, page, setSearchParams, slugFor, resolving]);
+
+  // Snapshot the painted state against the URL it belongs to, so a Back to it hydrates
+  // instantly. Declared AFTER the URL mirror above so `window.location.search` is already
+  // the URL these results answer.
+  useEffect(() => {
+    if (loading || error || !result.items?.length) return;
+    rememberVisit(window.location.search, { filters, tax, slugs, taxLabels, result });
+  }, [loading, error, result, filters, tax, slugs, taxLabels, searchParams]);
 
   const changeSort = useCallback((v) => {
     setSort(v);
