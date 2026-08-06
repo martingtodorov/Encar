@@ -1,6 +1,7 @@
 import { getConsent, markSignedIn, setConsent } from "@/lib/taste";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
+  apiGoogleSession,
   apiLogin,
   apiLogout,
   apiMe,
@@ -59,6 +60,12 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let alive = true;
+    // Coming back from the Google redirect the cookie does not exist YET: AuthCallback is
+    // about to exchange the session_id. Probing /auth/me here would only race it.
+    if (window.location.hash?.includes("session_id=")) {
+      setLoading(false);
+      return;
+    }
     (async () => {
       try {
         const { user: u } = await apiMe();
@@ -103,6 +110,19 @@ export function AuthProvider({ children }) {
       if (answer.mfa_required) return answer;
       await adopt(answer.user, local, localSearches);
       return answer.user;
+    },
+    [adopt, favourites, searches]
+  );
+
+  /** Google sign-in, second half: exchange the one-time id for a session of our own. */
+  const googleSession = useCallback(
+    async (sessionId) => {
+      const local = favourites;
+      const localSearches = searches;
+      const answer = await apiGoogleSession(sessionId);
+      if (answer.mfa_required) return answer;
+      await adopt(answer.user, local, localSearches);
+      return answer;
     },
     [adopt, favourites, searches]
   );
@@ -192,6 +212,7 @@ export function AuthProvider({ children }) {
       loading,
       login,
       loginMfa,
+      googleSession,
       refresh,
       register,
       logout,
@@ -203,7 +224,8 @@ export function AuthProvider({ children }) {
       justRegistered,
       clearJustRegistered,
     }),
-    [user, loading, login, loginMfa, refresh, register, logout, passkeyLogin, addPasskey,
+    [user, loading, login, loginMfa, googleSession, refresh, register, logout, passkeyLogin,
+     addPasskey,
      updateBilling,
      justRegistered,
      clearJustRegistered]

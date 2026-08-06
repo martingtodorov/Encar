@@ -412,13 +412,13 @@ export default function SearchPage() {
           "@graph": [
             {
               "@type": "Organization",
-              name: "Auto&Bid",
+              name: "Encar Europe",
               url: `${window.location.origin}/${lang}`,
               logo: `${window.location.origin}/icons/icon-512.png`,
             },
             {
               "@type": "WebSite",
-              name: "Auto&Bid",
+              name: "Encar Europe",
               url: `${window.location.origin}/${lang}`,
               inLanguage: lang,
               potentialAction: {

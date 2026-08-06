@@ -9,11 +9,11 @@
 export const COMPANY = {
   name: "Auto&Bid LTD",
   eik: "208833206",
-  email: "office@autoandbid.bg",
+  email: "contact@encareurope.com",
   phone: "",
   address: "",
   vat: "",
-  site: "autoandbid.bg",
+  site: "encareurope.com",
 };
 
 export const LEGAL_LINKS = [

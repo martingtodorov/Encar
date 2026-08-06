@@ -259,6 +259,13 @@ export async function apiLogin(body) {
   return data;
 }
 
+/** Hand the one-time `session_id` from the Google redirect to our backend, which exchanges
+ *  it for an identity and sets our own session cookie. */
+export async function apiGoogleSession(sessionId) {
+  const { data } = await http.post("/auth/google/session", { session_id: sessionId });
+  return data;
+}
+
 export async function apiLogout() {
   const { data } = await http.post("/auth/logout");
   return data;

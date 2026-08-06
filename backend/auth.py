@@ -319,6 +319,85 @@ async def me(request: Request):
     return {"user": _public(user, n)}
 
 
+# ── Google sign-in (Emergent-managed OAuth) -----------------------------------
+# The buyer is sent to Emergent's hosted Google flow and comes back carrying a one-time
+# `session_id` in the URL fragment, which the frontend hands to this endpoint. The exchange
+# with Emergent happens HERE, server side, so the provider's token never reaches the
+# browser. The account is then given one of OUR OWN sessions — same HttpOnly cookie, same
+# "active devices" list, same instant revocation as a password sign-in. Google identifies
+# the person; it does not run our sessions.
+EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+
+
+class GoogleSessionBody(BaseModel):
+    session_id: str
+
+
+async def _emergent_identity(session_id: str):
+    import httpx
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        r = await client.get(EMERGENT_SESSION_URL, headers={"X-Session-ID": session_id})
+    if r.status_code != 200:
+        log.warning("google session exchange refused: %s %s", r.status_code, r.text[:200])
+        raise HTTPException(401, "that Google sign-in has expired, please try again")
+    return r.json()
+
+
+@router.post("/auth/google/session")
+async def google_session(body: GoogleSessionBody, request: Request, response: Response):
+    session_id = (body.session_id or "").strip()
+    if not session_id:
+        raise HTTPException(400, "missing session id")
+    data = await _emergent_identity(session_id)
+    email = (data.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(401, "Google did not return an email address")
+
+    user = await _db.users.find_one({"email_norm": email})
+    if not user:
+        user = {
+            "_id": str(uuid.uuid4()),
+            "email": email,
+            "email_norm": email,
+            "name": (data.get("name") or "").strip()[:120],
+            # No password_hash: this account signs in through Google. The buyer can still
+            # add a passkey afterwards, exactly like any other account.
+            "webauthn_user_id": bytes_to_base64url(secrets.token_bytes(32)),
+            "favourites": [],
+            # Same rule as /auth/register: whoever creates the first account owns the install.
+            "is_admin": await _db.users.count_documents({"is_admin": True}) == 0,
+            "google_id": data.get("id") or "",
+            "picture": data.get("picture") or "",
+            "created_at": _now(),
+        }
+        await _db.users.insert_one(user)
+    else:
+        # An existing email is the SAME person, so the Google account is linked to it rather
+        # than a second account being created.
+        patch = {"google_id": data.get("id") or ""}
+        if data.get("picture"):
+            patch["picture"] = data["picture"]
+        if not (user.get("name") or "").strip() and (data.get("name") or "").strip():
+            patch["name"] = data["name"].strip()[:120]
+        await _db.users.update_one({"_id": user["_id"]}, {"$set": patch})
+        user.update(patch)
+
+    # A second factor the owner switched on is still owed: Google proves who they are, it
+    # does not replace the code. Same 10-minute ticket the password path issues.
+    if (user.get("totp") or {}).get("enabled"):
+        pending_id = secrets.token_urlsafe(24)
+        await _db.mfa_pending.insert_one({
+            "_id": pending_id, "user_id": user["_id"], "attempts": 0,
+            "created_at": _now(), "expires_at": _now() + timedelta(minutes=10)})
+        return {"mfa_required": True, "pending_id": pending_id}
+
+    await _start_session(response, user["_id"], request)
+    n = await _db.webauthn_credentials.count_documents({"user_id": user["_id"]})
+    return {"user": _public(user, n)}
+
+
+
 # ── passkey registration (requires an existing session) -----------------------
 @router.post("/auth/passkey/register/options")
 async def passkey_register_options(request: Request, user=Depends(current_user)):

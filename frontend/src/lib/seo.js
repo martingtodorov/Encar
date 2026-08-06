@@ -15,7 +15,7 @@ import { LANGS } from "@/i18n";
  * URL shape to anyone who reads robots.txt.
  */
 
-const SITE_NAME = "Auto&Bid";
+const SITE_NAME = "Encar Europe";
 const OG_LOCALE = { bg: "bg_BG", ro: "ro_RO", en: "en_GB" };
 
 function upsert(selector, make) {
