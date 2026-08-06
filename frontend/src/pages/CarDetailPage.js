@@ -27,6 +27,7 @@ import { ReserveCar } from "@/components/ReserveCar";
 import { useApp } from "@/context/AppContext";
 import { EnquiryDialog } from "@/components/EnquiryDialog";
 import { DescriptionPanelBody } from "@/components/DescriptionPanelBody";
+import { ClampBlock } from "@/components/ClampBlock";
 import { PriceNote } from "@/components/PriceNote";
 import { YouMightLike } from "@/components/YouMightLike";
 import { useLangNav } from "@/hooks/useLangNav";
@@ -740,6 +741,9 @@ export default function CarDetailPage() {
                   // width its categories sit side by side, which halves its height.
                   className="lg:col-span-2"
                   >
+                  {/* The tallest block on the page by far — clamped to about ten rows so the
+                      description and the shelf below it are not pushed off the screen. */}
+                  <ClampBlock maxHeight={300} testId="options-clamp">
                   <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                     {(car.options.groups || []).map((g) => (
                       <div key={g.category}>
@@ -801,6 +805,7 @@ export default function CarDetailPage() {
                       </div>
                     </div>
                   )}
+                  </ClampBlock>
                 </Panel>
               )}
             </div>

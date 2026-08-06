@@ -40,7 +40,7 @@ export const YouMightLike = ({ car, excludeId, onOpen }) => {
                 ...(taste.samples || [])],
       exclude: [excludeId].filter(Boolean),
       lang,
-      limit: 12,
+      limit: 16,
     })
       .then((d) => alive && setItems((d.items || []).filter((c) => c.id !== excludeId)))
       .catch(() => alive && setItems([]));

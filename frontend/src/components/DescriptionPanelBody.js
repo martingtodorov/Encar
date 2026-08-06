@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Languages, Loader2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ClampBlock } from "@/components/ClampBlock";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
 import { streamDescription, translateDescription } from "@/lib/api";
@@ -81,17 +82,21 @@ export const DescriptionPanelBody = ({ carId, original }) => {
         )}
       </div>
 
-      <p
-        ref={boxRef}
-        data-testid="description-text"
-        style={busy && floor ? { minHeight: floor } : undefined}
-        className="whitespace-pre-line text-[13px] leading-relaxed text-foreground"
-      >
-        {body}
-        {busy && partial ? (
-          <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-[hsl(var(--primary))] align-text-bottom" />
-        ) : null}
-      </p>
+      {/* Unclamped while the translation streams in, or the words would arrive under the
+          ceiling where nobody can see them. */}
+      <ClampBlock maxHeight={240} testId="description-clamp" disabled={busy}>
+        <p
+          ref={boxRef}
+          data-testid="description-text"
+          style={busy && floor ? { minHeight: floor } : undefined}
+          className="whitespace-pre-line text-[13px] leading-relaxed text-foreground"
+        >
+          {body}
+          {busy && partial ? (
+            <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-[hsl(var(--primary))] align-text-bottom" />
+          ) : null}
+        </p>
+      </ClampBlock>
     </>
   );
 };
