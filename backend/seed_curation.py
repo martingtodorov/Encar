@@ -51,9 +51,23 @@ async def ensure_curation(db):
         if fresh:
             await db[name].insert_many(fresh, ordered=False)
             added[name] = len(fresh)
+
+    # `model_years` is a SINGLE document, so insert-if-missing skipped a server that had
+    # already computed an empty or thin one from a half-crawled catalogue — which is exactly
+    # how a fresh deploy ended up with dropdowns but no year spans. If ours knows more spans
+    # than theirs, ours wins; once their own catalogue is fuller, theirs stays.
+    seed_spans = next((d for d in (data.get("model_years") or [])
+                       if d.get("_id") == "spans"), None)
+    if seed_spans:
+        mine = len(seed_spans.get("items") or [])
+        theirs = len(((await db.model_years.find_one({"_id": "spans"})) or {}).get("items") or [])
+        if mine > theirs:
+            await db.model_years.replace_one({"_id": "spans"}, seed_spans, upsert=True)
+            added["model_years spans"] = f"{theirs} -> {mine}"
+
     if added:
         log.info("curation seeded: %s",
-                 ", ".join(f"{n} x {c}" for c, n in added.items()))
+                 ", ".join(f"{c}: {n}" for c, n in added.items()))
     return added
 
 

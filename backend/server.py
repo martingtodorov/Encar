@@ -871,6 +871,30 @@ async def recommendations(body: TasteBody, request: Request):
     return {"items": items, "lang": lang}
 
 
+async def _labels(values, lang, budget=2.5):
+    """Translated labels without ever making a visitor wait long.
+
+    Warm cache: instant, no provider is touched. COLD cache: one attempt with a hard time
+    budget, because a page full of Korean model names is worse than a short wait — that is
+    what a freshly deployed server with an empty `translations` collection hits. Whatever is
+    still missing after the budget is filled in the background and is instant from then on.
+    """
+    tmap = await translate_cached_only(db, values, lang)
+    cold = [v for v in values if v not in tmap]
+    if not cold:
+        return tmap
+    try:
+        got = await asyncio.wait_for(translate_many(db, cold, lang), timeout=budget)
+        tmap.update(got or {})
+        cold = [v for v in cold if v not in tmap]
+    except Exception as e:
+        log.warning("labels: %s cold values (%s) not ready in %.1fs: %s",
+                    len(cold), lang, budget, str(e)[:120])
+    if cold:
+        schedule_translation(db, cold, lang)
+    return tmap
+
+
 _filters_refreshing = False
 
 
@@ -966,19 +990,11 @@ async def meta_filters(lang: str = "bg", refresh: bool = False):
     labels += [x["value"] for x in cached.get("fuels", [])]
     labels += [x["value"] for x in cached.get("regions", [])]
     make_values = [x["value"] for x in cached.get("makes", [])]
-    # Cache only: the sidebar is the very first request a visitor makes, so it must never
-    # wait on a translation. sync.post_crawl warms these sets after every crawl; a miss shows
-    # the upstream name for one view and is filled in the background.
-    tmap = await translate_cached_only(db, labels, lang)
+    # Cache first, one short attempt for anything cold, background fill for the rest.
+    tmap = await _labels(labels, lang)
     # Marque names are proper nouns: English in every language.
-    make_labels = await translate_cached_only(db, make_values, "en")
+    make_labels = await _labels(make_values, "en")
     tmap = {**tmap, **make_labels}
-    cold = [v for v in labels if v not in tmap]
-    if cold:
-        schedule_translation(db, cold, lang)
-    cold_en = [v for v in make_values if v not in make_labels]
-    if cold_en:
-        schedule_translation(db, cold_en, "en")
 
     # Slugs let the query string read `?fuels=petrol` instead of percent-encoded Hangul.
     try:
@@ -1017,12 +1033,7 @@ async def meta_models(make: str = Query(...), lang: str = "bg", limit: int = 300
         {"$limit": limit},
     ]
     rows = [{"value": d["_id"], "count": d["count"]} async for d in db.listings.aggregate(pipe)]
-    # Cache only, for the same reason as the sidebar: no dropdown waits on a translation.
-    values = [r["value"] for r in rows]
-    tmap = await translate_cached_only(db, values, lang)
-    cold = [v for v in values if v not in tmap]
-    if cold:
-        schedule_translation(db, cold, lang)
+    tmap = await _labels([r["value"] for r in rows], lang)
     return {"make": make,
             "models": [{**r, "label": tmap.get(r["value"], r["value"])} for r in rows]}
 
@@ -1098,16 +1109,10 @@ async def meta_taxonomy(
     # Levels 1 and 2 are marques and model names: proper nouns, always English.
     # Marques, models AND trims are proper nouns — always Latin, never transliterated.
     label_lang = "en"
-    # CACHE ONLY. This used to call translate_many, which translates cache misses INLINE, so
-    # the first search after a crawl paid for a thousand model names while the visitor waited
-    # (and with a dead LLM key it paid the whole retry ladder before giving up). The warm-up
-    # in sync.post_crawl fills this cache after every crawl; anything that still slips
-    # through shows its upstream name for one view and is filled in the background.
-    tmap = await translate_cached_only(db, values, label_lang)
-    missing = [v for v in values if v not in tmap]
-    if missing:
-        log.info("taxonomy labels not warm yet: %s of %s", len(missing), len(values))
-        schedule_translation(db, missing, label_lang)
+    # Cache first (instant when warm), then ONE short attempt for anything still cold, then
+    # the background fill. A freshly deployed server has an empty translations cache, and
+    # cache-only alone left it showing Korean model names.
+    tmap = await _labels(values, label_lang)
 
     built = await db.sync_state.find_one({"_id": "taxonomy"})
     return {
@@ -1161,9 +1166,16 @@ async def meta_resolve(
 
 
 @api.post("/admin/taxonomy/rebuild")
+@api.post("/admin/rebuild-derived")
 async def admin_taxonomy(x_admin_token: str = Header(default="")):
+    """Rebuild everything that is DERIVED from the catalogue, in the right order.
+
+    This used to build only the dropdown tree, which is why a freshly deployed server had
+    menus but no year spans next to the model names and no URL slugs. It is the whole
+    post-crawl pass now, so one call fixes all of it — `deploy/doctor.py` points here.
+    """
     _check_admin(x_admin_token)
-    return await sync_mod.build_taxonomy(db)
+    return await sync_mod.post_crawl(db)
 
 
 async def _gone(listing, listing_id, lang):
