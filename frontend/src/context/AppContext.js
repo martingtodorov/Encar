@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { getCmsSite, getFx } from "@/lib/api";
 import { setCompany } from "@/content/company";
+import { EMPTY_SITE, cachedSite, rememberSite } from "@/lib/cmsCache";
 import { noteFavourite } from "@/lib/taste";
 import { t as translate, CURRENCIES } from "@/i18n";
 
@@ -40,9 +41,13 @@ export function AppProvider({ children }) {
   );
   const [theme, setThemeState] = useState(detectTheme);
   const [rates, setRates] = useState(null);
-  // The owner's own SEO titles, hero copy and company details. Empty until it arrives, and
-  // every consumer falls back to the copy that ships with the app.
-  const [cms, setCms] = useState({ company: {}, seo: {}, hero: {} });
+  // The owner's own SEO titles, hero copy and company details. Seeded from the last visit's
+  // cache so a refresh never flashes the built-in headline before the API answers.
+  const [cms, setCms] = useState(() => {
+    const hit = cachedSite(detectLang());
+    if (hit) setCompany(hit.company);
+    return hit || EMPTY_SITE;
+  });
   const [favourites, setFavourites] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem(LS_FAV) || "[]");
@@ -67,11 +72,18 @@ export function AppProvider({ children }) {
   // Editable copy is per language, so it is re-read when the visitor switches.
   useEffect(() => {
     let alive = true;
+    // Show whatever this language had last time straight away, then confirm it.
+    const hit = cachedSite(lang);
+    if (hit) {
+      setCompany(hit.company);
+      setCms(hit);
+    }
     getCmsSite(lang)
       .then((data) => {
         if (!alive) return;
         setCompany(data.company);
         setCms({ company: data.company || {}, seo: data.seo || {}, hero: data.hero || {} });
+        rememberSite(lang, data);
       })
       .catch(() => {});
     return () => {

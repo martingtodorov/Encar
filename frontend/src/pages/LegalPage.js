@@ -7,6 +7,7 @@ import { legalDoc } from "@/content/legal";
 import { helpDoc } from "@/content/help";
 import { COMPANY } from "@/content/company";
 import { getCmsPage } from "@/lib/api";
+import { cachedPageHtml, rememberPageHtml } from "@/lib/cmsCache";
 
 /** One page for every legal document: the route decides which one. */
 export default function LegalPage({ slug }) {
@@ -14,15 +15,19 @@ export default function LegalPage({ slug }) {
   const { lang: urlLang } = useParams();
   const pageLang = urlLang || lang;
   const doc = helpDoc(pageLang, slug) || legalDoc(pageLang, slug);
-  // The owner's own body, when they have written one. Until it lands, the built-in copy is
-  // shown, so the page is never blank and never flashes empty.
-  const [html, setHtml] = useState("");
+  // The owner's own body, when they have written one. Seeded from the cache so a refresh
+  // does not flash the built-in text first.
+  const [html, setHtml] = useState(() => cachedPageHtml(slug, urlLang || lang));
 
   useEffect(() => {
     let alive = true;
-    setHtml("");
+    setHtml(cachedPageHtml(slug, pageLang));
     getCmsPage(slug, pageLang)
-      .then((r) => alive && setHtml(r.html || ""))
+      .then((r) => {
+        if (!alive) return;
+        setHtml(r.html || "");
+        rememberPageHtml(slug, pageLang, r.html || "");
+      })
       .catch(() => {});
     return () => {
       alive = false;

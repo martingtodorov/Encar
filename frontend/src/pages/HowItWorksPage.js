@@ -4,6 +4,7 @@ import { HeaderBar } from "@/components/HeaderBar";
 import { useApp } from "@/context/AppContext";
 import { useSeo } from "@/lib/seo";
 import { getCmsPage } from "@/lib/api";
+import { cachedPageHtml, rememberPageHtml } from "@/lib/cmsCache";
 
 const Step = ({ icon: Icon, title, body, n }) => (
   <div className="rounded-[16px] border border-border bg-card p-5 shadow-sm">
@@ -22,14 +23,19 @@ const Step = ({ icon: Icon, title, body, n }) => (
 
 export default function HowItWorksPage() {
   const { t, lang, cms } = useApp();
-  // Replaced wholesale when the owner writes their own version of this page.
-  const [html, setHtml] = useState("");
+  // Replaced wholesale when the owner writes their own version of this page. Seeded from the
+  // cache so a refresh does not flash the built-in page first.
+  const [html, setHtml] = useState(() => cachedPageHtml("how-it-works", lang));
 
   useEffect(() => {
     let alive = true;
-    setHtml("");
+    setHtml(cachedPageHtml("how-it-works", lang));
     getCmsPage("how-it-works", lang)
-      .then((r) => alive && setHtml(r.html || ""))
+      .then((r) => {
+        if (!alive) return;
+        setHtml(r.html || "");
+        rememberPageHtml("how-it-works", lang, r.html || "");
+      })
       .catch(() => {});
     return () => {
       alive = false;
