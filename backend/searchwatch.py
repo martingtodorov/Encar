@@ -1,4 +1,8 @@
-"""New-match alerts for saved searches.
+"""Instant PUSH alerts for saved searches.
+
+Email is not sent from here: the same news goes out once a week, with photos, from
+`digest.py`. A push is instant because it is one glanceable line; an email a day about two
+cars is how a buyer learns to ignore us.
 
 A saved search is a standing order: "tell me when a car like this turns up". The stored
 query is a URL query string full of English slugs (the same string the page reads), so it
@@ -16,7 +20,6 @@ import asyncio
 import logging
 from urllib.parse import parse_qs
 
-import mailer
 import notify
 import slugs as slugs_mod
 import translate
@@ -82,13 +85,13 @@ async def run(db, notify_first_seen=False):
     """Alert every buyer whose saved search has picked up cars since the last check."""
     import server                                    # deferred: server imports this module
 
-    checked = matched = sent = baselines = 0
+    checked = matched = pushes = baselines = 0
     now = notify._now()
 
     async for user in db.users.find({"saved_searches": {"$exists": True, "$ne": []}}):
-        wants_email = notify.wants(user, "email", "saved_search") and user.get("email")
-        wants_push = notify.wants(user, "push", "saved_search")
-        if not (wants_email or wants_push):
+        # Email is no longer this pass's business - the weekly digest owns it - so a buyer
+        # who only wants email has nothing to do here.
+        if not notify.wants(user, "push", "saved_search"):
             continue
 
         for saved in user.get("saved_searches") or []:
@@ -127,27 +130,23 @@ async def run(db, notify_first_seen=False):
                 continue
             matched += total
 
-            await _english(db, cars)
-            rows = [{"title": _title(c) or c["_id"], "car_id": c["_id"],
-                     "price_eur": c.get("sale_eur") or 0,
-                     "year": (c.get("year_month") or 0) // 100 or None,
-                     "mileage": c.get("mileage")} for c in cars]
             lang = saved.get("lang") or "en"
             name = saved.get("name") or ""
 
-            if wants_email:
-                await mailer.send_new_matches(user["email"], name, rows, total, lang)
-                sent += 1
-            if wants_push:
-                await notify.push_to_user(
-                    user["_id"],
-                    "New cars match your search",
-                    f"{total} new for “{name}”" if name else f"{total} new cars match",
-                    url=f"/{lang}/searches", event="saved_search")
+            # No instant email: the same news goes out once a week in the digest
+            # (digest.py), which carries the cars' own photos. A push is different - it is
+            # cheap, glanceable and worth having the moment a car appears.
+            await notify.push_to_user(
+                user["_id"],
+                "New cars match your search",
+                f"{total} new for “{name}”" if name else f"{total} new cars match",
+                url=f"/{lang}/searches", event="saved_search")
+            pushes += 1
 
-    log.info("search watch: %s searches, %s baselines, %s new cars, %s emails",
-             checked, baselines, matched, sent)
-    return {"searches": checked, "baselines": baselines, "matches": matched, "emails": sent}
+    log.info("search watch: %s searches, %s baselines, %s new cars, %s pushes",
+             checked, baselines, matched, pushes)
+    return {"searches": checked, "baselines": baselines, "matches": matched,
+            "pushes": pushes, "emails": 0}
 
 
 async def _english(db, cars):

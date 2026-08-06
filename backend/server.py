@@ -61,6 +61,7 @@ import syncjob as syncjob_mod  # noqa: E402
 import contracts as contracts_mod  # noqa: E402
 import pricewatch as pricewatch_mod  # noqa: E402
 import searchwatch as searchwatch_mod  # noqa: E402
+import digest as digest_mod  # noqa: E402
 import edi                  # noqa: E402
 import jsoncargo            # noqa: E402
 import maersk_public        # noqa: E402
@@ -2365,6 +2366,20 @@ async def admin_shipment_refresh(ref: str, request: Request, by: str = "containe
         raise HTTPException(502, str(e))
 
 
+@api.post("/admin/digest/run")
+async def admin_digest_run(request: Request, x_admin_token: str = Header(default="")):
+    """Send the weekly saved-search digest now, without waiting for Saturday.
+
+    Kept for the operator (and for testing what a buyer actually receives): it uses exactly
+    the scheduled path, so a manual run also moves each search's window forward.
+    """
+    admin = await _require_admin(request, x_admin_token)
+    result = await digest_mod.run(db)
+    await _audit(request, _actor(admin), "search digest sent", "digest",
+                 f"{result['emails']} email(s)")
+    return {**result, "next_run_at": digest_mod.next_run_at()}
+
+
 @api.get("/admin/consent")
 async def admin_consent(request: Request, x_admin_token: str = Header(default="")):
     """Who agreed to what, and when — the proof an inspector asks for.
@@ -2717,6 +2732,8 @@ async def on_startup():
     await syncjob_mod.clear_stale(db)
     await syncjob_mod.resume_if_interrupted(db)
     asyncio.get_running_loop().create_task(syncjob_mod.scheduler(db))
+    # The weekly saved-search digest keeps its own clock (Saturday afternoon in Sofia).
+    asyncio.get_running_loop().create_task(digest_mod.scheduler(db))
     log.info("startup complete: %s listings in index",
              await db.listings.count_documents({}))
 

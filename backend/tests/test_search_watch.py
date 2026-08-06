@@ -1,4 +1,7 @@
-"""New-match alerts for saved searches, checked against the live index.
+"""Instant PUSH alerts for saved searches, checked against the live index.
+
+Email is NOT sent from here any more - the weekly digest owns it (see
+test_search_digest.py), so these tests assert on pushes.
 
 Run with: cd /app/backend && python -m pytest tests/test_search_watch.py -q
 No pytest-asyncio here (it is not installed) — each test drives its own loop with
@@ -29,25 +32,25 @@ def _now():
 
 
 class Fixture:
-    """One throwaway buyer with one saved search, and a mailer that only records."""
+    """One throwaway buyer with one saved search, and a push channel that only records."""
 
     def __init__(self, db, uid, email):
         self.db, self.uid, self.email = db, uid, email
         self.sent = []
 
     async def run(self, **kw):
-        real = mailer.send_new_matches
+        real = notify.push_to_user
 
-        async def fake(to, name, rows, total, lang="en"):
-            self.sent.append({"to": to, "name": name, "rows": rows,
-                              "total": total, "lang": lang})
+        async def fake(uid, title, body, url="", event=""):
+            self.sent.append({"uid": uid, "title": title, "body": body,
+                              "url": url, "event": event})
             return True
 
-        mailer.send_new_matches = fake
+        notify.push_to_user = fake
         try:
             return await searchwatch.run(self.db, **kw)
         finally:
-            mailer.send_new_matches = real
+            notify.push_to_user = real
 
 
 async def _with_buyer(body, alerts=True):
@@ -57,9 +60,13 @@ async def _with_buyer(body, alerts=True):
     uid = str(uuid.uuid4())
     email = f"watch-{uid[:8]}@example.com"
     await db.users.insert_one({
-        "_id": uid, "email": email, "created_at": _now(),
+        "_id": uid, "email": email, "email_norm": email, "created_at": _now(),
         "saved_searches": [{"id": "s_test", "name": "Test search", "lang": "bg",
                             "query": QUERY, "alerts": alerts}],
+        # Push is off by default for everybody, and this pass is push-only now.
+        # The stored key is `notify`, NOT `notify_prefs` - see notify.prefs_of.
+        "notify": {"push": {"enabled": True, "saved_search": True},
+                   "email": {"enabled": True, "saved_search": True}},
     })
     f = Fixture(db, uid, email)
     try:
@@ -92,11 +99,11 @@ def test_second_pass_alerts_then_goes_quiet():
         out = await f.run()
         assert out["matches"] > 0, "BMWs in the index should match make=bmw"
         assert len(f.sent) == 1
-        mail = f.sent[0]
-        assert mail["to"] == f.email
-        assert mail["lang"] == "bg" and mail["name"] == "Test search"
-        assert mail["rows"] and all(r["title"] for r in mail["rows"])
-        assert len(mail["rows"]) <= searchwatch.MAX_ROWS
+        note = f.sent[0]
+        assert note["uid"] == f.uid and note["event"] == "saved_search"
+        assert "Test search" in note["body"]
+        assert note["url"] == "/bg/searches"
+        assert out["emails"] == 0, "the weekly digest sends the email, not this pass"
 
         # The baseline moved with the alert, so nothing is repeated.
         f.sent.clear()
@@ -139,25 +146,3 @@ def test_stored_slugs_resolve_to_upstream_values():
         assert p["only_inspection"] is True
 
     asyncio.run(_with_buyer(body))
-
-
-def test_email_html_carries_titles_prices_and_links():
-    rows = [{"title": "BMW 5 Series", "car_id": "42000001", "price_eur": 31999,
-             "year": 2021, "mileage": 48000}]
-    sent = {}
-
-    async def capture(to, subject, html):
-        sent.update({"to": to, "subject": subject, "html": html})
-        return True
-
-    real = mailer._send
-    mailer._send = capture
-    try:
-        asyncio.run(mailer.send_new_matches("buyer@example.com", "Пети клас", rows, 9, "bg"))
-    finally:
-        mailer._send = real
-
-    assert "9" in sent["html"] and "Пети клас" in sent["html"]
-    assert "BMW 5 Series" in sent["html"] and "31,999" in sent["html"]
-    assert "/bg/car/42000001" in sent["html"], "the title must link to the ad"
-    assert "и още 8" in sent["html"], "the tail count must be shown"

@@ -262,6 +262,106 @@ def _car_link(car_id, text, lang):
             f'style="color:#d0021b;text-decoration:none">{text}</a>')
 
 
+# ── weekly saved-search digest ───────────────────────────────────────────────
+DIGEST = {
+    "bg": {
+        "subject": "Нови коли по твоите запазени търсения",
+        "heading": "Ето какво е ново тази седмица",
+        "body": "Открихме {n} нови автомобила по запазените ти търсения от последния имейл.",
+        "search": "Търсене: {name}",
+        "unnamed": "Запазено търсене",
+        "more": "и още {n} по това търсене",
+        "cta": "Виж всички в сайта",
+        "footer": ("Получаваш този имейл, защото си включил известия за запазено търсене. "
+                   "Можеш да ги спреш по всяко време от профила си."),
+    },
+    "ro": {
+        "subject": "Mașini noi pentru căutările tale salvate",
+        "heading": "Iată ce este nou săptămâna aceasta",
+        "body": "Am găsit {n} mașini noi pentru căutările tale salvate de la ultimul e-mail.",
+        "search": "Căutare: {name}",
+        "unnamed": "Căutare salvată",
+        "more": "și încă {n} pentru această căutare",
+        "cta": "Vezi toate pe site",
+        "footer": ("Primești acest e-mail pentru că ai activat notificările pentru căutări "
+                   "salvate. Le poți opri oricând din contul tău."),
+    },
+    "en": {
+        "subject": "New cars for your saved searches",
+        "heading": "Here is what is new this week",
+        "body": "We found {n} new cars for your saved searches since the last email.",
+        "search": "Search: {name}",
+        "unnamed": "Saved search",
+        "more": "and {n} more for this search",
+        "cta": "See them all on the site",
+        "footer": ("You are getting this because you turned on saved-search alerts. "
+                   "You can switch them off in your account at any time."),
+    },
+}
+
+
+def _digest_car(car, lang):
+    """One car: its own photo, then the title and the numbers a buyer scans for.
+
+    A two-cell table rather than a flex row, and every dimension inline, because that is the
+    only layout Outlook and Gmail both honour. The photo is the ad's own lead shot straight
+    from the CDN - an absolute URL, since a mail client has no site to resolve against.
+    """
+    facts = " · ".join(x for x in [
+        f'€{car["price_eur"]:,.0f}' if car.get("price_eur") else "",
+        str(car["year"]) if car.get("year") else "",
+        f'{car["mileage"]:,} km' if car.get("mileage") else "",
+    ] if x)
+    title = _car_link(car["car_id"], _esc(car.get("title") or ""), lang)
+    photo = car.get("image") or ""
+    img = (f'<img src="{photo}" width="150" height="100" alt="" '
+           'style="display:block;border:0;outline:none;text-decoration:none;'
+           'width:150px;height:100px;object-fit:cover;border-radius:8px;background:#eeeef0">'
+           ) if photo else "&nbsp;"
+    return (
+        '<tr><td colspan="2" style="padding:0 0 10px">'
+        '<table width="100%" cellpadding="0" cellspacing="0"><tr>'
+        f'<td width="150" style="width:150px;vertical-align:top">{img}</td>'
+        '<td style="padding-left:12px;vertical-align:top;font-size:14px;color:#111">'
+        f'<div style="font-weight:600;line-height:1.35">{title}</div>'
+        f'<div style="padding-top:4px;color:#6b6b70;font-size:13px">{facts}</div>'
+        '</td></tr></table></td></tr>'
+    )
+
+
+async def send_search_digest(to, groups, lang="en"):
+    """ONE email a week per buyer, covering every saved search that picked something up.
+
+    `groups` is a list of {name, cars, total}; `cars` carry title, car_id, image, price_eur,
+    year and mileage. Searches with nothing new are left out by the caller, and an empty
+    digest is never sent.
+    """
+    t = DIGEST.get(lang) or DIGEST["en"]
+    total = sum(g.get("total") or len(g["cars"]) for g in groups)
+    body = (f'<tr><td colspan="2" style="padding:0 0 16px;color:#111">'
+            f'{t["body"].format(n=total)}</td></tr>')
+    for g in groups:
+        heading = t["search"].format(name=_esc(g["name"])) if g.get("name") else t["unnamed"]
+        body += ('<tr><td colspan="2" style="padding:6px 0 10px;font-size:12px;'
+                 'text-transform:uppercase;letter-spacing:.04em;color:#6b6b70;'
+                 f'border-top:1px solid #e5e5e7">{heading}</td></tr>')
+        body += "".join(_digest_car(c, lang) for c in g["cars"])
+        left = (g.get("total") or len(g["cars"])) - len(g["cars"])
+        if left > 0:
+            body += ('<tr><td colspan="2" style="padding:0 0 12px;font-size:13px;'
+                     f'color:#6b6b70">{t["more"].format(n=left)}</td></tr>')
+
+    base = os.environ.get("PUBLIC_SITE_URL", "").strip().rstrip("/")
+    if base:
+        body += ('<tr><td colspan="2" style="padding:8px 0 0">'
+                 f'<a href="{base}/{lang}/searches" style="display:inline-block;'
+                 'background:#d0021b;color:#ffffff;text-decoration:none;font-weight:600;'
+                 f'font-size:14px;padding:11px 18px;border-radius:10px">{t["cta"]}</a>'
+                 '</td></tr>')
+
+    return await _send(to, t["subject"], _shell(t["heading"], body, t["footer"]))
+
+
 async def send_new_matches(to, name, rows, total, lang="en"):
     """One email per saved search, listing the newest cars that now match it."""
     t = MATCHES.get(lang) or MATCHES["en"]

@@ -834,6 +834,52 @@ call then took 0.25s; all 5 sets read `complete: true`; the UI cascade Make -> M
 Latin labels only.
 
 
+## Owner's own privacy policy + weekly saved-search digest (2026-06, self-verified)
+
+### Privacy policy replaced with the owner's document
+The owner uploaded their settled policy (`politika-poveritelnost-encar.1`, a .docx — unzip and
+strip `word/document.xml` to read it) and asked for it to be used. BG is now their text as
+supplied; RO and EN are faithful translations of the SAME 14-section document.
+* `doc()` in `content/legal.js` takes an optional 4th argument, and the privacy documents carry
+  `PRIVACY_STAMP` ("Версия 1.1 · Актуализирана на 6 август 2026 г.") instead of the shared
+  `UPDATED`, so editing another page cannot silently restamp the policy.
+* New sections vs my draft: 3. where the data comes from, 4. whether providing it is obligatory,
+  Art. 28 processor-contract wording, Art. 21(2)-(3) marketing objection, and the accounting
+  retention counted from 1 January of the following year.
+* Sections are numbered 1-14 in the headings, which is how the owner's lawyer refers to them —
+  keep the numbers if sections are ever added.
+
+### Weekly saved-search digest with photos (`digest.py`)
+Owner's choices, verbatim: ONE email a week, all saved searches in it, up to 12 cars per search
+with 1 photo each, **Saturday 15:00 Sofia**, and NOTHING sent when there is no news.
+* `digest.run(db)` walks users with saved searches + `notify.wants(user, "email",
+  "saved_search")`, queries `first_seen > digest_at` per search, and sends ONE
+  `mailer.send_search_digest` per buyer. The window advances only for searches that were
+  actually checked, so a car arriving mid-send lands in the NEXT digest instead of vanishing.
+* The window is `search_watch.digest_at`, DELIBERATELY separate from `at`: `at` moves on every
+  catalogue sync for the instant push, so sharing it would leave the digest seeing only hours.
+  A brand-new search looks back `FIRST_WINDOW` = 7 days, never the whole catalogue.
+* `searchwatch.py` is now push-ONLY (its docstring says so). The instant email is gone — a daily
+  sync meant an email a day about two cars. It returns `"emails": 0` and gates on the push
+  preference; `mailer.send_new_matches` is left in place, unused by the app.
+* `mailer.send_search_digest` / `_digest_car`: two-cell tables and inline dimensions only (the
+  one layout Outlook and Gmail both honour), photo from `encar.image_url(photos[0], 300, 200)` —
+  an absolute CDN URL, because a mail client has no site to resolve against.
+* `digest.scheduler(db)` is started in `server.on_startup` and guards itself with
+  `settings/search_digest.last_run_date`, the same shape as `syncjob.scheduler`.
+  `POST /api/admin/digest/run` (admin-only) sends it now and reports `next_run_at`.
+* GOTCHA that cost a test: the stored preferences key is `user["notify"]`, NOT `notify_prefs`
+  (see `notify.prefs_of`). Writing `notify_prefs` silently falls back to the defaults, where
+  email is enabled — so an "email off" case appears to work when it is not being read at all.
+* Verified: real run produced 1 email, 2 search groups, 24 car photos, 21.7 KB, prices/mileage,
+  correct BG copy; every photo URL returns 200 and 0 images broken when rendered in a browser;
+  an immediate second run sent nothing; `next_run_at` = 2026-08-08T12:00Z = Saturday 15:00 EEST.
+  Tests: `tests/test_search_digest.py` (6) + reworked `tests/test_search_watch.py` (5) all pass,
+  plus notifications/saved-search/GDPR suites (32 tests) green.
+  NOTE for future test authors: a digest run sweeps EVERY account, so a fixture must filter
+  captured mail to its own buyer or a parallel suite's letter shows up in the assertions.
+
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **A real Maersk reference** to finish validating the public reader against live data, and
