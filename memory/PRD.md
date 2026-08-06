@@ -929,6 +929,31 @@ Verified: `pip install --dry-run --ignore-installed -r requirements.txt` resolve
 from PyPI, every runtime import still loads, backend healthy.
 GUARD: `backend/tests/test_requirements_portable.py` (5 tests) fails on any URL/file pin,
 unpinned line, platform-only package or agent tooling, and checks the packages the app imports
+
+## 2026-06 — Cayenne rename + email sender on the owner's own domain
+- Taxonomy: `카이엔 (PO536)` (525 cars) now READS "Cayenne" in the model dropdown. The owner
+  chose a RENAME ONLY — no merge — so `뉴 카이엔` ("Cayenne (2011-2018)") and `카이엔`
+  ("Cayenne (2004-2010)") stay separate entries and the slug is still `cayenne-po536`
+  (renaming does not touch slugs, so old links keep working). Applied through
+  `POST /api/admin/taxonomy/overrides` with `label`, no `target`; verified in
+  `/api/meta/taxonomy?level=2&make=포르쉐` (`renamed: true`).
+  NOTE: a manual label SKIPS `curate.model_label`, so a renamed model carries no year span —
+  that is why this one entry reads plain "Cayenne" next to the two dated ones.
+- Email: `SENDER_EMAIL` and `ADMIN_NOTIFY_EMAIL` are both `contact@encareurope.com`
+  (backend/.env and `deploy/hetzner/ansible/group_vars/all.yml.example`). Since the sender is
+  no longer Resend's shared address, `mailer._send` no longer redirects buyer mail to the
+  owner — enquiry acknowledgements, price-drop and saved-search alerts now address the buyer
+  directly.
+- STILL BLOCKED, ONE RECORD: `encareurope.com` is added to Resend but its status is
+  **pending** — SPF (MX + TXT on `send`) verified, **DKIM not**. A live send fails with
+  "The encareurope.com domain is not verified". The owner must add at their DNS host:
+  TXT `resend._domainkey` = `p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDFpQiE9HAWm4b0ibiXAZbPk79Nq2KM4XugBXvDPBeVd4KyxIVbEbMe1ShJFOm6Nop1w9aiTDxGzV4+nGGdun4P0WooQHvyKZ/6ccpOwn5GyAa19oLfU4oHgrOtJUS23SdvsOv10DsDnLnifCop7b8qz5qI/s7YePqJg0uVhwVMwQIDAQAB`
+  (if Cloudflare, the record must be DNS-only/grey cloud). Check with
+  `curl -s https://api.resend.com/domains -H "Authorization: Bearer $RESEND_API_KEY"` — no
+  code change is needed once it flips to `verified`.
+- Deferred by the owner this session: Eurosign contract E2E browser pass, and the Hetzner
+  deploy failure (they will send the Ansible output / `journalctl -u encar-backend` later).
+
 are actually listed. NEVER run a bare `pip freeze > requirements.txt` in this pod again without
 running that test.
 

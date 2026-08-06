@@ -56,8 +56,8 @@ stripe_mode: live
 stripe_account_id: ""
 
 resend_api_key: ""
-sender_email: ""
-admin_notify_email: ""
+sender_email: "contact@encareurope.com"
+admin_notify_email: "contact@encareurope.com"
 
 jsoncargo_api_key: ""
 jsoncargo_shipping_line: ""
