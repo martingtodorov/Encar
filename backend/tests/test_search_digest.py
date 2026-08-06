@@ -38,11 +38,12 @@ class Fixture:
     async def run(self):
         real = mailer.send_search_digest
 
-        async def fake(to, groups, lang="en"):
+        async def fake(to, groups, lang="en", popular=None):
             # Only OUR buyer: a digest run sweeps every account, including whatever another
             # suite is running in parallel, and those letters are not this test's business.
             if to == self.email:
-                self.sent.append({"to": to, "groups": groups, "lang": lang})
+                self.sent.append({"to": to, "groups": groups, "lang": lang,
+                                  "popular": popular or []})
             return True
 
         mailer.send_search_digest = fake
@@ -165,6 +166,68 @@ def test_digest_html_carries_photos_titles_prices_and_links():
     assert "/bg/car/42000001" in html, "the title must link to the ad"
     assert "и още 13" in html, "the tail count must be shown"
     assert "14" in html
+
+
+def test_popular_section_is_rendered_and_counted_by_people():
+    groups = [{"name": "Пети клас", "total": 1,
+               "cars": [{"car_id": "42000001", "title": "BMW 5 Series",
+                         "image": "https://ci.encar.com/pic/1.jpg",
+                         "price_eur": 31999, "year": 2021, "mileage": 48000}]}]
+    popular = [{"car_id": "42122129", "title": "Mercedes-Benz C-Class W205",
+                "image": "https://ci.encar.com/pic/2.jpg", "price_eur": 21500,
+                "year": 2019, "mileage": 60000, "people": 29}]
+    sent = {}
+
+    async def capture(to, subject, html):
+        sent["html"] = html
+        return True
+
+    real = mailer._send
+    mailer._send = capture
+    try:
+        asyncio.run(mailer.send_search_digest("buyer@example.com", groups, "bg",
+                                              popular=popular))
+    finally:
+        mailer._send = real
+
+    html = sent["html"]
+    assert "Най-гледаните тази седмица" in html
+    assert "Mercedes-Benz C-Class W205" in html
+    assert "/bg/car/42122129" in html
+
+
+def test_top_viewed_counts_distinct_people_not_refreshes():
+    """A single buyer hammering refresh (high `n`, `u` of 1) must lose to two real people."""
+    async def body():
+        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+        db = client[os.environ["DB_NAME"]]
+        day = _now().strftime("%Y-%m-%d")
+        hammered, honest = "t_hammer", "t_honest"
+        try:
+            await db.listings.insert_many([
+                {"_id": hammered, "manufacturer": "BMW", "model": "X", "sale_eur": 1,
+                 "photos": ["a.jpg"]},
+                {"_id": honest, "manufacturer": "Audi", "model": "Y", "sale_eur": 1,
+                 "photos": ["b.jpg"]}])
+            await db.car_views.insert_many([
+                {"_id": f"{hammered}:{day}", "car_id": hammered, "day": day,
+                 "n": 99999, "u": 1},
+                {"_id": f"{honest}:{day}", "car_id": honest, "day": day,
+                 "n": 8, "u": 8}])
+            top = await digest.top_viewed(db, limit=5000)
+            by_id = {c["car_id"]: c["people"] for c in top}
+            # The refresher counts once; the eight real people count eight, so the honest car
+            # is ahead of the hammered one despite 99,999 raw hits.
+            assert by_id.get(hammered) == 1, by_id.get(hammered)
+            assert by_id.get(honest) == 8
+            order = [c["car_id"] for c in top]
+            assert order.index(honest) < order.index(hammered)
+        finally:
+            await db.listings.delete_many({"_id": {"$in": [hammered, honest]}})
+            await db.car_views.delete_many({"car_id": {"$in": [hammered, honest]}})
+            client.close()
+
+    asyncio.run(body())
 
 
 def test_next_run_is_a_saturday_afternoon_in_sofia():

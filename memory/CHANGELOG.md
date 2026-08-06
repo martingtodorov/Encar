@@ -588,3 +588,19 @@ withdraws; once the buyer wires the balance we return the deposit less a EUR 300
   `onboarding@resend.dev` and `ADMIN_NOTIFY_EMAIL` is UNSET, so nothing can reach anyone.
   The same gap has been silently dropping enquiry notifications since at least 2 Aug.
   Waiting on the owner for the address that owns the Resend account.
+
+## 2026-06-06 — Digest test suite repaired and popular-cars coverage added
+- FIXED (P0): `tests/test_search_digest.py` was failing with a `TypeError` after
+  `mailer.send_search_digest` gained the `popular=` argument — the fixture's fake mailer still
+  had the old three-argument signature. The fake now accepts and records `popular`.
+- Added two regression tests: the digest HTML renders the "Най-гледаните тази седмица" section
+  with a working `/bg/car/<id>` link, and `digest.top_viewed` ranks by DISTINCT viewers — a car
+  with 99,999 raw hits from one refresher (`u`=1) loses to one seen by eight people.
+- VERIFIED: `pytest tests/test_search_digest.py` → 8 passed. A manual
+  `POST /api/admin/digest/run` returns 200 (0 buyers currently have an alerting saved search),
+  and `top_viewed` against live data returns 6 cars with photos and distinct-viewer counts.
+- NOTE (pre-existing, unrelated): ~21 other tests in the full suite fail only when the whole
+  suite runs (they skip standalone because they never load `.env`). Causes seen: stale expected
+  constants (`MARGIN_PCT` is 0.016, the test still wants 0.014), a renamed quote field, and
+  suites using `httpx` instead of `requests`, which bypasses the conftest CSRF wrapper → 403.
+  None of these touch the digest.

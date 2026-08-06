@@ -60,10 +60,49 @@ async def _new_cars(db, saved, since):
     return cars, total
 
 
+async def top_viewed(db, limit=6, days=7):
+    """The week's most opened ads, counted by DISTINCT people.
+
+    The owner's rule: one buyer refreshing an ad two hundred times must not put it in the
+    email. `car_views.u` is the distinct-viewer count that `_first_view_today` maintains, so
+    that rule holds here for free. We over-fetch and then filter, because the most looked-at
+    car of the week is often the one that has just been sold.
+    """
+    since = (_now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    rows = await db.car_views.aggregate([
+        {"$match": {"day": {"$gte": since}}},
+        {"$group": {"_id": "$car_id", "people": {"$sum": {"$ifNull": ["$u", "$n"]}}}},
+        {"$sort": {"people": -1}},
+        {"$limit": limit * 6},
+    ]).to_list(limit * 6)
+    if not rows:
+        return []
+    seen = {r["_id"]: r["people"] for r in rows}
+    cars = await db.listings.find(
+        {"_id": {"$in": list(seen)}, "sold": {"$ne": True}}, FIELDS).to_list(limit * 6)
+    cars.sort(key=lambda c: seen.get(c["_id"], 0), reverse=True)
+    cars = cars[:limit]
+    if not cars:
+        return []
+    await searchwatch._english(db, cars)
+    return [{
+        "car_id": c["_id"],
+        "title": searchwatch._title(c) or c["_id"],
+        "image": image_url((c.get("photos") or [None])[0], 300, 200),
+        "price_eur": c.get("sale_eur") or 0,
+        "year": (c.get("year_month") or 0) // 100 or None,
+        "mileage": c.get("mileage"),
+        "people": seen.get(c["_id"], 0),
+    } for c in cars]
+
+
 async def run(db, force=False):
     """Send this week's digest. Returns a small report for the admin screen and the tests."""
     users = mails = groups_sent = 0
     now = _now()
+    # Same list for everybody: it is the week's news, not a personal recommendation, and one
+    # aggregation is cheaper than one per buyer.
+    popular = await top_viewed(db)
 
     async for user in db.users.find({"saved_searches": {"$exists": True, "$ne": []}}):
         if not (user.get("email") and notify.wants(user, "email", "saved_search")):
@@ -103,7 +142,7 @@ async def run(db, force=False):
         # Nothing new means no letter: an empty digest teaches people to ignore the next one.
         if not groups:
             continue
-        await mailer.send_search_digest(user["email"], groups, lang)
+        await mailer.send_search_digest(user["email"], groups, lang, popular=popular)
         mails += 1
         groups_sent += len(groups)
         # Only advance the window for searches we actually reported on, so a car that arrived

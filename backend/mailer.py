@@ -272,6 +272,8 @@ DIGEST = {
         "unnamed": "Запазено търсене",
         "more": "и още {n} по това търсене",
         "cta": "Виж всички в сайта",
+        "popular": "Най-гледаните тази седмица",
+        "people": "{n} души я разгледаха",
         "footer": ("Получаваш този имейл, защото си включил известия за запазено търсене. "
                    "Можеш да ги спреш по всяко време от профила си."),
     },
@@ -283,6 +285,8 @@ DIGEST = {
         "unnamed": "Căutare salvată",
         "more": "și încă {n} pentru această căutare",
         "cta": "Vezi toate pe site",
+        "popular": "Cele mai vizualizate săptămâna aceasta",
+        "people": "{n} persoane au deschis-o",
         "footer": ("Primești acest e-mail pentru că ai activat notificările pentru căutări "
                    "salvate. Le poți opri oricând din contul tău."),
     },
@@ -294,13 +298,15 @@ DIGEST = {
         "unnamed": "Saved search",
         "more": "and {n} more for this search",
         "cta": "See them all on the site",
+        "popular": "Most viewed this week",
+        "people": "{n} people opened it",
         "footer": ("You are getting this because you turned on saved-search alerts. "
                    "You can switch them off in your account at any time."),
     },
 }
 
 
-def _digest_car(car, lang):
+def _digest_car(car, lang, note=""):
     """One car: its own photo, then the title and the numbers a buyer scans for.
 
     A two-cell table rather than a flex row, and every dimension inline, because that is the
@@ -312,6 +318,8 @@ def _digest_car(car, lang):
         str(car["year"]) if car.get("year") else "",
         f'{car["mileage"]:,} km' if car.get("mileage") else "",
     ] if x)
+    extra = (f'<div style="padding-top:3px;color:#d0021b;font-size:12.5px;font-weight:600">'
+             f'{note}</div>') if note else ""
     title = _car_link(car["car_id"], _esc(car.get("title") or ""), lang)
     photo = car.get("image") or ""
     img = (f'<img src="{photo}" width="150" height="100" alt="" '
@@ -325,16 +333,21 @@ def _digest_car(car, lang):
         '<td style="padding-left:12px;vertical-align:top;font-size:14px;color:#111">'
         f'<div style="font-weight:600;line-height:1.35">{title}</div>'
         f'<div style="padding-top:4px;color:#6b6b70;font-size:13px">{facts}</div>'
+        f'{extra}'
         '</td></tr></table></td></tr>'
     )
 
 
-async def send_search_digest(to, groups, lang="en"):
+async def send_search_digest(to, groups, lang="en", popular=None):
     """ONE email a week per buyer, covering every saved search that picked something up.
 
     `groups` is a list of {name, cars, total}; `cars` carry title, car_id, image, price_eur,
     year and mileage. Searches with nothing new are left out by the caller, and an empty
     digest is never sent.
+
+    `popular` is the week's most opened ads, each with a `people` count of DISTINCT viewers -
+    never raw refreshes. It rides along with a letter that was going out anyway; it is never a
+    reason to send one.
     """
     t = DIGEST.get(lang) or DIGEST["en"]
     total = sum(g.get("total") or len(g["cars"]) for g in groups)
@@ -350,6 +363,14 @@ async def send_search_digest(to, groups, lang="en"):
         if left > 0:
             body += ('<tr><td colspan="2" style="padding:0 0 12px;font-size:13px;'
                      f'color:#6b6b70">{t["more"].format(n=left)}</td></tr>')
+
+    if popular:
+        body += ('<tr><td colspan="2" style="padding:6px 0 10px;font-size:12px;'
+                 'text-transform:uppercase;letter-spacing:.04em;color:#6b6b70;'
+                 f'border-top:1px solid #e5e5e7">{t["popular"]}</td></tr>')
+        body += "".join(
+            _digest_car(c, lang, note=t["people"].format(n=f'{c.get("people", 0):,}'))
+            for c in popular)
 
     base = os.environ.get("PUBLIC_SITE_URL", "").strip().rstrip("/")
     if base:

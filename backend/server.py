@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import re
+import hashlib
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
@@ -28,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).parent
@@ -526,18 +528,65 @@ VIEW_WINDOW_DAYS = int(os.environ.get("VIEW_WINDOW_DAYS", "14"))
 _popular = {"at": 0.0, "ids": []}
 
 
+_view_salt = {"day": "", "salt": ""}
+
+
+async def _daily_salt(day):
+    """One secret per day, so a fingerprint cannot be recomputed or linked across days.
+
+    Kept in the settings collection rather than in code: a restart must not reset it, or every
+    visitor would be counted twice on the day of a deploy.
+    """
+    if _view_salt["day"] == day:
+        return _view_salt["salt"]
+    doc = await db.settings.find_one({"_id": "view_salt"}) or {}
+    if doc.get("day") != day:
+        doc = {"day": day, "salt": secrets.token_hex(16)}
+        await db.settings.update_one({"_id": "view_salt"}, {"$set": doc}, upsert=True)
+    _view_salt.update({"day": day, "salt": doc["salt"]})
+    return doc["salt"]
+
+
+async def _first_view_today(request: Request, listing_id, day):
+    """Is this the first time this person has opened this ad today?
+
+    No identifier is written to the visitor's device for this: the fingerprint is a salted
+    hash of the address and browser string, and the salt changes daily, so yesterday's rows
+    cannot be tied to today's and nothing here can be reversed into a person. What it buys us
+    is that one buyer refreshing an ad two hundred times counts once - which is the only
+    version of "most viewed" worth putting in an email.
+    """
+    salt = await _daily_salt(day)
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() \
+        or (request.client.host if request.client else "")
+    agent = request.headers.get("user-agent") or ""
+    print_ = hashlib.sha256(f"{salt}|{ip}|{agent}|{listing_id}|{day}".encode()).hexdigest()[:32]
+    try:
+        await db.car_view_seen.insert_one({
+            "_id": print_, "car_id": listing_id, "day": day,
+            "at": datetime.now(timezone.utc)})
+        return True
+    except DuplicateKeyError:
+        return False
+
+
 @api.post("/car/{listing_id}/view")
-async def car_view(listing_id: str):
-    """Count a real open of an ad.
+async def car_view(listing_id: str, request: Request):
+    """Count a real open of an ad — once per person per day, not once per refresh.
 
     Counted from the detail page rather than from the GET, because hovering a card
     pre-fetches the same endpoint and a hover is not interest. One document per ad per day,
     so the popularity window can be trimmed by simply dropping old days.
+
+    `u` is the number the site ranks and reports on: distinct people. `n` stays as the raw
+    count, which is only useful for spotting the difference.
     """
     day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    first_time = await _first_view_today(request, listing_id, day)
     await db.car_views.update_one(
         {"_id": f"{listing_id}:{day}"},
-        {"$inc": {"n": 1}, "$set": {"car_id": listing_id, "day": day}}, upsert=True)
+        {"$inc": {"n": 1, "u": 1 if first_time else 0},
+         "$set": {"car_id": listing_id, "day": day}}, upsert=True)
     return {"ok": True}
 
 
@@ -553,7 +602,9 @@ async def popular_ids(limit=RELEVANT_POOL):
     since = (datetime.now(timezone.utc) - timedelta(days=VIEW_WINDOW_DAYS)).strftime("%Y-%m-%d")
     rows = await db.car_views.aggregate([
         {"$match": {"day": {"$gte": since}}},
-        {"$group": {"_id": "$car_id", "n": {"$sum": "$n"}}},
+        # Distinct people, not refreshes. Days recorded before uniques existed fall back
+        # to their raw count so the ranking does not suddenly forget two weeks of history.
+        {"$group": {"_id": "$car_id", "n": {"$sum": {"$ifNull": ["$u", "$n"]}}}},
         {"$sort": {"n": -1}},
         {"$limit": RELEVANT_POOL},
     ]).to_list(RELEVANT_POOL)
@@ -2745,6 +2796,9 @@ async def on_startup():
     await sync_mod.ensure_indexes(db)
     await auth.ensure_indexes(db)
     await csrf_mod.ensure_indexes(db)
+    # The de-duplication fingerprints are useful for a day and kept a little longer only so a
+    # late-running digest can still be computed; after that they are noise.
+    await db.car_view_seen.create_index("at", expireAfterSeconds=40 * 86400)
     await auth.ensure_owner(db)
     # The owner's merges, renames and year spans travel in the repo, so a fresh server has
     # the same dropdowns without anybody copying a database.

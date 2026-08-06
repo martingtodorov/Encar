@@ -20,9 +20,9 @@ const doc = (title, intro, sections, updated = UPDATED) => ({
 // The cookie policy moves on its own: adding the CSRF cookie changed that document only, and
 // it is strictly necessary, so no consent has to be asked again (consent.POLICY_VERSION stays).
 const COOKIE_STAMP = {
-  bg: "Версия 1.2 · Актуализирана на 6 август 2026 г.",
-  ro: "Versiunea 1.2 · Actualizată la 6 august 2026",
-  en: "Version 1.2 · Updated 6 August 2026",
+  bg: "Версия 1.3 · Актуализирана на 6 август 2026 г.",
+  ro: "Versiunea 1.3 · Actualizată la 6 august 2026",
+  en: "Version 1.3 · Updated 6 August 2026",
 };
 
 const PRIVACY_STAMP = {
@@ -180,7 +180,8 @@ const BG = {
          `Тези данни служат единствено за подреждане на резултатите от търсенето. Не пораждат правни последици за теб, не влияят на цената, която виждаш, нито на условията, които получаваш, и не представляват профилиране по смисъла на чл. 22 GDPR.`]],
       ["5. Статистика (със съгласие)",
         [`Брояч на отваряния на обява — изпраща се към нашия сървър, за да знаем кои автомобили се търсят. Не записва бисквитка на устройството ти и не се свързва с профила ти. Сървърно събитие, наше · агрегирано, без идентификатор.`,
-         `Броячът работи изцяло на наш сървър и не съхранява и не чете информация от устройството ти, но го поставяме под съгласие, за да ти дадем пълен контрол. Използваме резултатите само в обобщен вид.`,
+         `Броячът отчита различни хора, а не презареждания: за да не се брои един и същ посетител многократно, изчисляваме еднопосочен отпечатък от IP адреса и данните на браузъра ти, смесени с таен ключ, който сменяме всеки ден. Отпечатъкът не може да бъде обърнат обратно и не може да бъде свързан с отпечатък от друг ден, не се съхранява на устройството ти и не се свързва с профила ти. Пазим го до 40 дни, само за да не се дублира броенето.`,
+         `Резултатите използваме само в обобщен вид — например класацията „най-гледани тази седмица“, която включваме в седмичния имейл за запазени търсения.`,
          `Ако в бъдеще включим Google Analytics 4, той ще се зарежда само след съгласие за тази категория, с отказани по подразбиране разрешения (Google Consent Mode v2), с анонимизиран IP и без рекламни сигнали. Към датата на тази версия не е активен и никакъв скрипт на Google не се зарежда за целите на статистиката.`]],
       ["6. Средства на трети страни при плащане и вход",
         [`Когато сам започнеш плащане или избереш вход с Google, съответният доставчик може да постави собствени бисквитки на устройството ти. Те са необходими за услугата, която си поискал, и за предотвратяване на измами:`,
@@ -363,7 +364,8 @@ const RO = {
          `Aceste date servesc exclusiv la ordonarea rezultatelor căutării. Nu produc efecte juridice asupra ta, nu influențează prețul afișat, nici condițiile pe care le primești, și nu constituie profilare în sensul art. 22 GDPR.`]],
       ["5. Statistici (cu consimțământ)",
         [`Contorul de deschideri ale unui anunț — se trimite către serverul nostru, ca să știm ce mașini se caută. Nu scrie un cookie pe dispozitivul tău și nu se leagă de contul tău. Eveniment de server, al nostru · agregat, fără identificator.`,
-         `Contorul funcționează integral pe serverul nostru și nu stochează și nu citește informații de pe dispozitivul tău, dar îl punem sub consimțământ ca să îți dăm control complet. Folosim rezultatele doar în formă agregată.`,
+         `Contorul numără persoane diferite, nu reîncărcări: pentru a nu contoriza același vizitator de mai multe ori, calculăm o amprentă unidirecțională din adresa IP și datele browserului tău, combinate cu o cheie secretă pe care o schimbăm zilnic. Amprenta nu poate fi inversată și nu poate fi legată de amprenta dintr-o altă zi, nu se stochează pe dispozitivul tău și nu se leagă de contul tău. O păstrăm până la 40 de zile, doar ca să nu se dubleze numărătoarea.`,
+         `Folosim rezultatele doar în formă agregată — de exemplu clasamentul „cele mai vizualizate săptămâna aceasta”, pe care îl includem în e-mailul săptămânal pentru căutări salvate.`,
          `Dacă vom activa în viitor Google Analytics 4, se va încărca doar după consimțământ pentru această categorie, cu permisiuni refuzate implicit (Google Consent Mode v2), IP anonimizat și fără semnale publicitare. La data acestei versiuni nu este activ și niciun script Google nu se încarcă în scopuri statistice.`]],
       ["6. Mijloace ale terților la plată și autentificare",
         [`Când începi tu o plată sau alegi autentificarea cu Google, furnizorul respectiv poate plasa propriile cookie-uri pe dispozitivul tău. Ele sunt necesare pentru serviciul cerut de tine și pentru prevenirea fraudei:`,
@@ -546,7 +548,8 @@ const EN = {
          `This data serves only to order search results. It produces no legal effects for you, does not change the price you see or the terms you are offered, and does not amount to profiling within the meaning of Art. 22 GDPR.`]],
       ["5. Statistics (with consent)",
         [`Listing view counter — sent to our own server so we know which cars people are looking for. It writes no cookie on your device and is not linked to your account. Server-side event, ours · aggregated, no identifier.`,
-         `The counter runs entirely on our own server and neither stores nor reads information from your device, but we still place it under consent to give you full control. We use the results only in aggregate.`,
+         `The counter counts distinct people, not reloads: so that the same visitor is not counted many times over, we compute a one-way fingerprint from your IP address and browser details mixed with a secret key that we change every day. The fingerprint cannot be reversed and cannot be tied to a fingerprint from another day, is not stored on your device and is not linked to your account. We keep it for up to 40 days, purely to avoid double counting.`,
+         `We use the results only in aggregate — for example the "most viewed this week" list we include in the weekly saved-search email.`,
          `If we enable Google Analytics 4 in future it will load only after consent to this category, with permissions denied by default (Google Consent Mode v2), IP anonymisation on and no advertising signals. As at the date of this version it is not active and no Google script is loaded for statistical purposes.`]],
       ["6. Third-party means at payment and sign-in",
         [`When you start a payment yourself or choose to sign in with Google, that provider may place its own cookies on your device. They are necessary for the service you asked for and for fraud prevention:`,
