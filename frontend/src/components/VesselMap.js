@@ -36,7 +36,10 @@ export const VesselMap = ({ milestones = [], position, vesselName = "", labelFor
   return (
     <div
       data-testid="track-map"
-      className="h-[320px] w-full overflow-hidden rounded-[12px] border border-border sm:h-[380px]"
+      // `isolate` + z-0: Leaflet gives its own panes and controls z-index 400-1000, which
+      // sat on top of the site header (z-40). A stacking context of our own keeps all of
+      // that inside the map, without touching Leaflet's internal ordering.
+      className="relative isolate z-0 h-[320px] w-full overflow-hidden rounded-[12px] border border-border sm:h-[380px]"
     >
       <MapContainer
         bounds={all.length > 1 ? all : undefined}

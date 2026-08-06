@@ -226,6 +226,17 @@ def _view(ref, by, stones, source, cached=False, vessel=None):
     # arrival on 09.08). Stable, so events sharing a timestamp keep the carrier's order and
     # anything undated stays where it was.
     stones = sorted(stones, key=_when_key)
+    # A later event that HAS happened proves the earlier ones happened too. The carrier
+    # reports the legs it handles and nothing else, so a box that was handed to the courier
+    # on 06.08 was still showing "customs cleared - forecast 05.08" above it. Anything dated
+    # before the last confirmed event is therefore marked as passed, whether it was reported
+    # or only derived by us.
+    confirmed = [_when_key(m) for m in stones if not m["estimated"]]
+    latest = max((k for k in confirmed if k[0] == 0), default=None)
+    if latest:
+        for m in stones:
+            if m["estimated"] and _when_key(m) < latest:
+                m["estimated"] = False
     # Coordinates where the port is one we know, so the map can draw the route. Unknown
     # ports simply have no marker; the timeline still names them.
     for m in stones:

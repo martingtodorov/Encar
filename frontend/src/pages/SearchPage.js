@@ -398,11 +398,17 @@ export default function SearchPage() {
   const query = useMemo(() => savableQuery({ filters, tax }, slugFor), [filters, tax, slugFor]);
   const alreadySaved = isSearchSaved(query);
 
+  // The same human name a saved search would get. On a filtered page it is also the h1,
+  // because the hero (and with it the only other h1) is not rendered there.
+  const searchName = useMemo(
+    () => describeSearch({ filters, tax, taxLabels, facets, t, lang, currency, rates }),
+    [filters, tax, taxLabels, facets, t, lang, currency, rates]
+  );
+
   const saveThis = useCallback(() => {
-    const name = describeSearch({ filters, tax, taxLabels, facets, t, lang, currency, rates });
-    saveSearch({ name, query, total: result.total });
-    toast.success(t("searchSavedToast"), { description: name });
-  }, [filters, tax, taxLabels, facets, t, lang, currency, rates, query, result.total, saveSearch]);
+    saveSearch({ name: searchName, query, total: result.total });
+    toast.success(t("searchSavedToast"), { description: searchName });
+  }, [searchName, query, result.total, saveSearch, t]);
 
   // Any narrowing at all earns the red dot on the floating bar - and hides the hero.
   const anyFilterActive = !!query;
@@ -525,6 +531,17 @@ export default function SearchPage() {
       </section>
 
       <main ref={resultsRef} className="mx-auto max-w-[1280px] px-4 pb-12 sm:px-6">
+        {/* A filtered page has no hero, so this is its h1: what the visitor is looking at,
+            in words, plus how many there are. It sits ABOVE the grid so it is the first
+            heading in the document, before the filter widgets in the sidebar. */}
+        {!isHome && (
+          <h1
+            data-testid="results-heading"
+            className="mb-3 text-2xl font-semibold leading-tight tracking-tight text-foreground sm:text-3xl"
+          >
+            {`${t("listH1", { what: searchName })} \u2014 ${countLabel}`}
+          </h1>
+        )}
         <div className="lg:grid lg:grid-cols-[320px_1fr] lg:gap-6">
           <aside className="hidden lg:block">
             <div className="sticky top-[80px] pb-4">
@@ -579,6 +596,13 @@ export default function SearchPage() {
                 </SheetContent>
               </Sheet>
 
+              <h2
+                data-testid="results-section-heading"
+                className="text-base font-semibold text-foreground md:text-lg"
+              >
+                {t("resultsHeading")}
+              </h2>
+
               <div
                 data-testid="result-count"
                 aria-live="polite"
@@ -590,7 +614,9 @@ export default function SearchPage() {
                     aria-hidden="true"
                   />
                 )}
-                {countLabel}
+                {/* The count is already in the h1 on a filtered page, so it is kept for
+                    screen readers and the live region rather than printed twice. */}
+                <span className={isHome ? "" : "sr-only"}>{countLabel}</span>
               </div>
 
               <div className="ml-auto flex items-center gap-2">

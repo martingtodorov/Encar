@@ -23,7 +23,9 @@ export const TrustStrip = () => {
               <Icon className="h-[17px] w-[17px] text-[hsl(var(--primary))] sm:h-[18px] sm:w-[18px]" aria-hidden="true" />
             </span>
             <div className="min-w-0">
-              <h3 className="text-[14.5px] font-semibold text-foreground sm:text-[15px]">{title}</h3>
+              {/* Directly under the hero h1, so these are h2 - the size is set by the
+                  classes, not by the tag. */}
+              <h2 className="text-[14.5px] font-semibold text-foreground sm:text-[15px]">{title}</h2>
               <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground sm:mt-1 sm:text-sm sm:leading-relaxed">
                 {body}
               </p>

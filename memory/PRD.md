@@ -961,3 +961,113 @@ running that test.
 - Test credentials: `/app/memory/test_credentials.md`
 - Implementation log: `/app/memory/CHANGELOG.md`
 - Test reports: `/app/test_reports/iteration_1.json` … `iteration_12.json`
+
+## 2026-06 — Google sign-in, the page/SEO editor, headings, tracking inference
+### Google sign-in (Emergent-managed OAuth)
+`auth.google_session` (`POST /api/auth/google/session`). The button on the login page sends the
+buyer to `https://auth.emergentagent.com/?redirect=<window.location.origin + /{lang}>` — the
+redirect is built from the BROWSER's own origin, never hardcoded and with no fallback, so the
+same build works on the preview domain and on encareurope.com. The one-time `session_id` comes
+back in the URL FRAGMENT; `App.AppRouter` checks `useLocation().hash` DURING RENDER (not in an
+effect) and hands over to `pages/AuthCallback.js`, which spends the id once (a `useRef` guard,
+not state) and navigates away, which is also what drops the fragment — `history.replaceState`
+would not re-render the router. `AuthContext` skips its `/auth/me` probe while a `session_id`
+hash is present, otherwise it races the exchange and 401s.
+The exchange with `demobackend.emergentagent.com/auth/v1/env/oauth/session-data` happens SERVER
+side, so the provider token never reaches the browser, and the account is then given one of OUR
+OWN sessions (`_start_session`): same HttpOnly cookie, same active-devices list, same instant
+revocation. An existing email is LINKED (no second account); a new one is created with no
+password_hash and `google_id`/`picture`. TOTP is still enforced — the endpoint answers
+`mfa_required` + `pending_id` and the callback navigates to the login page with the ticket in
+navigation state, where the existing 2FA form picks it up.
+### Owner-editable pages, SEO and company details (`backend/cms.py`, `admin/AdminPages.js`)
+Admin -> **Pages & SEO**. Everything is an OVERRIDE: `site_pages` (`_id = "{slug}|{lang}"`) and
+`site_settings._id = "company"`; an empty field falls back to the copy that ships in the
+frontend, and `DELETE /admin/cms/page/{slug}/{lang}` puts the built-in text back. Eight slugs
+(home, how-it-works, faq, fees, contact, terms, privacy, cookies) x bg/ro/en carry
+`seo_title` + `seo_description`; the seven content pages also carry a RAW HTML body (the owner's
+explicit choice) and `home` carries the hero headline/sub-headline instead.
+* Public: `GET /cms/site?lang=` (company + every SEO override + hero, 15s in-process cache) and
+  `GET /cms/page/{slug}?lang=`. Admin: GET/PUT/DELETE per page, `POST .../translate?source=bg`,
+  GET/PUT `/admin/cms/company`.
+* `cms.sanitise` strips `<script|style|iframe|object|embed|form|link|meta>`, every `on*=`
+  handler and `javascript:` URLs on save AND on read. The author is the owner, so this is not a
+  defence against a hostile author — it stops a pasted tracking snippet reaching visitors.
+* The editor carries a Google SERP preview and 60/155 counters that turn red, a "Load the
+  built-in text" button that serialises the existing structured copy to HTML (built in the
+  FRONTEND, where that content lives, so nothing is duplicated on the server), and a preview
+  toggle rendering `.cms-html`.
+* `.cms-html` in `index.css` gives h1/h2/h3/p/ul/table/img their typography, because raw tags
+  cannot carry Tailwind classes.
+* `content/legal.js` and `content/help.js` now build their documents in a `build()` called
+  through a cache keyed on `JSON.stringify(COMPANY)`, instead of at import time — the company
+  details are editable at runtime and those documents quote them. `content/company.setCompany`
+  mutates the object in place; `AppContext` calls it with whatever `/cms/site` returns.
+* Translation: the owner writes Bulgarian and `POST /admin/cms/page/{slug}/translate` writes RO
+  and EN. The prompt keeps every tag, attribute and URL and translates only the text between
+  them. **Claude first, Gemini as the standby** — see the next section.
+* MISTAKE TO LEARN FROM: `translate._extract_json` ALREADY returns a parsed dict. Wrapping it in
+  `json.loads` again cost one debugging round ("the translation came back in an unexpected
+  shape"). Also: I overwrote the owner's own home/bg record while verifying, and had to
+  reconstruct it from their RO/EN translations. NEVER PUT to a CMS slug the owner may have
+  edited — write to a throwaway slug or read the record first.
+### THE OWNER'S ANTHROPIC KEY IS INVALID (2026-06)
+`ANTHROPIC_API_KEY` in backend/.env answers **401 "API key is invalid"**. Every Claude path is
+therefore dead right now: taxonomy warming, the dealer-description stream and (before the
+fallback) the CMS translation. `GEMINI_API_KEY` works and was verified. `cms._translate_doc`
+tries Claude, logs, then falls back to Gemini with `responseMimeType: application/json`.
+`translate.py` was NOT changed — its Gemini branch is an `elif` that only fires when the
+Anthropic key is ABSENT, so an invalid-but-present key still breaks it. If the owner cannot
+replace the key, that `elif` has to become a real fallback.
+### The editable copy no longer flashes (`lib/cmsCache.js`)
+The owner's report: on refresh the built-in headline showed for a split second before theirs
+loaded. An API answer cannot arrive before the first paint, so the payload is now mirrored in
+localStorage (`encar.cms.site` per language, `encar.cms.pages` per slug|lang) and React's state
+is SEEDED from it, with the fetch only correcting it afterwards. Verified: on a refresh the very
+first paint already carries the owner's h1. A brand-new visitor with an empty cache still sees
+the built-in text for that one paint — the only real cure for that is server-side rendering.
+### Heading hierarchy (owner asked, all three approved and done)
+* Filtered result pages had **no h1 at all** (the hero, and with it the only h1, is home-only).
+  `SearchPage` now renders `data-testid="results-heading"` — `{describeSearch()} от Корея —
+  {count}` (new i18n keys `listH1`, `resultsHeading`) — ABOVE the grid, so it is the first
+  heading in the document, before Radix's own accordion `h3`s in the filter sidebar.
+* The car page's h1 lived in a `hidden lg:flex` block, so the MOBILE dom had no h1 at all and
+  Google crawls mobile-first. The title is now in the DOM at every width, `sr-only` below `lg`
+  (the visible mobile title is the sticky bar's), and only the price/save block is hidden.
+  Verified: exactly ONE h1 at 414px.
+* h1 -> h3 skips closed: `TrustStrip` cards are h2 (directly under the hero h1) and the results
+  list carries an h2 ("Резултати"); the count label is `sr-only` on filtered pages because the
+  h1 already prints it. Outline now reads H1 -> H2 -> H2 -> H2 -> H3 on home.
+### Tracking: a confirmed event proves the earlier ones (owner's report)
+"Предаден за доставка 06.08" (actual) was printing ABOVE "Готов за доставка 01.08 ПРОГНОЗА" and
+"Освободен от митницата 05.08 ПРОГНОЗА" — a box out for delivery has obviously cleared customs.
+`tracking._view` now takes the LATEST confirmed event and clears the `estimated` flag on every
+milestone dated before it, reported or derived by us. Only genuinely future steps keep the
+forecast badge and the dashed marker. Verified with a synthetic timeline and in the browser on
+B/L 271191199: four solid steps, "Доставка 12.08" the only forecast left.
+### Leaflet sat on top of the header
+Leaflet gives its panes and controls z-index 400-1000, the site header is z-40, so the map
+covered the nav on scroll. The map wrapper in `VesselMap` is now `relative isolate z-0`: one
+stacking context of our own, Leaflet's internal ordering untouched. Verified with
+`elementFromPoint` at y=30 — the header link wins.
+### Domain cleanup
+Leftover Auto&Bid references that a visitor or Google could see are gone: `content/company.js`
+(email `contact@encareurope.com`, site `encareurope.com`), `lib/seo.SITE_NAME` and the home
+JSON-LD Organization/WebSite name are "Encar Europe", and the service worker's push title/tag.
+The registered company name and ЕИК are unchanged (that is the real legal entity), and
+`~/.ssh/autoandbid_root` in the deploy notes is the owner's own key file name.
+### Taxonomy: Cayenne
+`카이엔 (PO536)` (525 cars) READS "Cayenne" — a RENAME ONLY at the owner's choice, so
+`뉴 카이엔` ("Cayenne (2011-2018)") and `카이엔` ("Cayenne (2004-2010)") remain separate and the
+slug stays `cayenne-po536`. A manual label skips `curate.model_label`, which is why this entry
+alone carries no year span.
+### Email
+`SENDER_EMAIL` and `ADMIN_NOTIFY_EMAIL` are both `contact@encareurope.com`, so `mailer._send`
+no longer redirects buyer mail to the owner. STILL BLOCKED ON ONE DNS RECORD: the Resend domain
+is `pending` — SPF verified, **DKIM not**. The owner must add TXT `resend._domainkey` (value in
+the earlier section of this file / readable from `GET https://api.resend.com/domains`), DNS-only
+if it is on Cloudflare. No code change is needed once it flips.
+### Test report
+`/app/test_reports/iteration_30.json` — 14/14 backend checks plus the Playwright pass on the
+Google button/callback and the whole CMS editor. `retest_needed: false`.
+

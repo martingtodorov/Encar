@@ -362,21 +362,22 @@ export default function CarDetailPage() {
               </div>
             )}
 
-            {/* Title, price and save live in the persistent bar on mobile, so this block
-                would only repeat them. */}
-            <div className="hidden flex-wrap items-start justify-between gap-4 lg:flex">
+            {/* Price and save live in the persistent bar on mobile, so they would only
+                repeat here. The TITLE stays in the DOM at every width though — it is the
+                page's only h1, and Google crawls the mobile layout. */}
+            <div className="flex-wrap items-start justify-between gap-4 lg:flex">
               <div className="min-w-0">
                 <h1
                   data-testid="detail-title"
-                  className="text-2xl font-semibold leading-tight text-foreground sm:text-3xl"
+                  className="sr-only text-2xl font-semibold leading-tight text-foreground sm:text-3xl lg:not-sr-only"
                 >
                   {stripGenerationYears(car.title)}
                 </h1>
-                <p className="mt-1 text-[14px] text-muted-foreground">
+                <p className="mt-1 hidden text-[14px] text-muted-foreground lg:block">
                   {[car.grade, car.badge_detail].filter(Boolean).join(" \u00b7 ")}
                 </p>
               </div>
-              <div className="flex shrink-0 items-center gap-3">
+              <div className="hidden shrink-0 items-center gap-3 lg:flex">
                 <div className="text-right">
                   <div className="flex items-center justify-end gap-1.5">
                     <div
