@@ -200,6 +200,47 @@ async def push_test(body: TestBody, user=Depends(auth.current_user)):
 
 
 # ── GDPR erasure ─────────────────────────────────────────────────────────────
+@router.get("/account/export")
+async def export_account(user=Depends(auth.current_user)):
+    """Everything we hold about this person, in one machine-readable file.
+
+    GDPR Art. 15 (access) and Art. 20 (portability) in one download. Secrets are the ONE thing
+    left out: the password hash, the TOTP seed, recovery-code hashes and public keys are
+    credentials, not personal data the buyer needs a copy of, and handing them over would only
+    make an exported file worth stealing.
+    """
+    uid = user["_id"]
+    secrets_out = ("password_hash", "totp", "recovery_codes", "webauthn_user_id")
+    account = {k: v for k, v in user.items() if k not in secrets_out}
+    account["id"] = account.pop("_id", uid)
+
+    async def rows(collection, query, drop=()):
+        out = []
+        async for doc in _db[collection].find(query):
+            doc["id"] = doc.pop("_id", None)
+            for k in drop:
+                doc.pop(k, None)
+            out.append(doc)
+        return out
+
+    return {
+        "generated_at": datetime.now(timezone.utc),
+        "about": "Every record held about your account. Ask us at any time for an explanation "
+                 "of a field: see the privacy policy for what each one is used for.",
+        "account": account,
+        "deposits": await rows("deposits", {"user_id": uid}),
+        "enquiries": await rows("enquiries", {"$or": [{"user_id": uid},
+                                                     {"email": user.get("email")}]}),
+        "shipments": await rows("shipments", {"user_id": uid}),
+        # The token hash is what makes a session usable; the device details are the useful part.
+        "sessions": await rows("sessions", {"user_id": uid}, drop=("token_hash",)),
+        "push_devices": await rows("push_subscriptions", {"user_id": uid},
+                                   drop=("subscription",)),
+        "price_alerts": await rows("price_watch", {"user_id": uid}),
+        "saved_search_alerts": await rows("search_watch", {"user_id": uid}),
+    }
+
+
 @router.delete("/account")
 async def delete_account(body: DeleteAccountBody, request: Request, response: Response,
                          user=Depends(auth.current_user)):

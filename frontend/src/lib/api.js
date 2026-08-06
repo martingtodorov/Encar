@@ -199,6 +199,11 @@ export async function getHealth() {
 }
 
 // ── admin ──────────────────────────────────────────────────────────────────
+export async function getConsentLog() {
+  const { data } = await http.get("/admin/consent");
+  return data;
+}
+
 export async function getAuditLog() {
   const { data } = await http.get("/admin/audit");
   return data.items;

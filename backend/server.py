@@ -2360,6 +2360,41 @@ async def admin_shipment_refresh(ref: str, request: Request, by: str = "containe
         raise HTTPException(502, str(e))
 
 
+@api.get("/admin/consent")
+async def admin_consent(request: Request, x_admin_token: str = Header(default="")):
+    """Who agreed to what, and when — the proof an inspector asks for.
+
+    Only signed-in customers can be listed: a guest's decision lives in a cookie on their own
+    machine and is never sent to us unless they have an account to attach it to. Accounts that
+    have never decided are listed too, with no categories, because "not asked yet" is itself an
+    answer an inspector will want to see.
+    """
+    await _require_admin(request, x_admin_token)
+    rows = [u async for u in db.users.find(
+        {}, {"email": 1, "consent": 1, "consent_record": 1, "created_at": 1}
+    ).sort("created_at", -1).limit(500)]
+
+    out = []
+    for u in rows:
+        rec = u.get("consent_record") or {}
+        cats = rec.get("cats") or {}
+        out.append({
+            "email": u.get("email") or "",
+            "summary": u.get("consent") or "",
+            "version": rec.get("v") or "",
+            "categories": [k for k, v in cats.items() if v],
+            "decided_at": rec.get("ts") or "",
+            "recorded_at": rec.get("recorded_at"),
+            "joined_at": u.get("created_at"),
+            "has_record": bool(rec),
+        })
+    # Whoever decided most recently first; accounts that never decided sink to the bottom.
+    out.sort(key=lambda r: (r["has_record"], str(r["recorded_at"] or r["decided_at"] or "")),
+             reverse=True)
+    return {"items": out, "with_record": sum(1 for r in out if r["has_record"]),
+            "total": len(out)}
+
+
 @api.get("/admin/buyers")
 async def admin_buyers(request: Request, x_admin_token: str = Header(default="")):
     """What each customer is actually shopping for.
@@ -2554,8 +2589,11 @@ async def admin_user_delete(email: str, request: Request,
     user = await db.users.find_one({"email": email}, {"_id": 1})
     if not user:
         raise HTTPException(404, "no such customer")
-    live = await db.purchases.count_documents(
-        {"user_id": user["_id"], "refunded": {"$ne": True}})
+    # A deposit is money still held while its payment_status is "paid"; the refund writes
+    # "refunded". The old query looked for a `refunded` flag in a `purchases` collection that
+    # does not exist, so this guard never actually fired.
+    live = await db.deposits.count_documents(
+        {"user_id": user["_id"], "payment_status": "paid"})
     if live:
         raise HTTPException(
             400, f"this customer has {live} deposit(s) that are not refunded — refund first")

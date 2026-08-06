@@ -28,6 +28,12 @@ const NOTIFY = {
       "Използваме телефона ви само за фактуриране и когато трябва да се свържем с вас за вече сключена сделка. Препоръчителен международен формат (+359…).",
     phoneLabel: "ТЕЛЕФОН",
     save: "Запази",
+    exportTitle: "Изтегли моите данни (GDPR)",
+    exportBlurb:
+      "Правото ти на достъп и на преносимост. Сваля файл с всичко, което пазим за твоя акаунт: профил, адрес, любими коли, запазени търсения, запитвания, депозити, пратки, устройства и записа на съгласието ти. Не включваме пароли и ключове за двуфакторна защита — това са идентификационни данни, не твои лични данни.",
+    exportButton: "Изтегли файла",
+    exportBusy: "Подготвяме файла…",
+    exportDone: "Файлът е изтеглен",
     deleteTitle: "Изтриване на акаунт (GDPR)",
     deleteBlurb:
       "Правото ви на изтриване по GDPR. Премахваме вашите любими коли, запазени търсения, запитвания, устройства и сесии. Платените депозити остават в счетоводството като анонимизирани записи, защото са запис за реално движение на пари.",
@@ -62,6 +68,12 @@ const NOTIFY = {
       "Folosim telefonul doar pentru facturare și când trebuie să te contactăm despre o tranzacție deja încheiată. Format internațional recomandat (+40…).",
     phoneLabel: "TELEFON",
     save: "Salvează",
+    exportTitle: "Descarcă datele mele (GDPR)",
+    exportBlurb:
+      "Dreptul tău de acces și la portabilitate. Descarcă un fișier cu tot ce păstrăm despre contul tău: cont, adresă, mașini favorite, căutări salvate, cereri, depozite, transporturi, dispozitive și înregistrarea consimțământului. Nu includem parolele și cheile de autentificare în doi pași — acestea sunt credențiale, nu datele tale personale.",
+    exportButton: "Descarcă fișierul",
+    exportBusy: "Pregătim fișierul…",
+    exportDone: "Fișierul a fost descărcat",
     deleteTitle: "Ștergerea contului (GDPR)",
     deleteBlurb:
       "Dreptul tău la ștergere conform GDPR. Eliminăm automobilele favorite, căutările salvate, întrebările, dispozitivele și sesiunile. Depozitele plătite rămân în contabilitate ca înregistrări anonimizate, fiind dovada unor bani care s-au mișcat efectiv.",
@@ -96,6 +108,12 @@ const NOTIFY = {
       "We use your phone only for invoicing and when we need to reach you about a deal already agreed. International format is best (+359…).",
     phoneLabel: "PHONE",
     save: "Save",
+    exportTitle: "Download my data (GDPR)",
+    exportBlurb:
+      "Your right of access and to portability. Downloads a file with everything we hold about your account: profile, address, favourite cars, saved searches, enquiries, deposits, shipments, devices and your consent record. Passwords and two-factor keys are left out — those are credentials, not personal data.",
+    exportButton: "Download the file",
+    exportBusy: "Building the file…",
+    exportDone: "The file has been downloaded",
     deleteTitle: "Delete my account (GDPR)",
     deleteBlurb:
       "Your right to erasure under GDPR. We remove your favourite cars, saved searches, enquiries, devices and sessions. Paid deposits stay in the books as anonymised records, because they are the record of money that actually moved.",

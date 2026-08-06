@@ -11,7 +11,7 @@ export const COMPANY = {
   eik: "208833206",
   email: "contact@encareurope.com",
   phone: "+359 88 671 7074",
-  address: "гр. София, район Витоша, ул. „Бяла река“ 12, бл. 10, ап. 3, България",
+  address: "гр. София 1766, район Витоша, ул. „Бяла река“ 12, бл. 10, ап. 3, България",
   vat: "",
   site: "encareurope.com",
 };

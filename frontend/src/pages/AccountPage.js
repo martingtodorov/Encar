@@ -11,6 +11,7 @@ import { useSeo } from "@/lib/seo";
 import { AccountShipments } from "@/components/AccountShipments";
 import { NotificationsPanel } from "@/components/NotificationsPanel";
 import { PhonePanel } from "@/components/PhonePanel";
+import { DataExportPanel } from "@/components/DataExportPanel";
 import { DeleteAccountPanel } from "@/components/DeleteAccountPanel";
 import { TwoFactorPanel } from "@/components/TwoFactorPanel";
 import { PasswordPanel } from "@/components/PasswordPanel";
@@ -221,6 +222,7 @@ export default function AccountPage() {
           </Button>
         </section>
 
+        <DataExportPanel />
         <DeleteAccountPanel />
 
         <Button
