@@ -223,6 +223,7 @@ def _public(user, passkeys=0):
         "is_admin": bool(user.get("is_admin")),
         "billing": user.get("billing") or {},
         "consent": user.get("consent") or "",
+        "consent_record": user.get("consent_record") or {},
         "twofa": bool((user.get("totp") or {}).get("enabled")),
         "recovery_codes_left": sum(
             1 for c in (user.get("recovery_codes") or []) if not c.get("used")),
@@ -635,6 +636,9 @@ class TasteIn(BaseModel):
     samples: list[list[float]] = []
     events: int = 0
     consent: str = ""
+    # The full decision, so we can show WHAT was agreed and WHEN (ePrivacy/GDPR proof of
+    # consent): {"v": policy version, "ts": ISO timestamp, "cats": {category: bool}}.
+    consent_record: dict = {}
 
 
 @router.post("/auth/taste")
@@ -654,8 +658,18 @@ async def put_taste(body: TasteIn, user=Depends(current_user)):
         "updated_at": _now(),
     }
     update = {"taste": taste}
-    if body.consent in ("all", "necessary"):
-        update["consent"] = body.consent
+    if body.consent:
+        update["consent"] = str(body.consent)[:64]
+    rec = body.consent_record or {}
+    if isinstance(rec.get("cats"), dict):
+        # Stored as sent by the browser, plus the moment WE saw it, so the record cannot be
+        # backdated by a client.
+        update["consent_record"] = {
+            "v": str(rec.get("v") or "")[:32],
+            "ts": str(rec.get("ts") or "")[:40],
+            "cats": {str(k)[:32]: bool(v) for k, v in list(rec["cats"].items())[:10]},
+            "recorded_at": _now(),
+        }
     await _db.users.update_one({"_id": user["_id"]}, {"$set": update})
     return {"saved": True}
 

@@ -203,7 +203,8 @@ export function AuthProvider({ children }) {
     // and the session cookie is httpOnly so it cannot check for itself.
     markSignedIn(!!user);
     // Consent recorded on the account means we do not ask again on a new device.
-    if (user?.consent && !getConsent()) setConsent(user.consent);
+    if (user?.consent_record?.cats) setConsent(user.consent_record);
+    else if (user?.consent && !getConsent()) setConsent(user.consent);
   }, [user]);
 
   const value = useMemo(

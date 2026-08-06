@@ -1,0 +1,81 @@
+{
+  "summary": "Independently verified the ePrivacy prior-consent implementation end-to-end across BG/RO/EN. Every requirement in the review pack passes: no non-essential storage before a decision, no tracker requests to posthog/googletagmanager/google-analytics/doubleclick/facebook at any point pre-consent, banner + category panel + footer withdrawal all correct, ab_consent record decodes to {v,ts,cats}, ab_taste/ab_vid appear only after personalisation is accepted and are deleted on withdrawal, policy pages contain the required company facts and cookie table, signed-in consent record persists on the account and is returned by /api/auth/me, personalised shelf degrades gracefully on refusal with no console errors. Service worker only registers on explicit push opt-in gesture — safe by default. localStorage only holds allowed encar.* keys.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "detailed_checks": {
+    "prior_consent_fresh_visit": {
+      "banner_shows": true,
+      "cookies_before_decision": ["cf_clearance", "__cf_bm"],
+      "cookies_after_car_page_no_decision": ["cf_clearance", "__cf_bm"],
+      "cookies_after_track_page_no_decision": ["cf_clearance", "__cf_bm"],
+      "tracker_network_requests": []
+    },
+    "banner_i18n": {
+      "bg": {"decline": "Отказвам всички", "settings": "Настройки", "accept": "Приемам всички", "policy_link": "Бисквитки", "privacy_link": "Поверителност"},
+      "ro": {"decline": "Refuz toate", "settings": "Setări", "accept": "Accept toate"},
+      "en": {"decline": "Reject all", "settings": "Settings", "accept": "Accept all"},
+      "raw_i18n_keys_leaking": false
+    },
+    "category_toggles": {
+      "panel_appears": true,
+      "personalisation_default": "unchecked",
+      "statistics_default": "unchecked",
+      "necessary_badge": "Винаги включени"
+    },
+    "personalisation_flow": {
+      "cookies_after_accept_and_car_detail": ["cf_clearance", "__cf_bm", "ab_consent", "ab_taste", "ab_vid"],
+      "ab_consent_decoded": {"v": "2026-06-08", "cats": {"personalisation": true, "statistics": true}}
+    },
+    "reject_all": {
+      "personalisation_leaks_after_reject_and_browsing": [],
+      "site_still_functional": true
+    },
+    "withdrawal_flow": {
+      "footer_cookie_settings_present": true,
+      "settings_reopens_with_current_state": true,
+      "toggle_reflects_prior_choice": "checked",
+      "ab_taste_deleted_after_toggle_off": true,
+      "ab_vid_deleted_after_toggle_off": true
+    },
+    "persistence": {"banner_reappears_on_reload_after_decision": false},
+    "signed_in_consent_record": {
+      "auth_me_carries_consent": "personalisation+statistics",
+      "auth_me_carries_consent_record": {"v": "2026-06-08", "cats": {"personalisation": true, "statistics": true}, "recorded_at": "server-side"}
+    },
+    "policy_pages": {
+      "all_langs_have_company": true,
+      "all_langs_have_EIK_208833206": true,
+      "all_langs_have_phone_+359886717074": true,
+      "all_langs_have_contact_email": true,
+      "all_langs_have_sofia_address": true,
+      "cookies_pages_list_encar_session_ab_consent_ab_taste_ab_vid_ab_track": true,
+      "template_artefacts_${_or_undefined": false
+    },
+    "no_regression": {
+      "picked_for_you_shelf_after_reject": "visible with popular cars fallback",
+      "console_errors_after_reject_browsing": []
+    },
+    "extra_storage_paths_checked": {
+      "service_worker_auto_registered": false,
+      "push_subscription_created_without_gesture": false,
+      "localStorage_keys_on_fresh_site": ["encar.currency", "encar.lang", "encar.theme", "encar.cms.site"],
+      "posthog_snippet_in_index_html": false
+    }
+  },
+  "test_report_links": ["/tmp/test_consent_api.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "consent.js is the single write gate; taste.record() and TrackPage/CarDetailPage all check allows() before writing — implementation is correctly centralised.",
+    "AuthContext adopts server-side consent_record on login so a new device is not re-asked (verified via API round-trip).",
+    "PostHog inline snippet removed from index.html as claimed — confirmed no tracker requests fire before consent.",
+    "Service worker registers only inside enablePush() which requires a user gesture; safe default. No push subscription is created without explicit opt-in."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! (used for backend consent-record round-trip)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The cookie-row test-ids: cookie-bar, cookie-decline, cookie-settings, cookie-accept, cookie-save, cookie-bar-policy, cookie-bar-privacy, cookie-categories, cookie-cat-necessary, cookie-toggle-personalisation, cookie-toggle-statistics, footer-cookie-settings. Car rows on desktop expose data-testid=car-row but are NOT plain <a> elements — the anchor's href is empty in some cases; use element.click() to navigate rather than href extraction. /api/auth/me wraps the user under .user (data['user']['consent'], data['user']['consent_record']).",
+  "rca_of_the_issue": "n/a — no issues found."
+}

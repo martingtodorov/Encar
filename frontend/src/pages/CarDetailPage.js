@@ -34,6 +34,7 @@ import { useLangNav } from "@/hooks/useLangNav";
 import { getCar, warmCar, forgetCar, countView } from "@/lib/api";
 import { noteView, WEIGHT } from "@/lib/taste";
 import { setBackScroll } from "@/lib/backScroll";
+import { allows } from "@/lib/consent";
 import Lightbox from "@/components/Lightbox";
 import BodyDiagram from "@/components/BodyDiagram";
 import MechChecks from "@/components/MechChecks";
@@ -144,7 +145,9 @@ export default function CarDetailPage() {
           if (cancelled) return;
           setCar(d);
           noteView(d);
-          countView(id);
+          // How often an ad is opened feeds the "popular cars" ranking - statistics, so it
+          // waits for that consent.
+          if (allows("statistics")) countView(id);
           // Per-car freeform text (dealer branch, address, plate) is translated in the
           // background so the page renders immediately; pick it up when it lands. The
           // diagnosis comment can take the LLM a while, so we wait it out rather than

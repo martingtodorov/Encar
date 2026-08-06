@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
 import { useLangNav } from "@/hooks/useLangNav";
 import { COMPANY, FOOTER_COLUMNS } from "@/content/company";
+import { openCookieSettings } from "@/components/CookieBar";
 
 /** Who we are, and every page on the site in three columns. On every page. */
 export const SiteFooter = () => {
@@ -85,8 +86,19 @@ export const SiteFooter = () => {
       </div>
 
       <div className="border-t border-border">
-        <div className="mx-auto max-w-[1280px] px-4 py-3.5 text-[12px] text-muted-foreground sm:px-6">
-          © {new Date().getFullYear()} {co.name}. {t("footerRights")}
+        <div className="mx-auto flex max-w-[1280px] flex-wrap items-center justify-between gap-2 px-4 py-3.5 text-[12px] text-muted-foreground sm:px-6">
+          <span>
+            © {new Date().getFullYear()} {co.name}. {t("footerRights")}
+          </span>
+          {/* Withdrawing consent has to be as easy as giving it, so it lives on every page. */}
+          <button
+            type="button"
+            data-testid="footer-cookie-settings"
+            onClick={openCookieSettings}
+            className="font-medium text-foreground transition-colors hover:text-primary hover:underline"
+          >
+            {t("cookieManage")}
+          </button>
         </div>
       </div>
     </footer>

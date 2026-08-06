@@ -19,6 +19,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useSeo } from "@/lib/seo";
 import { carTitle, formatMileage, formatMoney, formatYearMonth } from "@/lib/format";
 import { readJsonCookie, writeJsonCookie } from "@/lib/cookies";
+import { allows } from "@/lib/consent";
 import {
   getListingsByIds,
   getTrackedShipments,
@@ -191,7 +192,9 @@ export default function TrackPage() {
         setRecent((prev) => {
           const item = { ref: r.toUpperCase(), by: mode };
           const next = [item, ...prev.filter((x) => x.ref !== item.ref)].slice(0, 6);
-          writeJsonCookie(RECENT_COOKIE, next, 90);
+          // Remembering what the visitor looked up is a convenience, not a necessity,
+          // so it only lands on their device once they have agreed to that category.
+          if (allows("personalisation")) writeJsonCookie(RECENT_COOKIE, next, 90);
           return next;
         });
       }
@@ -210,7 +213,7 @@ export default function TrackPage() {
   const forget = (r) =>
     setRecent((prev) => {
       const next = prev.filter((x) => x.ref !== r);
-      writeJsonCookie(RECENT_COOKIE, next, 90);
+      if (allows("personalisation")) writeJsonCookie(RECENT_COOKIE, next, 90);
       return next;
     });
 

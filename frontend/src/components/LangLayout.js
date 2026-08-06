@@ -6,6 +6,8 @@ import { ScrollToTop } from "@/components/ScrollToTop";
 import { SiteFooter } from "@/components/SiteFooter";
 import { LANGS } from "@/i18n";
 import { stripLang } from "@/lib/seo";
+import { allows, onConsentChange } from "@/lib/consent";
+import { syncAnalytics } from "@/lib/analytics";
 
 const CODES = LANGS.map((l) => l.code);
 
@@ -25,6 +27,13 @@ export const LangLayout = () => {
   useEffect(() => {
     if (valid && urlLang !== lang) setLang(urlLang);
   }, [valid, urlLang, lang, setLang]);
+
+  // Third-party statistics follow the decision, in both directions: nothing loads before a
+  // yes, and a withdrawal switches the consent signal back to denied.
+  useEffect(() => {
+    syncAnalytics(allows("statistics"));
+    return onConsentChange(() => syncAnalytics(allows("statistics")));
+  }, []);
 
   if (!valid) return <LangRedirect />;
   return (

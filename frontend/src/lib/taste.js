@@ -18,11 +18,11 @@
  * follows them between devices — and so the operator can see what a buyer is after.
  */
 import http from "@/lib/api";
-import { dropCookie, readCookie, readJsonCookie, writeCookie, writeJsonCookie } from "@/lib/cookies";
+import { allows, record as consentRecord, save as saveConsent, summary } from "@/lib/consent";
+import { readCookie, readJsonCookie, writeCookie, writeJsonCookie } from "@/lib/cookies";
 
 const VID = "ab_vid";
 const TASTE = "ab_taste";
-const CONSENT = "ab_consent";
 const SIGNED = "ab_signed";      // set by AuthContext; a cookie would be httpOnly and unreadable
 
 const DAYS = 90;
@@ -36,16 +36,18 @@ export const WEIGHT = { search: 2, view: 1, dwell: 2, favourite: 4 };
 const EMPTY = { makes: {}, models: {}, fuels: {}, samples: [], events: 0 };
 
 export function getConsent() {
-  return readCookie(CONSENT) || "";
+  return summary();
 }
 
-/** "all" enables the preference cookies; anything else refuses them and clears the profile. */
+/** Adopt a decision recorded on the account, so a new device is not asked again. Accepts the
+ *  legacy "all"/"necessary" strings as well as the category record. */
 export function setConsent(value) {
-  writeCookie(CONSENT, value, DAYS);
-  if (value !== "all") {
-    dropCookie(TASTE);
-    dropCookie(VID);
+  if (consentRecord()) return;                 // this device has already decided
+  if (value && typeof value === "object" && value.cats) {
+    saveConsent(value.cats);
+    return;
   }
+  saveConsent(value === "all" ? { personalisation: true, statistics: true } : {});
 }
 
 export function visitorId() {
@@ -103,7 +105,7 @@ function sync(profile) {
 
 function record(signals, weight, sample = null) {
   // No consent, no profiling. This is the single gate: every signal comes through here.
-  if (getConsent() !== "all") return null;
+  if (!allows("personalisation")) return null;
 
   const p = getTaste();
   const next = {
@@ -183,5 +185,10 @@ export function markSignedIn(on) {
 /** Push the consent decision to the account, so a signed-in buyer is asked once, not per device. */
 export function syncConsent() {
   if (localStorage.getItem(SIGNED) !== "1") return;
-  http.post("/auth/taste", { ...getTaste(), consent: getConsent() }).catch(() => {});
+  // The record, not just the summary: we have to be able to show what was agreed and when.
+  http.post("/auth/taste", {
+    ...getTaste(),
+    consent: getConsent(),
+    consent_record: consentRecord() || {},
+  }).catch(() => {});
 }
