@@ -888,7 +888,7 @@ async def recommendations(body: TasteBody, request: Request):
                 "lang": lang, "source": "popular"}
 
     price, price_low, price_high = _centre(body.samples, 0)
-    mileage, _, _ = _centre(body.samples, 1)
+    mileage, mileage_low, mileage_high = _centre(body.samples, 1)
 
     query = build_query({})
     ors = []
@@ -900,17 +900,31 @@ async def recommendations(body: TasteBody, request: Request):
     if body.exclude:
         query["_id"] = {"$nin": [str(x)[:64] for x in body.exclude[:60]]}
     # A generous window around the range they browse, so scoring has room to prefer the
-    # closest ones without hiding a good car just outside it.
+    # closest ones without hiding a good car just outside it. Mileage is windowed too: a
+    # buyer looking at 30,000 km cars is not shopping for a 200,000 km one, and without this
+    # the shelf answered a €90,000 M2 with the cheapest, most worn BMWs in the catalogue.
     if price_low and price_high:
         query["sale_eur"] = {"$gte": price_low * 0.7, "$lte": price_high * 1.4}
+    if mileage_low and mileage_high:
+        query["mileage"] = {"$lte": max(mileage_high * 1.6, 30_000)}
 
     rows = [d async for d in db.listings.find(query).sort(SORTS["newest"]).limit(300)]
+    if len(rows) < limit and ("sale_eur" in query or "mileage" in query):
+        # The window can be genuinely empty (one look at a rare car). Widen once rather than
+        # falling through to the popular shelf, which ignores the profile entirely.
+        query.pop("mileage", None)
+        if price_low and price_high:
+            query["sale_eur"] = {"$gte": price_low * 0.45, "$lte": price_high * 2.2}
+        rows = [d async for d in db.listings.find(query).sort(SORTS["newest"]).limit(300)]
     if not rows:
         return {"items": await _popular_shelf(lang, body.exclude, limit),
                 "lang": lang, "source": "popular"}
 
+    # Variety must not starve the shelf: with a single-make profile every candidate is that
+    # make, and a flat cap of four returned four cars for a request for twelve.
+    per_make = max(4, -(-limit // max(1, len(makes)))) if makes else limit
     best = _space(_spread(_rank_by_taste(rows, makes, models, fuels, price, mileage),
-                          max(1, min(body.limit, 24)), per_model=2, per_make=4))
+                          limit, per_model=max(2, -(-limit // 4)), per_make=per_make))
 
     docs = [d for _, _, d in best]
     await translate_listings(db, docs, lang)

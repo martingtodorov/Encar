@@ -20,18 +20,24 @@ export function describeSearch({ filters, tax, taxLabels, facets, t, lang, curre
   (filters.transmissions || []).forEach((tr) => parts.push(t(tr === "manual" ? "manual" : "auto")));
   (filters.regions || []).forEach((r) => parts.push(label(facets?.regions, r)));
 
-  if (filters.year_min && filters.year_max) parts.push(`${filters.year_min}\u2013${filters.year_max}`);
-  else if (filters.year_min) parts.push(`${filters.year_min}+`);
-  else if (filters.year_max) parts.push(`\u2264 ${filters.year_max}`);
+  // The filter inputs hand us STRINGS, and Number.isFinite("40000") is false, so the
+  // formatters answered with a dash: the heading read "≤ — км · ≤ —" instead of the range
+  // the visitor had just typed. Every bound is coerced before it is formatted.
+  const num = (v) => (v === 0 || (v && String(v).trim() !== "") ? Number(v) : null);
+  const span = (lo, hi, fmt, unit = "") => {
+    const a = num(lo) === null || Number.isNaN(num(lo)) ? "" : fmt(num(lo));
+    const b = num(hi) === null || Number.isNaN(num(hi)) ? "" : fmt(num(hi));
+    if (!a && !b) return "";
+    const core = a && b ? `${a}\u2013${b}` : a ? `${a}+` : `\u2264 ${b}`;
+    return unit ? `${core} ${unit}` : core;
+  };
+  const push = (text) => text && parts.push(text);
 
-  const money = (v) => formatMoney(v, currency, lang, rates);
-  if (filters.price_min && filters.price_max)
-    parts.push(`${money(filters.price_min)}\u2013${money(filters.price_max)}`);
-  else if (filters.price_max) parts.push(`\u2264 ${money(filters.price_max)}`);
-  else if (filters.price_min) parts.push(`\u2265 ${money(filters.price_min)}`);
-
-  if (filters.mileage_max)
-    parts.push(`\u2264 ${formatNumber(filters.mileage_max, lang)} ${t("km")}`);
+  push(span(filters.year_min, filters.year_max, (n) => String(n)));
+  push(span(filters.price_min, filters.price_max,
+            (n) => formatMoney(n, currency, lang, rates)));
+  push(span(filters.mileage_min, filters.mileage_max,
+            (n) => formatNumber(n, lang), t("km")));
 
   if (filters.only_inspection) parts.push(t("onlyInspection"));
   if (filters.only_record) parts.push(t("onlyRecord"));

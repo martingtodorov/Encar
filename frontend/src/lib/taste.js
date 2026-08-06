@@ -157,10 +157,23 @@ export function noteSearch(payload) {
          price || mileage ? { price, mileage } : null);
 }
 
+// The car page and the grid do not speak the same shape: a row carries `sale_eur` and
+// `mileage` at the top level, while the DETAIL payload keeps the price in `quote.suggested_sale`
+// and the mileage in `spec.mileage`. Reading only the row's field is how every price and
+// mileage sample landed as 0 - the profile then had no range at all, so the shelf ranked cars
+// on nothing but the make and answered a €90,000 M2 with a €9,000 E60.
+function priceOf(car) {
+  return Number(car.sale_eur ?? car.quote?.suggested_sale ?? 0) || 0;
+}
+
+function mileageOf(car) {
+  return Number(car.mileage ?? car.spec?.mileage ?? 0) || 0;
+}
+
 function fromCar(car) {
   return {
     signals: { makes: [car.manufacturer], models: [car.model], fuels: [car.fuel_type] },
-    sample: { price: car.sale_eur || 0, mileage: car.mileage || 0 },
+    sample: { price: priceOf(car), mileage: mileageOf(car) },
   };
 }
 

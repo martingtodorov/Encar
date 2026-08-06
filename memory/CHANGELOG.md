@@ -644,3 +644,32 @@ and what it took:
   app — `ANTHROPIC_API_KEY` returns 401 (invalid) and Gemini answers 429 (quota spent), which
   is why untranslated Korean shows up in recommendation payloads.
 - VERIFIED: two consecutive full runs, 183 passed / 3 skipped / 0 failed (~2m40s each).
+
+## 2026-06-06 (evening) — Search heading, "Picked for you", and the owner's privacy policy v1.3
+- FIXED: the results h1 read `≤ 2021 · ≤ — · ≤ — км`. `describeSearch` formatted the filter
+  bounds without coercing them, and the inputs hand over STRINGS - `Number.isFinite("40000")`
+  is false, so the formatters answered with a dash. It also never handled `mileage_min`. One
+  `span()` helper now coerces every bound and renders real ranges; verified live:
+  `≤ 2021 · 50 000 €–200 000 € · 30 000–40 000 км от Корея — 183 автомобила`.
+- FIXED (the real one): "Подбрани за теб" answered a €90,000 BMW M2 with €8–9k E60s, and showed
+  4 cars instead of 12. Two independent causes:
+  1. `taste.fromCar()` read `car.sale_eur` / `car.mileage`, but the CAR DETAIL payload keeps the
+     price in `quote.suggested_sale` and the mileage in `spec.mileage`. Every sample recorded
+     from a car page was therefore [0, 0]: no price range reached the backend, the price window
+     was never applied and the ranking had nothing but the make to go on, so the cheapest,
+     most worn cars of that make won. `YouMightLike` seeded its sample the same wrong way.
+  2. `_spread(..., per_make=4)` capped the shelf at four when every candidate shares one make -
+     which is exactly what a single-brand profile produces. `per_make` now scales with how many
+     makes the profile holds, and `per_model` with the requested size.
+  Also windowed mileage (`<= high * 1.6`) alongside price, with ONE widening retry before
+  falling back to the popular shelf, so a rare car does not empty the shelf.
+  VERIFIED: an M2-class profile (samples [[90000, 30000, 5]]) now returns 12 cars, all
+  €73k–99k and 20k–34k km (X5/X7/M3/7 Series/i7), instead of four €9k saloons.
+- The owner's own Privacy policy v1.3 is now the BG document in `content/legal.js`, reproduced
+  as they settled it (18 sections, MOL, CPDP contact details). The "Бележка / Notă / Note"
+  disclaimer about a lawyer not having reviewed the text is REMOVED from every document in all
+  three languages, at their request.
+- RO and EN privacy deliberately still carry `Versiunea 1.1` / `Version 1.1`: they are still the
+  previous text, and stamping a translation with a version it does not contain is the one lie a
+  legal page cannot tell. Awaiting the owner's decision on translating v1.3 (the LLM providers
+  are down, so it would be a hand translation).

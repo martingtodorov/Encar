@@ -23,7 +23,11 @@ export const YouMightLike = ({ car, excludeId, onOpen }) => {
   const [items, setItems] = useState([]);
   const strip = useRef(null);
 
-  const { manufacturer, model, fuel_type: fuel, sale_eur: price, mileage } = car || {};
+  const { manufacturer, model, fuel_type: fuel } = car || {};
+  // The detail payload keeps the price under `quote` and the mileage under `spec`; without
+  // these the seed sample was [0, 0] and the shelf had no price range to aim at.
+  const price = car?.sale_eur ?? car?.quote?.suggested_sale ?? 0;
+  const mileage = car?.mileage ?? car?.spec?.mileage ?? 0;
 
   useEffect(() => {
     if (!manufacturer) return undefined;
