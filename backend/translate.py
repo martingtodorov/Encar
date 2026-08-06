@@ -33,6 +33,10 @@ MODEL = ("gemini", "gemini-3-flash-preview")
 FATAL_MARKERS = ("budget has been exceeded", "insufficient_quota",
                  "insufficient balance", "api key not valid", "api_key_invalid",
                  "invalid api key", "unauthorized", "permission_denied",
+                 # Anthropic answers a dead key with "API key is invalid." and
+                 # authentication_error, neither of which matched the wordings above, so a
+                 # dead key burned the whole retry ladder on every single call.
+                 "api key is invalid", "authentication_error", "invalid_api_key",
                  "limit: 0")
 RATE_LIMIT_PREFIX = "RATE_LIMIT"
 FATAL_COOLDOWN = 900        # 15 min before we probe the provider again
@@ -197,67 +201,79 @@ async def _emergent_call(chunk, lang):
     return await chat.send_message(UserMessage(text=_user_prompt(chunk, lang)))
 
 
-async def _llm_translate(chunk, lang):
-    """Translate a list of strings in one call. Returns {source: translation}.
+def _providers():
+    """Every provider we can use, in order of preference.
 
-    Provider order: the project's own Anthropic key first (paid, generous limits),
-    then Gemini, then the shared Emergent universal key (small shared budget).
+    A CHAIN, not a single choice. The old code picked one provider by which key was present
+    and gave up there, so when the owner's Anthropic key expired every model name quietly
+    stopped being translated even though a working Gemini key sat right next to it.
     """
+    out = []
     if os.environ.get("ANTHROPIC_API_KEY"):
-        call, provider = _anthropic_call, "anthropic"
-    elif os.environ.get("GEMINI_API_KEY"):
-        call, provider = _gemini_call, "gemini"
-    elif os.environ.get("EMERGENT_LLM_KEY"):
-        call, provider = _emergent_call, "emergent"
-    else:
+        out.append((_anthropic_call, "anthropic"))
+    if os.environ.get("GEMINI_API_KEY"):
+        out.append((_gemini_call, "gemini"))
+    if os.environ.get("EMERGENT_LLM_KEY"):
+        out.append((_emergent_call, "emergent"))
+    return out
+
+
+async def _llm_translate(chunk, lang):
+    """Translate a list of strings in one call. Returns {source: translation}."""
+    chain = _providers()
+    if not chain:
         log.error("no translation API key configured "
                   "(ANTHROPIC_API_KEY/GEMINI_API_KEY/EMERGENT_LLM_KEY)")
         return {}
 
-    # Circuit breaker: make/model/spec translation is SYNCHRONOUS on a cache miss, so a
-    # dead provider (exhausted budget, bad key) must never turn into 3 retries with
-    # backoff on every single request. While the breaker is open we fail instantly and
-    # the caller falls back to the Korean source.
+    # Circuit breaker: make/model/spec translation used to be SYNCHRONOUS on a cache miss, so
+    # a dead provider (exhausted budget, bad key) must never turn into 3 retries with
+    # backoff on every single request.
     if _breaker_open():
         return {}
 
-    for attempt in range(MAX_ATTEMPTS):
-        try:
-            got = _extract_json(await call(chunk, lang))
-            _breaker_reset()
-            return {chunk[int(i)]: v.strip()
-                    for i, v in got.items()
-                    if str(i).isdigit() and int(i) < len(chunk)
-                    and isinstance(v, str) and v.strip()}
-        except Exception as e:
-            msg = str(e)
-            low = msg.lower()
-            # Rate limiting is expected on free tiers: wait out the window and retry
-            # rather than abandoning the run.
-            if msg.startswith(RATE_LIMIT_PREFIX):
-                # A user-facing request must NEVER sit and wait out a rate-limit window.
-                # Trip the breaker so this and following requests fall back to cached
-                # text (or Korean) instantly; the background warm-up is the only caller
-                # allowed to be patient.
-                if not PATIENT:
-                    _breaker_trip(f"rate limited: {msg[:120]}", SOFT_COOLDOWN)
-                    return {}
-                try:
-                    wait = float(msg.split(":")[1])
-                except Exception:
-                    wait = 25.0
-                log.warning("translate rate-limited (%s/%s), waiting %.0fs (attempt %s/%s)",
-                            provider, lang, wait, attempt + 1, MAX_ATTEMPTS)
-                await asyncio.sleep(wait)
-                continue
-            log.warning("translate attempt %s failed (%s/%s): %s",
-                        attempt + 1, provider, lang, msg[:200])
-            # Retrying a budget/credential failure cannot succeed - trip immediately.
-            if any(m in low for m in FATAL_MARKERS):
-                _breaker_trip(msg, FATAL_COOLDOWN)
-                return {}
-            await asyncio.sleep(1.2 * (attempt + 1))
-    _breaker_trip(f"{MAX_ATTEMPTS} consecutive failures", SOFT_COOLDOWN)
+    last = ""
+    for call, provider in chain:
+        for attempt in range(MAX_ATTEMPTS):
+            try:
+                got = _extract_json(await call(chunk, lang))
+                _breaker_reset()
+                return {chunk[int(i)]: v.strip()
+                        for i, v in got.items()
+                        if str(i).isdigit() and int(i) < len(chunk)
+                        and isinstance(v, str) and v.strip()}
+            except Exception as e:
+                msg = str(e)
+                low = msg.lower()
+                last = f"{provider}: {msg}"
+                # Rate limiting is expected on free tiers: wait out the window and retry
+                # rather than abandoning the run.
+                if msg.startswith(RATE_LIMIT_PREFIX):
+                    # A user-facing request must NEVER sit and wait out a rate-limit window.
+                    # Trip the breaker so this and following requests fall back to cached
+                    # text (or Korean) instantly; the background warm-up is the only caller
+                    # allowed to be patient.
+                    if not PATIENT:
+                        _breaker_trip(f"rate limited: {msg[:120]}", SOFT_COOLDOWN)
+                        return {}
+                    try:
+                        wait = float(msg.split(":")[1])
+                    except Exception:
+                        wait = 25.0
+                    log.warning("translate rate-limited (%s/%s), waiting %.0fs (attempt %s/%s)",
+                                provider, lang, wait, attempt + 1, MAX_ATTEMPTS)
+                    await asyncio.sleep(wait)
+                    continue
+                log.warning("translate attempt %s failed (%s/%s): %s",
+                            attempt + 1, provider, lang, msg[:200])
+                # A budget or credential failure cannot be retried into working. Move to the
+                # NEXT provider instead of taking translation down with this one.
+                if any(m in low for m in FATAL_MARKERS):
+                    log.warning("%s is unusable, falling through to the next provider",
+                                provider)
+                    break
+                await asyncio.sleep(1.2 * (attempt + 1))
+    _breaker_trip(f"every provider failed ({last[:140]})", SOFT_COOLDOWN)
     return {}
 
 

@@ -139,20 +139,11 @@ async def run_full_sync(db, max_pages=None, page_size=PAGE):
                 await tag_transmission(db)
                 dedupe = await dedupe_pass(db)
 
-                # Pre-translate the bounded label sets so user searches are pure
-                # cache hits (and therefore instant) in all three languages.
-                warm = {}
-                try:
-                    from translate import warm_translations
-                    warm = await warm_translations(db)
-                except Exception as e:
-                    log.warning("warm-up failed: %s", e)
-
-                tax = {}
-                try:
-                    tax = await build_taxonomy(db)
-                except Exception as e:
-                    log.warning("taxonomy build failed: %s", e)
+                # The dropdown tree, its slugs, the year spans and the translated labels,
+                # so the first search after a sync is already warm.
+                post = await post_crawl(db)
+                warm = post.get("warm") or {}
+                tax = post.get("taxonomy") or {}
 
                 await _set(db, status="idle", finished_at=datetime.now(timezone.utc),
                            retired=retired, dedupe=dedupe, taxonomy=tax,
@@ -312,6 +303,37 @@ async def _crawl_node(base, dims, count, sink, st, ctx=None):
             break
         st["rows"] += len(rows)
         await sink(rows)
+
+
+async def post_crawl(db):
+    """Everything that has to be rebuilt after cars change, in the order it has to happen.
+
+    Whichever way the catalogue was crawled, this is what makes the site fast for the FIRST
+    visitor: the dropdown tree, its URL slugs, the model year spans, and the translated
+    labels. Without it the first search pays for translating a thousand model names while
+    somebody waits. Imported locally to keep the module graph flat.
+    """
+    out = {}
+    from translate import warm_translations
+    import slugs as slugs_mod
+    import curate
+
+    for name, job in (
+        ("taxonomy", lambda: build_taxonomy(db)),
+        ("slugs", lambda: slugs_mod.ensure_taxonomy_slugs(db, force=True)),
+        ("years", lambda: curate.ensure_years(db, force=True)),
+        # The facet counts are not refreshed here: /meta/filters serves the cached ones
+        # instantly and refreshes behind the visitor, so nobody ever waits for them.
+        # Last: it reads the values the steps above have just settled.
+        ("warm", lambda: warm_translations(db)),
+    ):
+        try:
+            out[name] = await job()
+        except Exception as e:
+            log.warning("post-crawl %s failed: %s", name, str(e)[:200])
+            out[name] = {"error": str(e)[:200]}
+    log.info("post-crawl done: %s", {k: str(v)[:80] for k, v in out.items()})
+    return out
 
 
 async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
@@ -481,6 +503,9 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
     await db.sync_state.update_one(
         {"_id": progress_key},
         {"$set": {**result, "finished_at": datetime.now(timezone.utc)}}, upsert=True)
+    # The cars have changed, so the dropdowns, slugs, year spans and labels are stale. This
+    # is what stops the first search after a crawl from being the slow one.
+    result["post_crawl"] = await post_crawl(db)
     return result
 
 

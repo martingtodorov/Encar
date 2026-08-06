@@ -43,14 +43,15 @@ async def refresh(db, force=False):
                    "members": members, "label": label, "years": years})
 
 
-async def ensure_years(db):
+async def ensure_years(db, force=False):
     """The production span of every model, straight out of our own catalogue.
 
     One grouped pass over the listings, kept for a week. Encar's model year (`form_year`) is
     closer to the generation than the registration date, so that is what is measured.
+    `force` is for straight after a crawl, when the cars have just changed underneath us.
     """
     doc = await db.model_years.find_one({"_id": "spans"}, {"at": 1})
-    if doc and time.time() - (doc.get("at") or 0) < _YEARS_TTL:
+    if not force and doc and time.time() - (doc.get("at") or 0) < _YEARS_TTL:
         return
     rows = await db.listings.aggregate([
         {"$match": {"active": True, "form_year": {"$gte": 1980}}},

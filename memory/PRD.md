@@ -1153,3 +1153,52 @@ be rebuilt anywhere.
 * The ~31% of the catalogue that is not indexed.
 * `/app/test_reports/iteration_31.json` — everything else passed.
 
+
+## 2026-06 — "the first search is very slow": four separate causes, all fixed
+The owner asked for the makes and models to be warmed after a sync. Measuring it turned up
+four things, three of which were the actual cause.
+
+### 1. The nightly crawl warmed nothing (the real one)
+`warm_translations` was only called at the end of `run_full_sync`, but the crawl actually in
+use is `crawl_partitioned` (`sync_state.catalogue_partition`), which built no taxonomy, filled
+no slugs, computed no year spans and warmed nothing. Extracted `sync.post_crawl(db)` —
+build_taxonomy -> ensure_taxonomy_slugs(force) -> curate.ensure_years(force) ->
+warm_translations, each guarded so one failure cannot abort the rest — and called it at the end
+of BOTH crawls. `curate.ensure_years` gained a `force` argument for exactly this.
+Measured: 12.3s for the whole pass. 10,650 nodes, 10,648 slugs written, 1,253 year spans, and
+the 19 cold labels translated. It also fixed the 2 slugless models `doctor.py` had found —
+`taxonomy` now has ZERO nodes without a slug.
+
+### 2. The dropdown request itself blocked on the LLM
+`/meta/taxonomy`, `/meta/filters` and `/meta/models` called `translate_many`, which translates
+cache misses INLINE. All three now use `translate_cached_only` + `schedule_translation`, so a
+request can never wait on a provider: a value that is not warm yet renders as its upstream name
+for one view and is filled in the background. With the cache 99.9% warm this is invisible.
+Measured: `/meta/taxonomy` 24-28ms at every level.
+
+### 3. A present-but-invalid key took the whole translator down
+`_llm_translate` picked ONE provider by which key existed and gave up there, so the owner's
+expired Anthropic key meant a working Gemini key right next to it was never reached. It is now
+a CHAIN (`_providers()`): on a credential or budget failure it falls through to the next
+provider instead of tripping the breaker. `FATAL_MARKERS` also missed Anthropic's actual
+wording — "API key is invalid." and `authentication_error` — so a dead key burned the full
+retry ladder on every call before giving up; both added.
+Measured: Anthropic 401 -> Gemini -> three model names translated in 1.7s, breaker still shut.
+
+### 4. Every ten minutes, one visitor paid for the facet aggregation
+`/meta/filters` recomputed its 220k-document aggregation in the request whenever the 10-minute
+TTL had expired — 1,284ms for whoever arrived first. Split into `_compute_filters` (single
+flight, a global `_filters_refreshing` flag so a burst starts ONE aggregation not twenty) and
+`_filters_aggregate`, and the endpoint now serves the stale document and refreshes BEHIND the
+visitor. Ten-minute-old counts are fine; a slow sidebar is not.
+Measured: forced the cache two hours stale — 20ms, 20ms, 20ms, and the document was rewritten
+in the background a second later. Was 1,284ms.
+
+### Verified end to end
+`/bg` first paint of results 1.2s, marque dropdown all Latin, ZERO Hangul characters on the
+page, the owner's own headline in place.
+
+### Note for whoever comes next
+The Anthropic key is still invalid — everything above works because Gemini now picks it up.
+Replacing the key restores the preferred provider with no code change.
+

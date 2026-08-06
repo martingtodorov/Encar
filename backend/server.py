@@ -871,57 +871,93 @@ async def recommendations(body: TasteBody, request: Request):
     return {"items": items, "lang": lang}
 
 
+_filters_refreshing = False
+
+
+async def _compute_filters():
+    """The facet aggregation: values, counts and the slider bounds. Writes the cache.
+
+    Pulled out of the endpoint so it can also run BEHIND a visitor (see below) instead of
+    making whoever happens to arrive first after the TTL expires wait for it. Single-flight:
+    a burst of visitors on a stale cache must start ONE aggregation, not twenty.
+    """
+    global _filters_refreshing
+    if _filters_refreshing:
+        return None
+    _filters_refreshing = True
+    try:
+        return await _filters_aggregate()
+    finally:
+        _filters_refreshing = False
+
+
+async def _filters_aggregate():
+    now = datetime.now(timezone.utc)
+
+    async def top(field, limit=400):
+        pipe = [
+            {"$match": {"active": True, "duplicate": {"$ne": True},
+                        field: {"$nin": [None, ""]}}},
+            {"$group": {"_id": f"${field}", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": limit},
+        ]
+        return [{"value": d["_id"], "count": d["count"]}
+                async for d in db.listings.aggregate(pipe)]
+
+    makes = await top("manufacturer", 200)
+    fuels = await top("fuel_type", 40)
+    regions = await top("region", 40)
+    transmissions = await top("transmission", 5)
+
+    bounds_pipe = [
+        {"$match": {"active": True, "duplicate": {"$ne": True}}},
+        {"$group": {
+            "_id": None,
+            "year_min": {"$min": "$year_month"},
+            "year_max": {"$max": "$year_month"},
+            "mileage_max": {"$max": "$mileage"},
+            "price_min": {"$min": "$sale_eur"},
+            "price_max": {"$max": "$sale_eur"},
+        }},
+    ]
+    bounds = {}
+    async for d in db.listings.aggregate(bounds_pipe):
+        bounds = {k: v for k, v in d.items() if k != "_id"}
+    # The year bounds come out as YYYYMM; the slider wants plain years.
+    for key in ("year_min", "year_max"):
+        if bounds.get(key):
+            bounds[key] = int(bounds[key]) // 100
+
+    doc = {
+        "_id": "filters", "computed_at": now, "makes": makes, "fuels": fuels,
+        "regions": regions, "transmissions": transmissions, "bounds": bounds,
+    }
+    await db.facets.update_one({"_id": "filters"}, {"$set": doc}, upsert=True)
+    return doc
+
+
 @api.get("/meta/filters")
 async def meta_filters(lang: str = "bg", refresh: bool = False):
     """Facet values + counts, computed by aggregation and cached (TTL 10 min)."""
     lang = norm_lang(lang)
-    now = datetime.now(timezone.utc)
-    cached = await db.facets.find_one({"_id": "filters"})
-    stale = True
-    if cached and not refresh:
-        stale = (now - cached["computed_at"].replace(tzinfo=timezone.utc)).total_seconds() > FACET_TTL
-
-    if stale:
-        async def top(field, limit=400):
-            pipe = [
-                {"$match": {"active": True, "duplicate": {"$ne": True},
-                            field: {"$nin": [None, ""]}}},
-                {"$group": {"_id": f"${field}", "count": {"$sum": 1}}},
-                {"$sort": {"count": -1}},
-                {"$limit": limit},
-            ]
-            return [{"value": d["_id"], "count": d["count"]}
-                    async for d in db.listings.aggregate(pipe)]
-
-        makes = await top("manufacturer", 200)
-        fuels = await top("fuel_type", 40)
-        regions = await top("region", 40)
-        transmissions = await top("transmission", 5)
-
-        bounds_pipe = [
-            {"$match": {"active": True, "duplicate": {"$ne": True}}},
-            {"$group": {
-                "_id": None,
-                "year_min": {"$min": "$year_month"},
-                "year_max": {"$max": "$year_month"},
-                "mileage_max": {"$max": "$mileage"},
-                "price_min": {"$min": "$sale_eur"},
-                "price_max": {"$max": "$sale_eur"},
-            }},
-        ]
-        bounds = {}
-        async for d in db.listings.aggregate(bounds_pipe):
-            bounds = {k: v for k, v in d.items() if k != "_id"}
-        # The year bounds come out as YYYYMM; the slider wants plain years.
-        for key in ("year_min", "year_max"):
-            if bounds.get(key):
-                bounds[key] = int(bounds[key]) // 100
-
-        cached = {
-            "_id": "filters", "computed_at": now, "makes": makes, "fuels": fuels,
-            "regions": regions, "transmissions": transmissions, "bounds": bounds,
-        }
-        await db.facets.update_one({"_id": "filters"}, {"$set": cached}, upsert=True)
+    cached = None if refresh else await db.facets.find_one({"_id": "filters"})
+    if cached:
+        age = (datetime.now(timezone.utc)
+               - cached["computed_at"].replace(tzinfo=timezone.utc)).total_seconds()
+        if age > FACET_TTL:
+            # Stale-while-revalidate. This aggregation takes over a second on 220k cars, and
+            # it used to be paid by whichever visitor happened to arrive first after the
+            # ten-minute window expired. Ten-minute-old counts are fine; a slow sidebar is
+            # not, so they get the cached answer and the refresh runs behind them.
+            asyncio.create_task(_compute_filters())
+    else:
+        # First ever call (or ?refresh=1). If another request is already aggregating, take
+        # whatever it has written rather than starting a second one or failing.
+        cached = (await _compute_filters()
+                  or await db.facets.find_one({"_id": "filters"})
+                  or {"makes": [], "fuels": [], "regions": [], "transmissions": [],
+                      "bounds": {}})
 
     # translate facet labels (bounded set, cached forever after first pass).
     # No slice on makes: every make must render in the user's language, not just the
@@ -929,10 +965,20 @@ async def meta_filters(lang: str = "bg", refresh: bool = False):
     labels = [x["value"] for x in cached.get("makes", [])]
     labels += [x["value"] for x in cached.get("fuels", [])]
     labels += [x["value"] for x in cached.get("regions", [])]
-    tmap = await translate_many(db, labels, lang)
+    make_values = [x["value"] for x in cached.get("makes", [])]
+    # Cache only: the sidebar is the very first request a visitor makes, so it must never
+    # wait on a translation. sync.post_crawl warms these sets after every crawl; a miss shows
+    # the upstream name for one view and is filled in the background.
+    tmap = await translate_cached_only(db, labels, lang)
     # Marque names are proper nouns: English in every language.
-    make_labels = await translate_many(db, [x["value"] for x in cached.get("makes", [])], "en")
+    make_labels = await translate_cached_only(db, make_values, "en")
     tmap = {**tmap, **make_labels}
+    cold = [v for v in labels if v not in tmap]
+    if cold:
+        schedule_translation(db, cold, lang)
+    cold_en = [v for v in make_values if v not in make_labels]
+    if cold_en:
+        schedule_translation(db, cold_en, "en")
 
     # Slugs let the query string read `?fuels=petrol` instead of percent-encoded Hangul.
     try:
@@ -971,7 +1017,12 @@ async def meta_models(make: str = Query(...), lang: str = "bg", limit: int = 300
         {"$limit": limit},
     ]
     rows = [{"value": d["_id"], "count": d["count"]} async for d in db.listings.aggregate(pipe)]
-    tmap = await translate_many(db, [r["value"] for r in rows], lang)
+    # Cache only, for the same reason as the sidebar: no dropdown waits on a translation.
+    values = [r["value"] for r in rows]
+    tmap = await translate_cached_only(db, values, lang)
+    cold = [v for v in values if v not in tmap]
+    if cold:
+        schedule_translation(db, cold, lang)
     return {"make": make,
             "models": [{**r, "label": tmap.get(r["value"], r["value"])} for r in rows]}
 
@@ -1047,14 +1098,16 @@ async def meta_taxonomy(
     # Levels 1 and 2 are marques and model names: proper nouns, always English.
     # Marques, models AND trims are proper nouns — always Latin, never transliterated.
     label_lang = "en"
-    try:
-        tmap = await translate_many(db, values, label_lang)
-    except Exception as e:
-        log.warning("taxonomy translation failed: %s", str(e)[:160])
-        tmap = await translate_cached_only(db, values, label_lang)
-        missing = [v for v in values if v not in tmap]
-        if missing:
-            schedule_translation(db, missing, label_lang)
+    # CACHE ONLY. This used to call translate_many, which translates cache misses INLINE, so
+    # the first search after a crawl paid for a thousand model names while the visitor waited
+    # (and with a dead LLM key it paid the whole retry ladder before giving up). The warm-up
+    # in sync.post_crawl fills this cache after every crawl; anything that still slips
+    # through shows its upstream name for one view and is filled in the background.
+    tmap = await translate_cached_only(db, values, label_lang)
+    missing = [v for v in values if v not in tmap]
+    if missing:
+        log.info("taxonomy labels not warm yet: %s of %s", len(missing), len(values))
+        schedule_translation(db, missing, label_lang)
 
     built = await db.sync_state.find_one({"_id": "taxonomy"})
     return {
