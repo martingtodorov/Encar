@@ -414,3 +414,52 @@ export async function resetContractTemplate(lang) {
   const { data } = await http.post("/admin/contract-template/reset", null, { params: { lang } });
   return data;
 }
+
+// ── owner-editable pages (SEO, bodies, company details) ─────────────────────
+export async function getCmsSite(lang) {
+  const { data } = await http.get("/cms/site", { params: { lang } });
+  return data;
+}
+
+export async function getCmsPage(slug, lang) {
+  const { data } = await http.get(`/cms/page/${slug}`, { params: { lang } });
+  return data;
+}
+
+export async function adminCmsPages() {
+  const { data } = await http.get("/admin/cms/pages");
+  return data.items;
+}
+
+export async function adminCmsPage(slug, lang) {
+  const { data } = await http.get(`/admin/cms/page/${slug}/${lang}`);
+  return data;
+}
+
+export async function adminSaveCmsPage(slug, lang, body) {
+  const { data } = await http.put(`/admin/cms/page/${slug}/${lang}`, body);
+  return data;
+}
+
+export async function adminResetCmsPage(slug, lang) {
+  const { data } = await http.delete(`/admin/cms/page/${slug}/${lang}`);
+  return data;
+}
+
+export async function adminTranslateCmsPage(slug, source = "bg") {
+  const { data } = await http.post(`/admin/cms/page/${slug}/translate`, null, {
+    params: { source },
+  });
+  return data;
+}
+
+export async function adminGetCompany() {
+  const { data } = await http.get("/admin/cms/company");
+  return data;
+}
+
+export async function adminSaveCompany(body) {
+  const { data } = await http.put("/admin/cms/company", body);
+  return data;
+}
+

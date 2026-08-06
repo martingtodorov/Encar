@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Activity, BadgeEuro, Inbox, Layers, PieChart, RefreshCcw, ScrollText, Ship, Users, FileSignature } from "lucide-react";
+import { Activity, BadgeEuro, FileText, Inbox, Layers, PieChart, RefreshCcw, ScrollText, Ship, Users, FileSignature } from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
@@ -17,6 +17,7 @@ import { AdminDeposits } from "@/components/admin/AdminDeposits";
 import { AdminTaxonomy } from "@/components/admin/AdminTaxonomy";
 import { AdminAudit } from "@/components/admin/AdminAudit";
 import { AdminContract } from "@/components/admin/AdminContract";
+import { AdminPages } from "@/components/admin/AdminPages";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
@@ -27,6 +28,7 @@ const TABS = [
   { id: "deposits", label: "Deposits", icon: BadgeEuro },
   { id: "buyers", label: "Buyers", icon: Users },
   { id: "taxonomy", label: "Models & trims", icon: Layers },
+  { id: "pages", label: "Pages & SEO", icon: FileText },
   { id: "contract", label: "Contract", icon: FileSignature },
   { id: "audit", label: "Activity", icon: ScrollText },
 ];
@@ -109,6 +111,7 @@ export default function AdminPage() {
           {tab === "deposits" && <AdminDeposits />}
           {tab === "buyers" && <AdminBuyers />}
           {tab === "taxonomy" && <AdminTaxonomy />}
+          {tab === "pages" && <AdminPages />}
           {tab === "contract" && <AdminContract />}
           {tab === "audit" && <AdminAudit />}
         </div>

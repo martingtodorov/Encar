@@ -1,0 +1,37 @@
+{
+  "summary": "Tested new Google OAuth backend/frontend integration and the CMS (SEO, body sanitisation, reset, company, translate) with full backend pytest coverage and Playwright UI. 14/14 backend tests passing (translate flaky on first parallel run due to a transient Gemini 503, immediate retry passed). Frontend Google button builds redirect from window.location.origin (no hardcoded domain), fake-session_id callback shows auth-callback-error rather than hanging, /bg still renders search, admin CMS editor works end-to-end including SERP preview, red counter past 60/155, save/reset, HTML preview toggle, company details reflected in footer, hero unchanged after reset. Language switch (BG->RO) works with no console errors. Anthropic key is known-invalid (per hand-off note); Gemini fallback carried translation.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/cms/page/{slug}/translate", "issue": "When Gemini also fails, the 503 detail says 'no working translation key: check ANTHROPIC_API_KEY' even though the failing provider is Gemini. Misleading; owner may waste time on the wrong key. Consider 'no working translation provider — check ANTHROPIC/GEMINI keys or Gemini quota'."},
+      {"endpoint": "POST /api/admin/cms/page/{slug}/translate", "issue": "Gemini returned an intermittent 503 during one parallel test run (retry passed). Not a code bug, but there is no automatic retry — a single Gemini blip currently surfaces to the admin as a 503. Consider one retry on Gemini 429/503."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_google_auth_and_cms.py",
+    "/app/test_reports/pytest/google_auth_cms.xml"
+  ],
+  "action_items": [
+    "Optional: improve the CMS 503 error message to reflect which provider actually failed (Anthropic vs Gemini) so the misleading 'check ANTHROPIC_API_KEY' hint is dropped when Gemini is the one that failed.",
+    "Optional: add one automatic retry (or short back-off) on transient Gemini 5xx/429 inside _translate_doc() so a single blip does not surface as a 503 to the admin."
+  ],
+  "critical_code_review_comments": [
+    "cms.py _translate_doc raises HTTPException(503, 'no working translation key: check ANTHROPIC_API_KEY') regardless of which provider failed — the branch reached after Gemini fails should mention Gemini too.",
+    "cms.py /cms/site cache is a module-level dict without a lock; concurrent writes during the 15s TTL window are benign here (last-write-wins) but worth noting if the CMS becomes hotter."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_google_auth_and_cms.py"
+  ],
+  "success_rate": {"backend": "100% (14/14, with a one-off Gemini 5xx flake on parallel run)", "frontend": "100% of tested flows"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026!  ;  x-admin-token: kR7wZq2mXv9TbNp4LdYs6HcJf1UgE3aQ",
+  "seed_data_creation": "All test data (SEO/body overrides for how-it-works/terms/faq/home in bg/ro/en, and the TEST company details) was cleaned up at the end — /api/admin/cms/page/{slug}/{lang} DELETE for each, and company was restored to Auto&Bid LTD / 208833206 / contact@encareurope.com / encareurope.com.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend: /app/backend/tests/test_google_auth_and_cms.py covers Google session endpoint error paths, SEO save/read/reset, body sanitisation (script/on*/javascript: stripped, home body ignored), company save+read, translate BG->RO+EN with tag/URL preservation, and 401 on all admin CMS endpoints without auth. The translate test occasionally 503s due to a transient Gemini glitch (Anthropic key is known-invalid so there is no first-line safety net). Frontend Playwright verified: google-login-button redirect built from window.location.origin (no hardcoded 'autoandbid' or other domain), auth-callback screen with fake session_id shows auth-callback-error, admin-pages editor with cms-lang-*, cms-seo-title/description with red counter past 60/155, cms-serp-preview live, cms-load-builtin/cms-html/cms-toggle-preview/cms-html-preview, cms-save, cms-reset, override rendering via how-it-works-html with meta title+description from CMS, site-footer + footer-email reflect company details, RO language switch works. Note: review request mentioned a 'cms-page-encar-multi-lang' testid but actual testids are 'cms-page-{slug}' (home, how-it-works, faq, fees, contact, terms, privacy, cookies) — that is fine, page pickers work.",
+  "rca of the issue": "N/A — no bugs blocking the features. The only sub-optimal spot is the CMS translate 503 message string, which currently names only Anthropic even when Gemini is the failing provider (RCA: the error message in _translate_doc was written when Anthropic was the primary provider; it was not updated when Gemini fallback was added). Mitigation: change the message to 'no working translation provider — check ANTHROPIC_API_KEY / GEMINI_API_KEY (or Gemini is throttling)'."
+}

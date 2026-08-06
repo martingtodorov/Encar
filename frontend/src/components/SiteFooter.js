@@ -5,14 +5,17 @@ import { COMPANY, FOOTER_COLUMNS } from "@/content/company";
 
 /** Who we are, and every page on the site in three columns. On every page. */
 export const SiteFooter = () => {
-  const { t } = useApp();
+  const { t, cms } = useApp();
   const { path } = useLangNav();
 
+  // The owner's own details win; the built-ins are the fallback.
+  const co = { ...COMPANY, ...(cms?.company || {}) };
   const facts = [
-    `${COMPANY.name}`,
-    COMPANY.eik ? `${t("legalEik")} ${COMPANY.eik}` : "",
-    COMPANY.vat ? `${t("legalVat")} ${COMPANY.vat}` : "",
-    COMPANY.address,
+    `${co.name}`,
+    co.eik ? `${t("legalEik")} ${co.eik}` : "",
+    co.vat ? `${t("legalVat")} ${co.vat}` : "",
+    co.address,
+    co.phone,
   ].filter(Boolean);
 
   return (
@@ -37,11 +40,11 @@ export const SiteFooter = () => {
               </span>
             ))}
             <a
-              href={`mailto:${COMPANY.email}`}
+              href={`mailto:${co.email}`}
               data-testid="footer-email"
               className="text-[12.5px] font-medium text-primary hover:underline"
             >
-              {COMPANY.email}
+              {co.email}
             </a>
           </div>
           <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
@@ -83,7 +86,7 @@ export const SiteFooter = () => {
 
       <div className="border-t border-border">
         <div className="mx-auto max-w-[1280px] px-4 py-3.5 text-[12px] text-muted-foreground sm:px-6">
-          © {new Date().getFullYear()} {COMPANY.name}. {t("footerRights")}
+          © {new Date().getFullYear()} {co.name}. {t("footerRights")}
         </div>
       </div>
     </footer>

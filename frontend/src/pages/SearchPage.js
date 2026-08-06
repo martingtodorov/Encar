@@ -61,7 +61,7 @@ function tasteFor(key) {
 // the rest of the session, including while they change make/model.
 
 export default function SearchPage() {
-  const { t, lang, currency, rates, saveSearch, isSearchSaved } = useApp();
+  const { t, lang, currency, rates, cms, saveSearch, isSearchSaved } = useApp();
   const { go } = useLangNav();
   const [searchParams, setSearchParams] = useSearchParams();
   // Read the URL ONCE on mount; after that this component owns the state and writes
@@ -97,7 +97,12 @@ export default function SearchPage() {
 
   const headerHidden = useScrollDirection(140);
 
-  useSeo({ lang, title: t("seoHomeTitle"), description: t("seoHomeDesc") });
+  const seoHome = cms?.seo?.home || {};
+  useSeo({
+    lang,
+    title: seoHome.title || t("seoHomeTitle"),
+    description: seoHome.description || t("seoHomeDesc"),
+  });
 
 
   // The floating bar exists only to replace the in-page Filters button once that button

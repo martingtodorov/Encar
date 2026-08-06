@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { getFx } from "@/lib/api";
+import { getCmsSite, getFx } from "@/lib/api";
+import { setCompany } from "@/content/company";
 import { noteFavourite } from "@/lib/taste";
 import { t as translate, CURRENCIES } from "@/i18n";
 
@@ -39,6 +40,9 @@ export function AppProvider({ children }) {
   );
   const [theme, setThemeState] = useState(detectTheme);
   const [rates, setRates] = useState(null);
+  // The owner's own SEO titles, hero copy and company details. Empty until it arrives, and
+  // every consumer falls back to the copy that ships with the app.
+  const [cms, setCms] = useState({ company: {}, seo: {}, hero: {} });
   const [favourites, setFavourites] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem(LS_FAV) || "[]");
@@ -59,6 +63,21 @@ export function AppProvider({ children }) {
       .then(setRates)
       .catch(() => setRates(null));
   }, []);
+
+  // Editable copy is per language, so it is re-read when the visitor switches.
+  useEffect(() => {
+    let alive = true;
+    getCmsSite(lang)
+      .then((data) => {
+        if (!alive) return;
+        setCompany(data.company);
+        setCms({ company: data.company || {}, seo: data.seo || {}, hero: data.hero || {} });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [lang]);
 
   useEffect(() => {
     document.documentElement.lang = lang;
@@ -193,6 +212,7 @@ export function AppProvider({ children }) {
       theme,
       toggleTheme,
       rates,
+      cms,
       favourites,
       toggleFavourite,
       replaceFavourites,
@@ -207,7 +227,7 @@ export function AppProvider({ children }) {
       isSearchSaved,
       t: (key, vars) => translate(lang, key, vars),
     }),
-    [lang, setLang, currency, setCurrency, theme, toggleTheme, rates, favourites,
+    [lang, setLang, currency, setCurrency, theme, toggleTheme, rates, cms, favourites,
      toggleFavourite, replaceFavourites, searches, saveSearch, renameSearch,
      removeSearch, markSearchSeen, replaceSearches, isSearchSaved, toggleSearchAlerts]
   );

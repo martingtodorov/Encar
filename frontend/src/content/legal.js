@@ -13,6 +13,10 @@ const UPDATED = "2026-06-01";
 
 const doc = (title, intro, sections) => ({ title, intro, sections, updated: UPDATED });
 
+// Built on demand rather than at import time: the company details can be edited in the
+// admin, and these documents quote them.
+function build() {
+
 const BG = {
   terms: doc(
     "Общи условия",
@@ -301,9 +305,23 @@ const EN = {
   ),
 };
 
-const DOCS = { bg: BG, ro: RO, en: EN };
+return { bg: BG, ro: RO, en: EN };
+}
+
+let cache = null;
+let cacheKey = "";
+
+function docs() {
+  const key = JSON.stringify(COMPANY);
+  if (!cache || cacheKey !== key) {
+    cache = build();
+    cacheKey = key;
+  }
+  return cache;
+}
 
 export function legalDoc(lang, slug) {
+  const DOCS = docs();
   const table = DOCS[lang] || DOCS.bg;
   return table[slug] || table.terms;
 }

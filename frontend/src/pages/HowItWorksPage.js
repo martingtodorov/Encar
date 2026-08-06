@@ -1,7 +1,9 @@
+import { useEffect, useState } from "react";
 import { Ship, FileSearch, Receipt, Truck } from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useApp } from "@/context/AppContext";
 import { useSeo } from "@/lib/seo";
+import { getCmsPage } from "@/lib/api";
 
 const Step = ({ icon: Icon, title, body, n }) => (
   <div className="rounded-[16px] border border-border bg-card p-5 shadow-sm">
@@ -19,42 +21,70 @@ const Step = ({ icon: Icon, title, body, n }) => (
 );
 
 export default function HowItWorksPage() {
-  const { t, lang } = useApp();
+  const { t, lang, cms } = useApp();
+  // Replaced wholesale when the owner writes their own version of this page.
+  const [html, setHtml] = useState("");
 
-  useSeo({ lang, title: `${t("navHowItWorks")} \u00b7 Encar`, description: t("howIntro") });
+  useEffect(() => {
+    let alive = true;
+    setHtml("");
+    getCmsPage("how-it-works", lang)
+      .then((r) => alive && setHtml(r.html || ""))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [lang]);
+
+  const seo = cms?.seo?.["how-it-works"] || {};
+  useSeo({
+    lang,
+    title: seo.title || `${t("navHowItWorks")} \u00b7 Encar`,
+    description: seo.description || t("howIntro"),
+  });
 
   return (
     <div className="min-h-screen bg-background">
       <HeaderBar />
       <main className="mx-auto max-w-[900px] px-4 py-8 sm:px-6">
-        <h1 className="text-2xl font-semibold text-foreground sm:text-3xl">
-          {t("navHowItWorks")}
-        </h1>
-        <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
-          {t("howIntro")}
-        </p>
+        {html ? (
+          <div
+            data-testid="how-it-works-html"
+            className="cms-html"
+            dangerouslySetInnerHTML={{ __html: html }}
+          />
+        ) : (
+          <>
+            <h1 className="text-2xl font-semibold text-foreground sm:text-3xl">
+              {t("navHowItWorks")}
+            </h1>
+            <p className="mt-2 text-[15px] leading-relaxed text-muted-foreground">
+              {t("howIntro")}
+            </p>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2">
-          <Step n="01" icon={FileSearch} title={t("howStep1Title")} body={t("howStep1Body")} />
-          <Step n="02" icon={Receipt} title={t("howStep2Title")} body={t("howStep2Body")} />
-          <Step n="03" icon={Ship} title={t("howStep3Title")} body={t("howStep3Body")} />
-          <Step n="04" icon={Truck} title={t("howStep4Title")} body={t("howStep4Body")} />
-        </div>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <Step n="01" icon={FileSearch} title={t("howStep1Title")} body={t("howStep1Body")} />
+              <Step n="02" icon={Receipt} title={t("howStep2Title")} body={t("howStep2Body")} />
+              <Step n="03" icon={Ship} title={t("howStep3Title")} body={t("howStep3Body")} />
+              <Step n="04" icon={Truck} title={t("howStep4Title")} body={t("howStep4Body")} />
+            </div>
 
-        <section
-          data-testid="how-price-formula"
-          className="mt-6 rounded-[16px] border border-border bg-card p-5"
-        >
-          <h2 className="text-[16px] font-semibold text-foreground">{t("priceBreakdown")}</h2>
-          <ul className="mt-3 space-y-2 text-[14px] text-muted-foreground">
-            <li>• {t("encarPrice")}</li>
-            <li>• {t("exportFee")}</li>
-            <li>• {t("customsDuty")}</li>
-            <li>• {t("vat")}</li>
-            <li>• {t("domestic")}</li>
-          </ul>
-          <p className="mt-3 text-[13px] leading-relaxed text-foreground">{t("trust1Body")}</p>
-        </section>
+            <section
+              data-testid="how-price-formula"
+              className="mt-6 rounded-[16px] border border-border bg-card p-5"
+            >
+              <h2 className="text-[16px] font-semibold text-foreground">{t("priceBreakdown")}</h2>
+              <ul className="mt-3 space-y-2 text-[14px] text-muted-foreground">
+                <li>• {t("encarPrice")}</li>
+                <li>• {t("exportFee")}</li>
+                <li>• {t("customsDuty")}</li>
+                <li>• {t("vat")}</li>
+                <li>• {t("domestic")}</li>
+              </ul>
+              <p className="mt-3 text-[13px] leading-relaxed text-foreground">{t("trust1Body")}</p>
+            </section>
+          </>
+        )}
       </main>
     </div>
   );

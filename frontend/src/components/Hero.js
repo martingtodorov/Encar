@@ -4,7 +4,10 @@ import { useApp } from "@/context/AppContext";
 import { formatNumber } from "@/lib/format";
 
 export const Hero = ({ totalUpstream, onStart }) => {
-  const { t, lang } = useApp();
+  const { t, lang, cms } = useApp();
+  // Owner-editable headline and standfirst (Admin -> Pages -> Home).
+  const heroTitle = cms?.hero?.title || t("heroTitle");
+  const heroSubtitle = cms?.hero?.subtitle || t("heroSubtitle");
 
   const chips = [
     { icon: ShieldCheck, label: t("heroChip1") },
@@ -21,10 +24,10 @@ export const Hero = ({ totalUpstream, onStart }) => {
       <div className="relative mx-auto max-w-[1280px] px-4 py-7 sm:px-6 sm:py-10">
         <div className="max-w-3xl">
           <h1 className="text-3xl font-semibold leading-[1.12] tracking-tight text-foreground sm:text-4xl lg:text-5xl">
-            {t("heroTitle")}
+            {heroTitle}
           </h1>
           <p className="mt-2.5 max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            {t("heroSubtitle")}
+            {heroSubtitle}
           </p>
 
           <div className="mt-4 flex flex-wrap gap-2">

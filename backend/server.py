@@ -49,6 +49,7 @@ if _missing:
 
 import auth                  # noqa: E402
 import archive                # noqa: E402
+import cms                    # noqa: E402
 import deposits              # noqa: E402
 import notify                # noqa: E402
 import fx as fx_mod          # noqa: E402
@@ -2533,6 +2534,10 @@ contracts_mod.set_db(db)
 contracts_mod.set_admin_guard(_require_admin)
 api.include_router(contracts_mod.router)
 api.include_router(notify.router)
+cms.set_db(db)
+cms.set_admin_guard(_require_admin)
+cms.set_audit(_audit)
+api.include_router(cms.router)
 app.include_router(api)
 
 # The archived photos of purchased cars, served from our own disk so a withdrawn ad still

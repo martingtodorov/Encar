@@ -16,6 +16,16 @@ export const COMPANY = {
   site: "encareurope.com",
 };
 
+/** The owner can edit these in Admin -> Pages. The object is mutated in place (rather than
+ *  replaced) because the legal and help documents read it while they build their copy. */
+export function setCompany(overrides) {
+  if (!overrides) return COMPANY;
+  Object.keys(overrides).forEach((k) => {
+    if (k in COMPANY && overrides[k]) COMPANY[k] = overrides[k];
+  });
+  return COMPANY;
+}
+
 export const LEGAL_LINKS = [
   { to: "/terms", key: "legalTerms" },
   { to: "/privacy", key: "legalPrivacy" },

@@ -240,3 +240,96 @@ code {
         color: #000;
     }
 }
+
+/* Pages the owner writes as raw HTML. They type plain tags, so the tags themselves have to
+   carry the typography - no Tailwind classes are available inside that markup. */
+.cms-html h1 {
+    font-size: 1.875rem;
+    line-height: 1.15;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: hsl(var(--foreground));
+}
+
+@media (min-width: 640px) {
+    .cms-html h1 {
+        font-size: 2.25rem;
+    }
+}
+
+.cms-html h2 {
+    margin-top: 1.75rem;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+}
+
+.cms-html h3 {
+    margin-top: 1.25rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+}
+
+.cms-html p,
+.cms-html li {
+    margin-top: 0.6rem;
+    font-size: 0.9375rem;
+    line-height: 1.7;
+    color: hsl(var(--muted-foreground));
+}
+
+.cms-html ul,
+.cms-html ol {
+    margin-top: 0.6rem;
+    padding-left: 1.35rem;
+    list-style: disc;
+}
+
+.cms-html ol {
+    list-style: decimal;
+}
+
+.cms-html strong {
+    color: hsl(var(--foreground));
+    font-weight: 600;
+}
+
+.cms-html a {
+    color: hsl(var(--primary));
+    text-decoration: underline;
+}
+
+.cms-html table {
+    margin-top: 1rem;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    color: hsl(var(--muted-foreground));
+}
+
+.cms-html th,
+.cms-html td {
+    border: 1px solid hsl(var(--border));
+    padding: 0.5rem 0.7rem;
+    text-align: left;
+}
+
+.cms-html th {
+    color: hsl(var(--foreground));
+    font-weight: 600;
+}
+
+.cms-html img {
+    margin-top: 1rem;
+    max-width: 100%;
+    height: auto;
+    border-radius: 12px;
+}
+
+.cms-html hr {
+    margin: 1.75rem 0;
+    border: 0;
+    border-top: 1px solid hsl(var(--border));
+}
+

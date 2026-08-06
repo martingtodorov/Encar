@@ -11,6 +11,9 @@ const UPDATED = "2026-06-01";
 
 const doc = (title, intro, sections) => ({ title, intro, sections, updated: UPDATED });
 
+// Same lazy build as the legal documents: the company details are editable in the admin.
+function build() {
+
 const BG = {
   faq: doc(
     "Често задавани въпроси",
@@ -167,10 +170,22 @@ const EN = {
   ),
 };
 
-const DOCS = { bg: BG, ro: RO, en: EN };
-
-export function helpDoc(lang, slug) {
-  return (DOCS[lang] || DOCS.bg)[slug] || null;
+return { bg: BG, ro: RO, en: EN };
 }
 
-export default DOCS;
+let cache = null;
+let cacheKey = "";
+
+function docs() {
+  const key = JSON.stringify(COMPANY);
+  if (!cache || cacheKey !== key) {
+    cache = build();
+    cacheKey = key;
+  }
+  return cache;
+}
+
+export function helpDoc(lang, slug) {
+  const DOCS = docs();
+  return (DOCS[lang] || DOCS.bg)[slug] || null;
+}
