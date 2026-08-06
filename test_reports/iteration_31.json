@@ -1,0 +1,35 @@
+{
+  "summary": "Full backend + frontend validation of owner seeding (martingtodorov@gmail.com / 'Nero'), profile password-change endpoint & UI, admin-rights toggle endpoint & admin panel Buyers tab, header first-name label, and gallery arrow visibility on the car detail page and result-list cards. 11/11 backend tests pass. All frontend flows work EXCEPT one clear bug: the grid result card (CarCard) never renders gallery arrows because CarCard.js does not pass the arrows prop to PhotoSwiper and the default is arrows=false. The detail page and CarRow correctly hide the left arrow on the first photo and the right arrow on the last photo.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/auth/password", "issue": "The 8-char MIN_PASSWORD is enforced on every new password. Once the owner changes their password, they can never set it back to 'Nero' through the API. The seed only writes password when password_hash is empty, so restoration requires clearing the hash in Mongo. Not a bug per owner request, but a real risk — flag it."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "CarCard.js (grid result card)", "issue": "PhotoSwiper is invoked without the `arrows` prop, and PhotoSwiper's default is `arrows=false`. As a result, the left/right arrows are never rendered on grid cards, so the requested 'hide arrow on first/last photo' behaviour cannot be observed there. car-card-swiper-prev and car-card-swiper-next never appear (verified in DOM after hover at 1920x900 on /bg homepage recommendations and search grid). CarRow.js correctly passes `arrows`; CarDetailPage.js correctly passes `arrows`.", "selector": "[data-testid=\"car-card-swiper-prev\"], [data-testid=\"car-card-swiper-next\"]", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_owner_password_admin.py", "/app/test_reports/pytest/iter31.xml"],
+  "action_items": [
+    "Fix CarCard.js: pass `arrows` prop to PhotoSwiper so grid result cards get the same conditional prev/next arrows that CarRow.js and the detail page already have.",
+    "(Optional) Consider allowing the OWNER account to bypass the 8-char minimum on POST /api/auth/password, or exposing an admin-only endpoint to restore a short owner password without touching Mongo directly. Otherwise, once the owner has changed their password once, 'Nero' is permanently unreachable through any UI or API."
+  ],
+  "critical_code_review_comments": [
+    "PhotoSwiper.js default `arrows = false` means every caller must remember to pass it — a footgun. The default should probably be true, or CarCard.js should be brought in line with CarRow.js.",
+    "auth.ensure_owner writes the password ONLY when password_hash is empty (intended, per docstring), so re-seeding after a password change requires manual DB intervention. Combined with the 8-char rule this locks the owner out of restoring 'Nero'. Consider a dedicated `OWNER_PASSWORD_FORCE_RESET` env flag or a startup log warning.",
+    "server.py PUT /admin/users/{email}/admin correctly guards own-flag and last-admin cases, has audit logging, and normalises email — solid.",
+    "AdminBuyers.js: header text 'Buyer interests (N of M with activity)' is technically accurate but misleading now that the full buyer list is rendered — consider retitling to avoid the impression that only N accounts are shown."
+  ],
+  "updated_files": ["/app/backend/tests/test_owner_password_admin.py"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "~90% (all specified flows work except grid card arrows)"},
+  "test_credentials": "Owner: martingtodorov@gmail.com / Nero. Second admin: admin@encarskin.com / AdminTest2026!. Buyer accounts registered on the fly with SecurityTest2026!. Owner password left intact (restored via direct Mongo write inside the pytest fixture).",
+  "seed_data_creation": "Two throwaway buyer accounts registered during testing (test_promo_<ts>@example.com and testui_<ts>@example.com). Both were left in place; they can be cleaned via /api/admin/users. No car / deposit data touched. inick003@gmail.com was briefly promoted then demoted back to normal — verified through the buyer-admin toggle in the UI.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "test_owner_password_admin.py is the new regression suite for these features. Run with: pytest backend/tests/test_owner_password_admin.py -v -o addopts= . It restores the owner password via a direct Mongo update in the change-password test's finally block, because /api/auth/password refuses passwords shorter than 8 characters (see minor backend issue). Detail page gallery uses testId=detail-main-photo — the review's mention of 'detail-gallery-prev/next' is just an example; the real ids are detail-main-photo-prev and detail-main-photo-next. Grid result cards on /bg use testId=car-card-swiper but currently expose NO prev/next arrows because CarCard.js omits the arrows prop.",
+  "rca of the issue": "CarCard grid-card arrows missing: PhotoSwiper.js line 93 defines `arrows = false` as the default; CarCard.js line 72-85 constructs a PhotoSwiper without passing that prop, so the branch `count > 1 && arrows` at PhotoSwiper.js line 317 never renders the prev/next buttons. CarRow.js at line 107 correctly passes `arrows`, so list-mode cards work. Fix: add `arrows` to the PhotoSwiper call in CarCard.js (one-line change)."
+}

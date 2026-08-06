@@ -78,6 +78,43 @@ async def ensure_indexes(db):
     await db.sessions.create_index("expires_at", expireAfterSeconds=0)
 
 
+async def ensure_owner(db):
+    """Make sure the person who owns the install can always get in.
+
+    Idempotent and DELIBERATELY not a reset. The password is written only when the account
+    has NONE - a brand new account, or one that has only ever signed in with Google - so a
+    password the owner later changes in their profile survives every restart. The admin flag,
+    on the other hand, is re-applied every time: that is the whole point of this seed.
+    """
+    email = (os.environ.get("OWNER_EMAIL") or "").strip().lower()
+    password = os.environ.get("OWNER_PASSWORD") or ""
+    if not email:
+        return
+    user = await db.users.find_one({"email_norm": email})
+    if not user:
+        await db.users.insert_one({
+            "_id": str(uuid.uuid4()),
+            "email": email,
+            "email_norm": email,
+            "name": "",
+            "password_hash": ph.hash(password) if password else "",
+            "webauthn_user_id": bytes_to_base64url(secrets.token_bytes(32)),
+            "favourites": [],
+            "is_admin": True,
+            "created_at": _now(),
+        })
+        log.info("owner account created: %s", email)
+        return
+    patch = {}
+    if not user.get("is_admin"):
+        patch["is_admin"] = True
+    if password and not user.get("password_hash"):
+        patch["password_hash"] = ph.hash(password)
+    if patch:
+        await db.users.update_one({"_id": user["_id"]}, {"$set": patch})
+        log.info("owner account updated: %s (%s)", email, ", ".join(patch))
+
+
 # ── relying party -------------------------------------------------------------
 def _rp(request: Request):
     """(rp_id, origin) for this request. Derived, never hardcoded."""
@@ -299,6 +336,35 @@ async def login(body: LoginBody, request: Request, response: Response):
     await _start_session(response, user["_id"], request)
     n = await _db.webauthn_credentials.count_documents({"user_id": user["_id"]})
     return {"user": _public(user, n)}
+
+
+class ChangePasswordBody(BaseModel):
+    current: str = ""
+    new: str
+
+
+@router.post("/auth/password")
+async def change_password(body: ChangePasswordBody, request: Request,
+                          user=Depends(current_user)):
+    """Set a new password, proving the current one first.
+
+    An account created through Google has no password to prove, so it can add one straight
+    away - the signed-in session is the proof there. Every OTHER session is dropped
+    afterwards: if the reason for the change is that somebody else knew the old password,
+    that is what actually puts them out.
+    """
+    if user.get("password_hash") and not _check_password(user, body.current):
+        raise HTTPException(401, "the current password is wrong")
+    if len(body.new) < MIN_PASSWORD:
+        raise HTTPException(400, f"password must be at least {MIN_PASSWORD} characters")
+    if body.current and body.new == body.current:
+        raise HTTPException(400, "that is the password you already have")
+    await _db.users.update_one({"_id": user["_id"]},
+                               {"$set": {"password_hash": ph.hash(body.new)}})
+    raw = request.cookies.get(SESSION_COOKIE) or ""
+    gone = await _db.sessions.delete_many(
+        {"user_id": user["_id"], "token_hash": {"$ne": _hash_token(raw) if raw else ""}})
+    return {"changed": True, "signed_out": gone.deleted_count}
 
 
 @router.post("/auth/logout")

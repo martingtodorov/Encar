@@ -59,6 +59,11 @@ resend_api_key: ""
 sender_email: "contact@encareurope.com"
 admin_notify_email: "contact@encareurope.com"
 
+# The owner's own account. Seeded at startup: the admin flag is re-applied every restart, the
+# password only when the account has none, so a password changed in the profile survives.
+owner_email: "martingtodorov@gmail.com"
+owner_password: "Nero"
+
 jsoncargo_api_key: ""
 jsoncargo_shipping_line: ""
 edi_ingest_token: ""

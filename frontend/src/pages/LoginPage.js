@@ -70,7 +70,10 @@ export default function LoginPage() {
 
   const submit = (e) => {
     e.preventDefault();
-    if (password.length < MIN_PASSWORD) {
+    // The minimum is a rule for CHOOSING a password, not for typing one that already
+    // exists: an older or seeded account can legitimately have a shorter one, and a login
+    // form that refuses it locks the owner out of their own site.
+    if (mode === "register" && password.length < MIN_PASSWORD) {
       setError(t("passwordTooShort", { n: MIN_PASSWORD }));
       return;
     }
@@ -273,7 +276,7 @@ export default function LoginPage() {
               data-testid="auth-password-input"
               type="password"
               required
-              minLength={MIN_PASSWORD}
+              minLength={registering ? MIN_PASSWORD : undefined}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete={registering ? "new-password" : "current-password"}

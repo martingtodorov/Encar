@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { Trash2, Users } from "lucide-react";
+import { ShieldCheck, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { deleteCustomer, getBuyers } from "@/lib/api";
+import { deleteCustomer, getBuyers, setUserAdmin } from "@/lib/api";
 import { Spinner, ago } from "@/components/admin/AdminBits";
 
 const money = (n) => (n ? `€${Math.round(n).toLocaleString("en-GB")}` : "—");
@@ -38,6 +38,23 @@ export const AdminBuyers = () => {
     }
   };
 
+  const toggleAdmin = async (email, makeAdmin) => {
+    if (!window.confirm(
+      makeAdmin
+        ? `Give ${email} full administrator access?`
+        : `Take administrator access away from ${email}?`)) return;
+    setBusy(email);
+    try {
+      await setUserAdmin(email, makeAdmin);
+      toast.success(makeAdmin ? `${email} is now an administrator` : "Administrator rights removed");
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "could not change rights");
+    } finally {
+      setBusy("");
+    }
+  };
+
   if (!rows) return <Spinner />;
 
   const active = rows.filter((r) => r.events > 0);
@@ -54,7 +71,7 @@ export const AdminBuyers = () => {
         spent on each car — not a single average.
       </p>
 
-      {active.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="mt-4 text-[12.5px] text-muted-foreground">
           No signed-in customer has browsed enough yet for a profile to form.
         </p>
@@ -70,11 +87,12 @@ export const AdminBuyers = () => {
                 <th className="pb-2 pr-3 font-medium">Mileage</th>
                 <th className="pb-2 pr-3 font-medium">Saved</th>
                 <th className="pb-2 font-medium">Last active</th>
+                <th className="pb-2 pr-3 font-medium">Admin</th>
                 <th className="pb-2" />
               </tr>
             </thead>
             <tbody>
-              {active.map((r) => (
+              {rows.map((r) => (
                 <tr
                   key={r.email}
                   data-testid={`buyer-row-${r.email}`}
@@ -132,6 +150,24 @@ export const AdminBuyers = () => {
                   </td>
                   <td className="py-2.5 text-[12.5px] text-muted-foreground">
                     {r.updated_at ? ago(r.updated_at) : "—"}
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    {/* Rights, not a preference: the button says what it will DO, and the
+                        server refuses the two dangerous cases (yourself, the last one). */}
+                    <Button
+                      variant="ghost"
+                      data-testid={`buyer-admin-${r.email}`}
+                      disabled={busy === r.email}
+                      onClick={() => toggleAdmin(r.email, !r.is_admin)}
+                      className={`h-8 rounded-[8px] px-2.5 text-[12px] font-semibold ${
+                        r.is_admin
+                          ? "text-[hsl(var(--primary))] hover:bg-[hsl(var(--primary)/0.08)]"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <ShieldCheck className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                      {r.is_admin ? "Administrator" : "Make admin"}
+                    </Button>
                   </td>
                   <td className="py-2.5 pl-2 text-right">
                     <Button

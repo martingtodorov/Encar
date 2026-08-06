@@ -2,6 +2,18 @@
 
 const ACCOUNT = {
   bg: {
+    passwordTitle: "Смяна на паролата",
+    passwordBlurb:
+      "Въведи текущата парола, за да зададеш нова. Другите ти устройства ще бъдат изключени.",
+    passwordSetTitle: "Задай парола",
+    passwordSetBlurb:
+      "Влизаш с Google и още нямаш парола. Задай една, за да можеш да влизаш и с имейл.",
+    passwordCurrent: "Текуща парола",
+    passwordNew: "Нова парола (мин. 8 знака)",
+    passwordSave: "Смени паролата",
+    passwordSetSave: "Задай паролата",
+    passwordChanged: "Паролата е сменена",
+    passwordSignedOut: "Излязохме от {n} други устройства",
     twofaTitle: "Двуфакторна автентикация (2FA)",
     twofaBlurb:
       "Защитете профила си с 6-цифрен код от authenticator приложение (Google Authenticator, Authy, 1Password).",
@@ -57,6 +69,18 @@ const ACCOUNT = {
     payBrowse: "Разгледай автомобили",
   },
   ro: {
+    passwordTitle: "Schimbă parola",
+    passwordBlurb:
+      "Introdu parola actuală pentru a seta una nouă. Celelalte dispozitive vor fi deconectate.",
+    passwordSetTitle: "Setează o parolă",
+    passwordSetBlurb:
+      "Te conectezi cu Google și încă nu ai parolă. Setează una ca să poți intra și cu emailul.",
+    passwordCurrent: "Parola actuală",
+    passwordNew: "Parola nouă (min. 8 caractere)",
+    passwordSave: "Schimbă parola",
+    passwordSetSave: "Setează parola",
+    passwordChanged: "Parola a fost schimbată",
+    passwordSignedOut: "Am deconectat {n} alte dispozitive",
     twofaTitle: "Autentificare în doi pași (2FA)",
     twofaBlurb:
       "Protejează-ți contul cu un cod de 6 cifre din aplicația de autentificare (Google Authenticator, Authy, 1Password).",
@@ -112,6 +136,18 @@ const ACCOUNT = {
     payBrowse: "Vezi automobilele",
   },
   en: {
+    passwordTitle: "Change your password",
+    passwordBlurb:
+      "Enter your current password to set a new one. Your other devices will be signed out.",
+    passwordSetTitle: "Set a password",
+    passwordSetBlurb:
+      "You sign in with Google and have no password yet. Set one so you can also sign in with your email.",
+    passwordCurrent: "Current password",
+    passwordNew: "New password (at least 8 characters)",
+    passwordSave: "Change password",
+    passwordSetSave: "Set password",
+    passwordChanged: "Password changed",
+    passwordSignedOut: "Signed out {n} other devices",
     twofaTitle: "Two-factor authentication (2FA)",
     twofaBlurb:
       "Protect your account with a 6-digit code from an authenticator app (Google Authenticator, Authy, 1Password).",

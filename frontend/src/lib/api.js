@@ -266,6 +266,18 @@ export async function apiGoogleSession(sessionId) {
   return data;
 }
 
+export async function changePassword(current, next) {
+  const { data } = await http.post("/auth/password", { current, new: next });
+  return data;
+}
+
+export async function setUserAdmin(email, isAdmin) {
+  const { data } = await http.put(`/admin/users/${encodeURIComponent(email)}/admin`, {
+    is_admin: isAdmin,
+  });
+  return data;
+}
+
 export async function apiLogout() {
   const { data } = await http.post("/auth/logout");
   return data;

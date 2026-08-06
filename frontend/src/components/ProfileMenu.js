@@ -33,6 +33,11 @@ export const ProfileMenu = () => {
     { to: "/purchases", label: t("navPurchases"), Icon: Package },
   ];
 
+  // The person's own first name reads far better on a button than "My account". Falls back
+  // to the part of the email before the @ when nobody filled a name in.
+  const firstName =
+    (user.name || "").trim().split(/\s+/)[0] || (user.email || "").split("@")[0];
+
   return (
     <div className="relative" ref={box}>
       <button
@@ -44,9 +49,11 @@ export const ProfileMenu = () => {
         className="inline-flex h-10 items-center gap-2 whitespace-nowrap rounded-[10px] border border-input bg-card px-3 text-[13.5px] font-medium text-foreground shadow-sm transition-colors hover:bg-muted"
       >
         <span className="flex h-6 w-6 items-center justify-center rounded-full bg-secondary text-[11px] font-semibold text-[hsl(var(--primary))]">
-          {(user.email || "?").slice(0, 1).toUpperCase()}
+          {(firstName || "?").slice(0, 1).toUpperCase()}
         </span>
-        {t("myAccount")}
+        <span data-testid="header-profile-name" className="max-w-[130px] truncate">
+          {firstName}
+        </span>
         <ChevronDown
           className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-200 ${
             open ? "rotate-180" : ""

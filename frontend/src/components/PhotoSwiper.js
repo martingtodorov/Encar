@@ -78,7 +78,7 @@ const DotRail = ({ count, active }) => {
 const ARROW =
   // `group/card` as well as `group/photos`: on a result card the arrows appear as soon as
   // the pointer is anywhere on the card, not only over the photo itself.
-  "absolute top-1/2 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur-sm transition-opacity duration-200 hover:bg-black/65 focus-visible:opacity-100 group-hover/photos:opacity-100 group-hover/card:opacity-100 disabled:opacity-0 lg:flex";
+  "absolute top-1/2 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/45 text-white opacity-0 backdrop-blur-sm transition-opacity duration-200 hover:bg-black/65 focus-visible:opacity-100 group-hover/photos:opacity-100 group-hover/card:opacity-100 lg:flex";
 
 export const PhotoSwiper = ({
   images = [],
@@ -316,32 +316,38 @@ export const PhotoSwiper = ({
 
       {count > 1 && arrows && (
         <>
-          <button
-            type="button"
-            data-testid={`${testId}-prev`}
-            aria-label="Previous photo"
-            disabled={active === 0}
-            onClick={(e) => {
-              e.stopPropagation();
-              step(-1);
-            }}
-            className={`${ARROW} left-3`}
-          >
-            <ChevronLeft className="h-5 w-5" aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            data-testid={`${testId}-next`}
-            aria-label="Next photo"
-            disabled={active === count - 1}
-            onClick={(e) => {
-              e.stopPropagation();
-              step(1);
-            }}
-            className={`${ARROW} right-3`}
-          >
-            <ChevronRight className="h-5 w-5" aria-hidden="true" />
-          </button>
+          {/* NOT `disabled` + `disabled:opacity-0`: the hover rule that makes the arrows
+              appear at all was winning over it, so a dead arrow still showed on the first
+              and last photo. Not rendering it is the only version that cannot be overridden.
+              They are absolutely positioned, so nothing moves when one is missing. */}
+          {active > 0 && (
+            <button
+              type="button"
+              data-testid={`${testId}-prev`}
+              aria-label="Previous photo"
+              onClick={(e) => {
+                e.stopPropagation();
+                step(-1);
+              }}
+              className={`${ARROW} left-3`}
+            >
+              <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+            </button>
+          )}
+          {active < count - 1 && (
+            <button
+              type="button"
+              data-testid={`${testId}-next`}
+              aria-label="Next photo"
+              onClick={(e) => {
+                e.stopPropagation();
+                step(1);
+              }}
+              className={`${ARROW} right-3`}
+            >
+              <ChevronRight className="h-5 w-5" aria-hidden="true" />
+            </button>
+          )}
         </>
       )}
 

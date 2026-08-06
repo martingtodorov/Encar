@@ -2305,7 +2305,7 @@ async def admin_buyers(request: Request, x_admin_token: str = Header(default="")
     await _require_admin(request, x_admin_token)
     rows = [u async for u in db.users.find(
         {}, {"email": 1, "name": 1, "taste": 1, "billing": 1, "favourites": 1,
-             "last_search": 1, "created_at": 1}).sort("created_at", -1).limit(300)]
+             "last_search": 1, "created_at": 1, "is_admin": 1}).sort("created_at", -1).limit(300)]
 
     out = []
     for u in rows:
@@ -2316,6 +2316,7 @@ async def admin_buyers(request: Request, x_admin_token: str = Header(default="")
         top = lambda m, n: [k for k, _ in sorted((m or {}).items(), key=lambda kv: -kv[1])[:n]]
         out.append({
             "email": u.get("email") or "", "name": u.get("name") or "",
+            "is_admin": bool(u.get("is_admin")),
             "city": (u.get("billing") or {}).get("city") or "",
             "phone": (u.get("billing") or {}).get("phone") or "",
             "favourites": len(u.get("favourites") or []),
@@ -2501,6 +2502,39 @@ async def admin_user_delete(email: str, request: Request,
     return {"removed": True, "email": email}
 
 
+class AdminFlagBody(BaseModel):
+    is_admin: bool
+
+
+@api.put("/admin/users/{email}/admin")
+async def admin_user_set_admin(email: str, body: AdminFlagBody, request: Request,
+                               x_admin_token: str = Header(default="")):
+    """Grant or take away administrator rights.
+
+    Two rails. Nobody changes their OWN flag - that is how an install ends up with no
+    administrator through one stray click - and the LAST administrator cannot be demoted,
+    which would lock the admin pages away from everybody.
+    """
+    admin = await _require_admin(request, x_admin_token)
+    who = _actor(admin)
+    email = (email or "").strip().lower()
+    user = await db.users.find_one({"email_norm": email}, {"_id": 1, "email": 1, "is_admin": 1})
+    if not user:
+        raise HTTPException(404, "no such customer")
+    if admin and admin.get("_id") == user["_id"]:
+        raise HTTPException(400, "you cannot change your own rights — ask another administrator")
+    if not body.is_admin:
+        others = await db.users.count_documents(
+            {"is_admin": True, "_id": {"$ne": user["_id"]}})
+        if not others:
+            raise HTTPException(400, "that is the last administrator")
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"is_admin": body.is_admin}})
+    await _audit(request, who,
+                 "made an administrator" if body.is_admin else "administrator rights removed",
+                 user.get("email") or email)
+    return {"email": user.get("email") or email, "is_admin": body.is_admin}
+
+
 @api.get("/admin/tracking-quota")
 async def admin_tracking_quota(request: Request, refresh: bool = False,
                               x_admin_token: str = Header(default="")):
@@ -2557,6 +2591,7 @@ app.add_middleware(
 async def on_startup():
     await sync_mod.ensure_indexes(db)
     await auth.ensure_indexes(db)
+    await auth.ensure_owner(db)
     if not await db.settings.find_one({"_id": "pricing"}):
         await db.settings.update_one(
             {"_id": "pricing"},

@@ -13,6 +13,7 @@ import { NotificationsPanel } from "@/components/NotificationsPanel";
 import { PhonePanel } from "@/components/PhonePanel";
 import { DeleteAccountPanel } from "@/components/DeleteAccountPanel";
 import { TwoFactorPanel } from "@/components/TwoFactorPanel";
+import { PasswordPanel } from "@/components/PasswordPanel";
 import { SessionsPanel } from "@/components/SessionsPanel";
 import { BLANK_BILLING, BillingFields } from "@/components/BillingFields";
 import http from "@/lib/api";
@@ -191,6 +192,7 @@ export default function AccountPage() {
           </ul>
         </section>
 
+        <PasswordPanel />
         <TwoFactorPanel />
         <SessionsPanel />
         <NotificationsPanel />
