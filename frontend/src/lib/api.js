@@ -6,8 +6,61 @@ export const API = `${BACKEND_URL}/api`;
 // withCredentials so the HttpOnly session cookie travels with every call.
 const http = axios.create({ baseURL: API, timeout: 60000, withCredentials: true });
 
+// Pages the visitor is ABOUT to ask for: they hovered a page button, or the pagination row
+// scrolled into view on a phone. A head start, not a cache layer — a handful of entries,
+// handed over to the first real request that matches and then forgotten.
+const PREFETCH_MAX = 8;
+const prefetched = new Map();
+
+const searchKey = (body) => JSON.stringify(body);
+
+/** Fire a search the visitor has not asked for yet. Silent: failures are the real
+ *  request's problem, and it will make its own. */
+export function prefetchSearch(body) {
+  const key = searchKey(body);
+  if (prefetched.has(key)) return;
+  if (prefetched.size >= PREFETCH_MAX) {
+    prefetched.delete(prefetched.keys().next().value);
+  }
+  prefetched.set(
+    key,
+    http
+      .post("/search", body)
+      .then((r) => r.data)
+      .catch(() => {
+        prefetched.delete(key);
+        return null;
+      })
+  );
+}
+
+/** Kept between visits so coming back from a car is instant. Small: the last few searches. */
+const RESULT_MAX = 6;
+const results = new Map();
+
+export function cachedSearch(body) {
+  return results.get(searchKey(body)) || null;
+}
+
+function remember(key, data) {
+  if (results.size >= RESULT_MAX) results.delete(results.keys().next().value);
+  results.set(key, data);
+}
+
 export async function searchCars(body) {
+  const key = searchKey(body);
+  const early = prefetched.get(key);
+  if (early) {
+    // Spent once: the next visit to this page should see fresh counts.
+    prefetched.delete(key);
+    const data = await early;
+    if (data) {
+      remember(key, data);
+      return data;
+    }
+  }
   const { data } = await http.post("/search", body);
+  remember(key, data);
   return data;
 }
 

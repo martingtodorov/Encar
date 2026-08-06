@@ -22,7 +22,7 @@ import { CarGrid } from "@/components/CarGrid";
 import { ResultsPagination } from "@/components/ResultsPagination";
 import { useApp } from "@/context/AppContext";
 import { useLangNav } from "@/hooks/useLangNav";
-import { getCatalogueSize, getFilters, resolveSlugs, searchCars } from "@/lib/api";
+import { cachedSearch, getCatalogueSize, getFilters, prefetchSearch, resolveSlugs, searchCars } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { noteSearch, getTaste } from "@/lib/taste";
 import { useScrollDirection } from "@/hooks/useScrollDirection";
@@ -241,7 +241,11 @@ export default function SearchPage() {
   }, []);
 
   const runSearch = useCallback(async (body) => {
-    setLoading(true);
+    // Coming back from a car: show the results we already have, with no spinner, and
+    // refresh them quietly behind the visitor.
+    const early = cachedSearch(body);
+    if (early) setResult(early);
+    setLoading(!early);
     setError(null);
     try {
       setResult(await searchCars(body));
@@ -249,7 +253,7 @@ export default function SearchPage() {
       noteSearch(body);
     } catch (e) {
       setError(e?.response?.data?.detail || e.message || "request failed");
-      setResult({ items: [], total: 0, pages: 0 });
+      if (!early) setResult({ items: [], total: 0, pages: 0 });
     } finally {
       setLoading(false);
     }
@@ -267,6 +271,18 @@ export default function SearchPage() {
     },
     [filters, tax, sort, page, lang]
   );
+
+  /** The visitor is hovering a page button, or the pagination just scrolled into view on a
+   *  phone. Fetch that page now so the click lands on something already loaded. */
+  const prefetchPage = useCallback(
+    (n) => {
+      if (!n || n < 1 || n === page) return;
+      if (result.pages && n > result.pages) return;
+      prefetchSearch({ ...payload, page: n });
+    },
+    [payload, page, result.pages]
+  );
+
 
   useEffect(() => {
     if (resolving) return undefined;

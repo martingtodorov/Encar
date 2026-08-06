@@ -3,6 +3,7 @@ import { ChevronDown, Loader2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { useApp } from "@/context/AppContext";
 import { getTaxonomy } from "@/lib/api";
+import { cachedTaxonomy, rememberTaxonomy } from "@/lib/taxonomyCache";
 import { formatNumber } from "@/lib/format";
 
 const ANY = "";
@@ -57,10 +58,20 @@ export const TaxonomySelects = ({ value, onChange, onLabels, onSlugs, layout = "
   const { t, lang } = useApp();
   const { make = "", model = "", badge = "", badgeDetail = "" } = value || {};
 
-  const [makes, setMakes] = useState([]);
-  const [models, setModels] = useState([]);
-  const [badges, setBadges] = useState([]);
-  const [details, setDetails] = useState([]);
+  // Seeded from the cache so a Back from a car renders the right labels immediately instead
+  // of falling back to the raw Korean value while the request is in flight.
+  const [makes, setMakes] = useState(() => cachedTaxonomy({ level: 1, lang }) || []);
+  const [models, setModels] = useState(
+    () => (make ? cachedTaxonomy({ level: 2, lang, make }) : null) || []
+  );
+  const [badges, setBadges] = useState(
+    () => (make && model ? cachedTaxonomy({ level: 3, lang, make, model }) : null) || []
+  );
+  const [details, setDetails] = useState(
+    () => (make && model && badge
+      ? cachedTaxonomy({ level: 4, lang, make, model, badge })
+      : null) || []
+  );
   const [busy, setBusy] = useState({});
 
   /**
@@ -77,9 +88,13 @@ export const TaxonomySelects = ({ value, onChange, onLabels, onSlugs, layout = "
       const sorted = [...(d.items || [])].sort((a, b) =>
         (a.label || a.value).localeCompare(b.label || b.value, lang, { numeric: true })
       );
+      rememberTaxonomy({ level, lang, ...params }, sorted);
       if (alive()) setter(sorted);
     } catch (e) {
-      if (alive()) setter([]);
+      // Keep whatever the cache gave us: an empty list here is what makes the chips fall
+      // back to raw Korean.
+      const kept = cachedTaxonomy({ level, lang, ...params });
+      if (alive()) setter(kept || []);
     } finally {
       if (alive()) setBusy((b) => ({ ...b, [key]: false }));
     }
@@ -99,6 +114,9 @@ export const TaxonomySelects = ({ value, onChange, onLabels, onSlugs, layout = "
       return undefined;
     }
     let ok = true;
+    // Cached list first (instant, correct), otherwise clear so the previous make's models
+    // are not left on screen while the new ones are fetched.
+    setModels(cachedTaxonomy({ level: 2, lang, make }) || []);
     load(2, { make }, setModels, "model", () => ok);
     return () => {
       ok = false;
@@ -111,6 +129,7 @@ export const TaxonomySelects = ({ value, onChange, onLabels, onSlugs, layout = "
       return undefined;
     }
     let ok = true;
+    setBadges(cachedTaxonomy({ level: 3, lang, make, model }) || []);
     load(3, { make, model }, setBadges, "badge", () => ok);
     return () => {
       ok = false;
@@ -123,6 +142,7 @@ export const TaxonomySelects = ({ value, onChange, onLabels, onSlugs, layout = "
       return undefined;
     }
     let ok = true;
+    setDetails(cachedTaxonomy({ level: 4, lang, make, model, badge }) || []);
     load(4, { make, model, badge }, setDetails, "badgeDetail", () => ok);
     return () => {
       ok = false;
