@@ -721,6 +721,31 @@ dropdowns showed the "Всички марки" placeholder for a frame.
   ~200ms before it pushes history, so the car page stays on screen a moment longer than a
   browser Back. Results page itself hydrates instantly once it fires.
 
+## "Назад към резултатите" as fast as the browser's own Back (2026-06, VERIFIED iteration_34)
+MEASURED FIRST, before changing anything: the button was NOT waiting to fire — the URL changed
+~40ms after the click. Both paths then spent the rest of the time in ONE React render of the
+results page (click -> list in the DOM: 383ms for the button, 307ms for the browser Back). Two
+changes closed the gap:
+1. `CarDetailPage.goBack` now does a REAL history POP (`navigate(-1)`) whenever the page was
+   opened from inside the app (`location.key !== "default"`), instead of pushing a second copy
+   of the list onto the stack. Pushing `{pathname, search: from}` is kept only for a cold-opened
+   shared link. The scroll offset can no longer travel in navigation state (the entry we pop to
+   was written before the visitor scrolled), so it goes through `lib/backScroll.js` — a one-shot
+   module handoff, read by `SearchPage` via `takeBackScroll()` when
+   `location.state.restoreScroll` is absent. Verified: `history.length` no longer grows.
+2. `CarGrid` renders ONLY the layout the viewport shows. It used to build the 16 mobile cards
+   AND the 16 desktop rows on every search and let CSS (`lg:hidden` / `hidden lg:flex`) throw one
+   away — double the mount cost of the very render a Back is waiting on. `useDesktopLayout()`
+   reads `matchMedia("(min-width: 1024px)")` synchronously for the first render and listens for
+   `change`, so a resize across the breakpoint still swaps the layout live.
+Result: button 383 -> **271ms**, browser Back 307 -> **227ms** (~30% faster for BOTH, and the
+button is now within ~50ms of the browser's own). Verified by the testing agent: 16 `car-card`
+and 0 `car-row` at 390x844, 16 `car-row` and 0 `car-card` at 1920x1080, live resize swaps, cold
+open still lands on the search page, no console errors, no skeletons and no Hangul on Back.
+NOTE for future tests: on DESKTOP the listing element is `[data-testid="car-row"]`;
+`[data-testid="car-card"]` is the MOBILE layout and no longer exists in the desktop DOM at all.
+
+
 ## Pagination prefetch (2026-06, VERIFIED)
 `ResultsPagination` takes `onPrefetch` (wired to `SearchPage.prefetchPage` -> `api.prefetchSearch`,
 an in-memory promise map of max 8 that `searchCars` consumes for a matching body):
