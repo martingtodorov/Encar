@@ -33,6 +33,20 @@ from pydantic import BaseModel, Field
 ROOT = Path(__file__).parent
 load_dotenv(ROOT / ".env")
 
+# These three are read at IMPORT time by the modules below, so a missing one kills the process
+# before uvicorn ever binds a port — the deploy then fails with nothing but "connection
+# refused". Checked here, together, so one restart names EVERYTHING that is missing instead of
+# dying on the first key and hiding the next two.
+_REQUIRED_ENV = ("MONGO_URL", "DB_NAME", "MEDIA_ROOT")
+_missing = [k for k in _REQUIRED_ENV if not os.environ.get(k)]
+if _missing:
+    raise RuntimeError(
+        "Missing required environment variables: " + ", ".join(_missing)
+        + ". Add them to the environment file the service reads "
+        "(EnvironmentFile= in the systemd unit) and restart. MEDIA_ROOT is the directory "
+        "where photos of purchased cars are archived and must be writable by the service user."
+    )
+
 import auth                  # noqa: E402
 import archive                # noqa: E402
 import deposits              # noqa: E402
