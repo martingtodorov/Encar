@@ -25,6 +25,7 @@ import { useLangNav } from "@/hooks/useLangNav";
 import { cachedSearch, getCatalogueSize, getFilters, prefetchSearch, resolveSlugs, searchCars } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { noteSearch, getTaste } from "@/lib/taste";
+import { takeBackScroll } from "@/lib/backScroll";
 import { useScrollDirection } from "@/hooks/useScrollDirection";
 import { useSeo, useJsonLd } from "@/lib/seo";
 import {
@@ -143,6 +144,12 @@ export default function SearchPage() {
   // drops the navigation state, so a remount would find nothing left to restore.
   const location = useLocation();
   if (location.state?.restoreScroll != null) pendingRestore = location.state.restoreScroll;
+  else {
+    // A pop lands on an entry written before the visitor scrolled, so the offset comes
+    // through the module handoff the car page filled in instead.
+    const handed = takeBackScroll();
+    if (handed != null) pendingRestore = handed;
+  }
 
   useEffect(() => {
     const target = pendingRestore;

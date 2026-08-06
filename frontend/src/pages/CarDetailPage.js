@@ -33,6 +33,7 @@ import { YouMightLike } from "@/components/YouMightLike";
 import { useLangNav } from "@/hooks/useLangNav";
 import { getCar, warmCar, forgetCar, countView } from "@/lib/api";
 import { noteView, WEIGHT } from "@/lib/taste";
+import { setBackScroll } from "@/lib/backScroll";
 import Lightbox from "@/components/Lightbox";
 import BodyDiagram from "@/components/BodyDiagram";
 import MechChecks from "@/components/MechChecks";
@@ -244,10 +245,13 @@ export default function CarDetailPage() {
     const from = location.state?.from;
     // Hand the list back the offset it was left at, so the visitor returns to the car
     // they tapped rather than to the top of 200 results.
-    const restoreScroll = location.state?.scrollY;
-    if (typeof from === "string") {
-      navigate({ pathname: path("/"), search: from }, { state: { restoreScroll } });
-    } else if (location.key !== "default") navigate(-1);
+    if (location.state?.scrollY != null) setBackScroll(location.state.scrollY);
+    // A real history POP whenever this page was opened from inside the app, so the button
+    // behaves EXACTLY like the browser's own Back: the entry the list already occupies is
+    // reused instead of a second copy being pushed on top of it (which was both slower and
+    // left a Back that went nowhere). Pushing is only for a cold open of a shared link.
+    if (location.key !== "default") navigate(-1);
+    else if (typeof from === "string") navigate({ pathname: path("/"), search: from });
     else navigate(path("/"));
   };
 

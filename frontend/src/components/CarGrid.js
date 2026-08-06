@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { SearchX, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -37,8 +38,25 @@ const CarRowSkeleton = () => (
 const GRID = "grid grid-cols-1 gap-5 sm:grid-cols-2 md:grid-cols-3 lg:hidden";
 const ROWS = "hidden flex-col gap-3 lg:flex";
 
+const LG = "(min-width: 1024px)";
+
+/** Only the layout this viewport actually shows is rendered. Building both and letting CSS
+ *  throw one away doubled the cost of mounting a page of results - which is exactly what a
+ *  Back from a car has to pay before the visitor sees their list again. */
+function useDesktopLayout() {
+  const [desktop, setDesktop] = useState(() => window.matchMedia(LG).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(LG);
+    const onChange = (e) => setDesktop(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return desktop;
+}
+
 export const CarGrid = ({ items, loading, error, onRetry, onOpen, onClearFilters, pageSize = 24 }) => {
   const { t } = useApp();
+  const desktop = useDesktopLayout();
 
   if (error) {
     return (
@@ -63,16 +81,20 @@ export const CarGrid = ({ items, loading, error, onRetry, onOpen, onClearFilters
   if (loading) {
     return (
       <div data-testid="loading-state">
-        <div className={GRID}>
-          {Array.from({ length: Math.min(pageSize, 6) }).map((_, i) => (
-            <CarCardSkeleton key={i} />
-          ))}
-        </div>
-        <div className={ROWS}>
-          {Array.from({ length: Math.min(pageSize, 8) }).map((_, i) => (
-            <CarRowSkeleton key={i} />
-          ))}
-        </div>
+        {!desktop && (
+          <div className={GRID}>
+            {Array.from({ length: Math.min(pageSize, 6) }).map((_, i) => (
+              <CarCardSkeleton key={i} />
+            ))}
+          </div>
+        )}
+        {desktop && (
+          <div className={ROWS}>
+            {Array.from({ length: Math.min(pageSize, 8) }).map((_, i) => (
+              <CarRowSkeleton key={i} />
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -102,16 +124,20 @@ export const CarGrid = ({ items, loading, error, onRetry, onOpen, onClearFilters
 
   return (
     <div data-testid="car-grid">
-      <div className={GRID}>
-        {items.map((car) => (
-          <CarCard key={car.id} car={car} onOpen={onOpen} />
-        ))}
-      </div>
-      <div data-testid="car-rows" className={ROWS}>
-        {items.map((car) => (
-          <CarRow key={car.id} car={car} onOpen={onOpen} />
-        ))}
-      </div>
+      {!desktop && (
+        <div className={GRID}>
+          {items.map((car) => (
+            <CarCard key={car.id} car={car} onOpen={onOpen} />
+          ))}
+        </div>
+      )}
+      {desktop && (
+        <div data-testid="car-rows" className={ROWS}>
+          {items.map((car) => (
+            <CarRow key={car.id} car={car} onOpen={onOpen} />
+          ))}
+        </div>
+      )}
     </div>
   );
 };
