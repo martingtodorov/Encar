@@ -884,6 +884,35 @@ owner wanted that said out loud.
   page and the sticky bar only. Encar spells the generation into the model name, and that range
   is the model's identity upstream, so filters, slugs and the taxonomy keep it.
 
+## Contract on the payment page (2026-06, stage 1 done, КЕП pending)
+`backend/contracts.py` + `components/ContractPanel.js` + `components/admin/AdminContract.js`.
+The template lives in `settings._id="contract_template"` as `{seller, bodies: {bg, ro, en}}`,
+seeded from the owner's own paper contract (АТЛАНТИК ДРАЙВ ЕООД, ЕИК 208414795) and editable in
+Admin → **Contract** per language, with a Reset per language and a placeholder cheatsheet.
+NOTE: the seed only runs when the settings doc does not exist, so changing `DEFAULT_BODIES`
+in code does NOT reach an install that has already seeded — delete the doc or use Reset.
+- Buyer fills 7 fields (name, ЕГН/CNP, ID card no, issue date, issuer, address, phone). They are
+  stored on the USER (`users.contract`), so a second purchase arrives pre-filled.
+- Placeholders render as the dotted blank `……` when unknown, never as an empty gap or a guess.
+- **Encar publishes NO VIN** — checked the ad, the cached detail and the archive: `vin` is always
+  null and only the Korean plate (`detail.vehicleNo`, e.g. "11조1431") exists. So `{{plate}}` is
+  filled from the archive and `{{vin}}` stays blank until someone types it on the deposit record.
+  Do not "fix" this by inventing a VIN.
+- Contract number is `{car_id}/{ddmmyyyy}`, not the Stripe session id.
+- `.docx` is built with python-docx (added to requirements) — no LibreOffice on the box.
+  Printing uses a print stylesheet on `#contract-print` in `index.css` (a popup window gets
+  eaten by blockers).
+- Endpoints: `GET/PUT /api/contract/{session_id}`, `GET /api/contract/{session_id}/docx`,
+  `GET/PUT /api/admin/contract-template`, `POST /api/admin/contract-template/reset`.
+  Ownership is enforced: another buyer gets 404, an anonymous caller 401.
+- Verified: 8/8 in `backend/tests/test_contract.py` plus the browser flow (fill 7 fields → save →
+  every value appears in the document, "7 fields left" note disappears).
+- STAGE 2, BLOCKED: signing with КЕП through **Eurosign** (owner's choice,
+  app.eurosign.com/docs/api). Needs the owner's Eurosign API credentials; nothing is implemented
+  yet and the panel says so in all three languages (`contractKepNote`).
+- Two bugs found and fixed during the browser check: `key.replace("_","-")` only replaced the
+  FIRST underscore so half the test ids were wrong, and the contract number was unreadable.
+
 ## Reference
 - Test credentials: `/app/memory/test_credentials.md`
 - Implementation log: `/app/memory/CHANGELOG.md`

@@ -213,3 +213,30 @@ code {
         font-size: 16px !important;
     }
 }
+
+/* The contract is the only thing that should come out of a printer on the payment page.
+   Visibility rather than display, so the block keeps its own layout while everything around
+   it stops being drawn. */
+@media print {
+    body * {
+        visibility: hidden !important;
+    }
+
+    #contract-print,
+    #contract-print * {
+        visibility: visible !important;
+    }
+
+    #contract-print {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        max-height: none !important;
+        overflow: visible !important;
+        border: 0 !important;
+        padding: 0 !important;
+        font-size: 11.5pt;
+        color: #000;
+    }
+}

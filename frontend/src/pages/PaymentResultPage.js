@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ContractPanel } from "@/components/ContractPanel";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useApp } from "@/context/AppContext";
 import { useLangNav } from "@/hooks/useLangNav";
@@ -56,7 +57,7 @@ export default function PaymentResultPage({ outcome = "success" }) {
   return (
     <div className="min-h-screen bg-background">
       <HeaderBar />
-      <main className="mx-auto max-w-[640px] px-4 py-16 text-center sm:px-6">
+      <main className="mx-auto max-w-[860px] px-4 py-16 text-center sm:px-6">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-secondary">
           {pending ? (
             <Loader2 className="h-7 w-7 animate-spin text-muted-foreground" aria-hidden="true" />
@@ -113,6 +114,9 @@ export default function PaymentResultPage({ outcome = "success" }) {
             {t("payBrowse")}
           </Button>
         </div>
+        {/* The deposit has cleared, so the contract is the next thing they need. */}
+        {paid && sessionId && <ContractPanel sessionId={sessionId} />}
+
         <span className="sr-only">{path("/")}</span>
       </main>
     </div>

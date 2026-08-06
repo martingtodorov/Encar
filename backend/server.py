@@ -42,6 +42,7 @@ import mailer                # noqa: E402
 import pricing               # noqa: E402
 import slugs as slugs_mod    # noqa: E402
 import syncjob as syncjob_mod  # noqa: E402
+import contracts as contracts_mod  # noqa: E402
 import pricewatch as pricewatch_mod  # noqa: E402
 import searchwatch as searchwatch_mod  # noqa: E402
 import edi                  # noqa: E402
@@ -2514,6 +2515,9 @@ async def admin_shipment_remove(ref: str, request: Request,
 
 api.include_router(auth.router)
 api.include_router(deposits.router)
+contracts_mod.set_db(db)
+contracts_mod.set_admin_guard(_require_admin)
+api.include_router(contracts_mod.router)
 api.include_router(notify.router)
 app.include_router(api)
 

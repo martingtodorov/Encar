@@ -362,3 +362,48 @@ export async function deleteShipment(ref) {
   const { data } = await http.delete(`/admin/shipments/${encodeURIComponent(ref)}`);
   return data;
 }
+
+// ── contract ────────────────────────────────────────────────────────────────
+export async function getContract(sessionId, lang) {
+  const { data } = await http.get(`/contract/${encodeURIComponent(sessionId)}`, {
+    params: { lang },
+  });
+  return data;
+}
+
+export async function saveContract(sessionId, lang, buyer) {
+  const { data } = await http.put(`/contract/${encodeURIComponent(sessionId)}`, buyer, {
+    params: { lang },
+  });
+  return data;
+}
+
+/** A Word file, so it can be printed or handed to a notary as it is. */
+export async function downloadContractDocx(sessionId, lang) {
+  const res = await http.get(`/contract/${encodeURIComponent(sessionId)}/docx`, {
+    params: { lang },
+    responseType: "blob",
+  });
+  const name = (res.headers["content-disposition"] || "").match(/filename="([^"]+)"/);
+  const url = URL.createObjectURL(res.data);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name ? name[1] : "contract.docx";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function getContractTemplate() {
+  const { data } = await http.get("/admin/contract-template");
+  return data;
+}
+
+export async function saveContractTemplate(body) {
+  const { data } = await http.put("/admin/contract-template", body);
+  return data;
+}
+
+export async function resetContractTemplate(lang) {
+  const { data } = await http.post("/admin/contract-template/reset", null, { params: { lang } });
+  return data;
+}
