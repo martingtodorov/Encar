@@ -880,6 +880,34 @@ with 1 photo each, **Saturday 15:00 Sofia**, and NOTHING sent when there is no n
   captured mail to its own buyer or a parallel suite's letter shows up in the assertions.
 
 
+## Owner's cookie policy v1.1 (2026-06, self-verified)
+The owner uploaded their settled cookie policy (`politika-biskvitki-v1.1`, a .docx — unzip and
+strip `word/document.xml` to read it) and asked for it to be used. BG is their text; RO and EN
+are faithful translations of the same 13-section document. All three carry `PRIVACY_STAMP`
+(version 1.1, 6 August 2026), same as the privacy policy.
+TWO FACTUAL CORRECTIONS were needed before it could go live — a cookie table that names storage
+we do not set is exactly what an inspector checks:
+1. The document listed `ab_lang / ab_currency / ab_theme` and `ab_saved / ab_searches`. The real
+   localStorage keys are `encar.lang`, `encar.currency`, `encar.theme`, `encar.favourites`,
+   `encar.searches` (see `context/AppContext.js`), plus `encar.cms.*` for the text cache. The
+   real names are in the published table.
+2. It had a row for a one-off CSRF token cookie. There is NO CSRF token anywhere in the backend;
+   the actual defence is the session cookie being HttpOnly + Secure + **SameSite=Lax**
+   (`auth.py` ~line 170). The row now says that instead of describing a cookie we never set.
+   If a real CSRF token is ever added, the row can be reinstated.
+The document also documents the ePrivacy legal basis (Art. 5(3) of Directive 2002/58/EC via the
+Bulgarian Electronic Communications Act), third-party cookies at Stripe/Google sign-in only,
+per-browser deletion instructions, and that DNT/GPC signals have no legal effect in the EU.
+GOTCHA that broke the page mid-work: `content/legal.js` is `const BG = {...}; const RO = {...};
+const EN = {...}`, and the per-language blocks are only separated by `};\n\nconst XX = {`.
+Slicing a language's last document out by searching for the NEXT `terms: doc(` swallows that
+boundary and the page dies with "RO is not defined". Bound replacements by the block, not by the
+next key.
+Verified: all 9 legal pages (privacy/cookies/terms/contact x bg/ro/en) render with 0 missing
+strings, no `${` or `undefined` leftovers, 14 sections in the cookie policy and 15 in the privacy
+policy, and the consent banner still works on top of them.
+
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **A real Maersk reference** to finish validating the public reader against live data, and
