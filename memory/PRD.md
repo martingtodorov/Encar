@@ -757,6 +757,51 @@ re-firing it. Verified: one POST /api/search on hover/scroll-into-view, ZERO ext
 click that follows.
 
 
+## ePrivacy prior consent + GDPR policies (2026-06, VERIFIED iteration_35, 0 defects)
+Owner's requirement: nothing beyond the strictly necessary may touch the visitor's device before
+explicit consent, plus a thorough GDPR privacy policy.
+BIGGEST FINDING: the platform's inline **PostHog snippet with session recording** sat in
+`frontend/public/index.html` and fired on EVERY page load, before the banner existed. It was
+REMOVED (a comment in its place explains why). Do not paste it back — any tracker must be loaded
+from `lib/analytics.js` after consent. Also closed: `ab_track` (recent tracking references) and the
+listing view counter were firing without consent.
+* `lib/consent.js` is the SINGLE gate. `POLICY_VERSION = "2026-06-08"`, categories
+  `personalisation` (ab_taste, ab_vid, ab_track) and `statistics` (view counter, future GA4).
+  No marketing category — no ad networks, no pixels. The decision is stored as a RECORD
+  (`{v, ts, cats}`) in `ab_consent` for 365 days, not a flag, so we can show what was agreed and
+  when; `allows()` answers false for everything until a decision exists against the CURRENT
+  version, so bumping the version re-asks. Refusing/withdrawing DELETES the cookies of that
+  category. `ab_consent` itself is strictly necessary: it stores a refusal too.
+* `CookieBar` — three equally sized buttons (Reject all / Settings / Accept all), optional toggles
+  default OFF, links to both policies, `openCookieSettings()` custom event so
+  `SiteFooter` ("Cookie settings", on every page) can reopen it to change or withdraw.
+* Gates: `taste.record()` -> `allows("personalisation")`; `TrackPage` ab_track writes;
+  `CarDetailPage` `countView` -> `allows("statistics")`.
+* `lib/analytics.js` is the GA4 loader the owner asked to prepare: nothing loads unless
+  `REACT_APP_GA_ID` is set AND statistics consent is given, Google Consent Mode defaults are
+  DENIED, `allow_google_signals: false`. Wired to consent changes in `LangLayout` in BOTH
+  directions, so a withdrawal flips the signal back to denied.
+* Backend: `TasteIn.consent_record` is stored on the user with a server-side `recorded_at` (a
+  client cannot backdate it) and returned by `_public`, so a signed-in buyer is asked once, not
+  once per device (`AuthContext` adopts it).
+* Company facts from the owner, now in `content/company.js`: address "гр. София, район Витоша,
+  ул. „Бяла река“ 12, бл. 10, ап. 3", phone +359 88 671 7074, NOT VAT registered, GDPR contact
+  contact@encareurope.com, hosting Hetzner Germany. NOTE: no post code was supplied — do not
+  invent one.
+* `content/legal.js`: privacy and cookie policies rewritten in BG/RO/EN (`UPDATED 2026-06-08`) —
+  controller, data map, purpose-by-purpose legal bases (Art. 6(1)(a)-(f)), every processor named
+  (Hetzner, Resend, Stripe, Anthropic, Google, carrier/tracking, forwarders, advisers), third
+  country transfers with adequacy/SCC Art. 46(2)(c), retention per record type, rights Art. 15-22
+  + withdrawal, complaint to КЗЛД and ANSPDCP, "no Art. 22 automated decisions", children,
+  security, breach notification, and a cookie-by-cookie table. Editable in Admin -> Pages.
+* Verified independently: fresh visit carries ONLY Cloudflare cookies, zero tracker requests while
+  browsing cars/searching/tracking with no decision, toggles default unchecked, Reject keeps it
+  clean and the site fully working, Accept writes ab_taste/ab_vid, withdrawal deletes them, banner
+  does not return after a decision, `/api/auth/me` carries the record, policy pages render in all
+  three languages with the real company facts, and the service worker/push still only register on
+  an explicit gesture.
+
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **A real Maersk reference** to finish validating the public reader against live data, and
