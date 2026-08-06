@@ -697,6 +697,41 @@ reserve price, listing approval). Agreed scope:
   pod env — never ask the owner for one).
 - Email delivery is still limited to the Resend account owner: no verified domain yet.
 
+## Back to the results page: no reload, no flash (2026-06, VERIFIED iteration_33)
+Two owner reports, one mechanism. A Back from a car remounts `SearchPage`, and because the URL
+carries ENGLISH SLUGS (`?make=audi`) the page could not search at all until `/meta/resolve`
+translated them back — so it painted a grid of skeletons (~250-400ms) and the make/model
+dropdowns showed the "Всички марки" placeholder for a frame.
+- `SearchPage` now keeps a module-level `visits` Map (max 6, LRU) of the state it last painted
+  for a URL: `{filters, tax, slugs, taxLabels, result}`. The key is
+  `pathname + search` — the language lives in the PATH, so keying on the query alone would
+  hydrate a Back after a language switch with the previous language's labels.
+- `restored = visits.get(visitKey())` is read ONCE on mount and seeds every one of those
+  `useState` calls, starts `loading` at **false** and makes `resolving` false, so the FIRST
+  painted frame already has the right cars, the upstream Korean values and the Latin labels.
+  The debounced search that follows hits `api.cachedSearch` and refreshes quietly.
+- The snapshot is written by an effect declared AFTER the URL-mirror effect, so
+  `window.location.search` is already the URL those results answer.
+- In memory on purpose (owner agreed): a Back is a client-side navigation so the module
+  survives it, while a real reload should ask the server again. No sessionStorage.
+- Verified frame-accurately at 1920x1080 and 390x844: at +16/30/100/250/500ms after Back,
+  0 skeletons, 16 cards with IDENTICAL ids and order, make trigger "Audi (3244)", chip
+  "Марка: Audi", 0 Hangul characters. Direct load of a slug URL still resolves normally.
+- Known LOW finding, not fixed: the car page's own "Назад към резултатите" button waits
+  ~200ms before it pushes history, so the car page stays on screen a moment longer than a
+  browser Back. Results page itself hydrates instantly once it fires.
+
+## Pagination prefetch (2026-06, VERIFIED)
+`ResultsPagination` takes `onPrefetch` (wired to `SearchPage.prefetchPage` -> `api.prefetchSearch`,
+an in-memory promise map of max 8 that `searchCars` consumes for a matching body):
+hover/keyboard focus on prev, any page button or next warms exactly that page; on a phone an
+IntersectionObserver on the nav root (`rootMargin: 200px`) warms page+1 the first time the row
+scrolls into view. A `warmed` ref set holds the page numbers already warmed, because the effect
+is re-created whenever the parent's callback identity changes and a scroll up-and-down again was
+re-firing it. Verified: one POST /api/search on hover/scroll-into-view, ZERO extra POSTs on the
+click that follows.
+
+
 ## Backlog
 ### P0 (blocked on the owner)
 - **A real Maersk reference** to finish validating the public reader against live data, and

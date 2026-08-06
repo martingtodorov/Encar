@@ -10,16 +10,22 @@ export const ResultsPagination = ({ page, pages, onChange, onPrefetch }) => {
   const { t, lang } = useApp();
   const [jump, setJump] = useState("");
   const navRef = useRef(null);
+  // Warmed once per page: the effect below is re-created whenever the parent's callback
+  // identity changes, so without this a scroll back up and down again would re-observe.
+  const warmed = useRef(new Set());
 
   // On a phone nobody hovers, so the row scrolling into view is the signal: the visitor has
   // reached the bottom of the results and the next page is the likely next click.
   useEffect(() => {
     const el = navRef.current;
     if (!el || !onPrefetch || page >= pages) return undefined;
+    const next = page + 1;
+    if (warmed.current.has(next)) return undefined;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries.some((e) => e.isIntersecting)) {
-          onPrefetch(page + 1);
+          warmed.current.add(next);
+          onPrefetch(next);
           io.disconnect();
         }
       },

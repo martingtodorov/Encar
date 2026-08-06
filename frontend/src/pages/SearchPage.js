@@ -61,6 +61,10 @@ let tasteSnapshot = { key: null, taste: null };
 const VISITS_MAX = 6;
 const visits = new Map();
 
+// The language lives in the PATH, not the query string, so both are part of the key -
+// otherwise a Back after a language switch would hydrate the previous language's labels.
+const visitKey = () => `${window.location.pathname}${window.location.search}`;
+
 function rememberVisit(search, snap) {
   if (!visits.has(search) && visits.size >= VISITS_MAX) {
     visits.delete(visits.keys().next().value);
@@ -86,7 +90,7 @@ export default function SearchPage() {
   const initial = useMemo(() => paramsToState(searchParams), []);
   // Everything this page painted the last time it stood on this exact URL, if it is still
   // in memory (i.e. the visitor came back rather than reloading).
-  const restored = useMemo(() => visits.get(window.location.search) || null, []);
+  const restored = useMemo(() => visits.get(visitKey()) || null, []);
 
   const [filters, setFilters] = useState(restored?.filters || initial.filters);
   const [tax, setTax] = useState(restored?.tax || initial.tax);
@@ -356,7 +360,7 @@ export default function SearchPage() {
   // the URL these results answer.
   useEffect(() => {
     if (loading || error || !result.items?.length) return;
-    rememberVisit(window.location.search, { filters, tax, slugs, taxLabels, result });
+    rememberVisit(visitKey(), { filters, tax, slugs, taxLabels, result });
   }, [loading, error, result, filters, tax, slugs, taxLabels, searchParams]);
 
   const changeSort = useCallback((v) => {
