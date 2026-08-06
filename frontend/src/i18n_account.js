@@ -40,7 +40,7 @@ const ACCOUNT = {
     depositBlurb:
       "С този депозит купуваме автомобила за вас, затова той не се възстановява, ако се откажете. Когато платите остатъка по банков път, ви връщаме депозита и задържаме {sum} комисиона, която вече е включена в крайната цена.",
     depositTerms:
-      "Разбирам, че с този депозит автомобилът се купува за мен и сумата не се възстановява, ако се откажа.",
+      "Разбирам, че с този депозит автомобилът се купува за мен и сумата не се възстановява, ако се откажа след подписването на договора.",
     depositReserve: "Плати депозит",
     depositAmount: "Депозит",
     depositWhy: "10% от цената на автомобила",
@@ -95,7 +95,7 @@ const ACCOUNT = {
     depositBlurb:
       "Cu acest depozit cumpărăm automobilul pentru tine, de aceea nu se restituie dacă te retragi. După ce plătești restul prin transfer bancar, îți returnăm depozitul și reținem {sum} comision, care este deja inclus în prețul final.",
     depositTerms:
-      "Înțeleg că automobilul este cumpărat pentru mine cu acest depozit și că suma nu se restituie dacă mă retrag.",
+      "Înțeleg că automobilul este cumpărat pentru mine cu acest depozit și că suma nu se restituie dacă mă retrag după semnarea contractului.",
     depositReserve: "Plătește depozitul",
     depositAmount: "Depozit",
     depositWhy: "10% din prețul automobilului",
@@ -149,7 +149,7 @@ const ACCOUNT = {
     depositBlurb:
       "We buy the car for you with this deposit, so it is not refundable if you change your mind. Once you pay the balance by bank transfer we return the deposit and keep {sum} as our commission, which is already included in the final price.",
     depositTerms:
-      "I understand the car is bought for me with this deposit and that the money is not refundable if I withdraw.",
+      "I understand the car is bought for me with this deposit and that the money is not refundable if I withdraw after signing the contract.",
     depositReserve: "Pay the deposit",
     depositAmount: "Deposit",
     depositWhy: "10% of the car's price",
