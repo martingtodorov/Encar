@@ -136,6 +136,28 @@ def main():
     pricing = db.settings.find_one({"_id": "pricing"}) if counts["settings"] else None
     print(f"  pricing settings: {'present' if pricing else 'MISSING - prices will be wrong'}")
 
+    # ── keys that are silently blank ────────────────────────────────────────
+    # A blank key does not crash anything, it just makes a whole feature answer "not
+    # connected". That is how shipment tracking goes dark after a deploy.
+    env = env_from(a.env)
+    print("\nIntegrations (a blank key = that feature is switched off)")
+    dark = []
+    for key, feature in (
+        ("JSONCARGO_API_KEY", "shipment tracking (\"Проследяването още не е свързано\")"),
+        ("STRIPE_SECRET_KEY", "reservation deposits"),
+        ("RESEND_API_KEY", "every email"),
+        ("ANTHROPIC_API_KEY", "translation"),
+        ("GEMINI_API_KEY", "translation (standby)"),
+        ("VAPID_PRIVATE_KEY", "push notifications"),
+        ("TOTP_ENCRYPTION_KEY", "two-factor authentication"),
+        ("MEDIA_ROOT", "the backend will not even start"),
+        ("PUBLIC_SITE_URL", "links inside emails"),
+    ):
+        ok = bool((env.get(key) or "").strip())
+        print(f"  [{'  ok ' if ok else 'BLANK'}] {key:<22}" + ("" if ok else f"  -> {feature}"))
+        if not ok:
+            dark.append(key)
+
     # ── what to do about it ─────────────────────────────────────────────────
     print("\nWhat to do")
     steps = []
@@ -158,6 +180,9 @@ def main():
     if not admins:
         steps.append("No administrator exists. Set OWNER_EMAIL and OWNER_PASSWORD in "
                      "backend/.env and restart the backend — it seeds the owner on startup.")
+    if dark:
+        steps.append("Fill these in group_vars/all.yml on your Mac and deploy again — they "
+                     f"are blank here, so those features are off: {', '.join(dark)}.")
     if not steps:
         steps.append("Nothing missing. If a dropdown still looks wrong, rebuild the "
                      "dropdowns from Admin -> Catalogue sync.")

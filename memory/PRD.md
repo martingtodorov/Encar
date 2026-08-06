@@ -1071,3 +1071,85 @@ if it is on Cloudflare. No code change is needed once it flips.
 `/app/test_reports/iteration_30.json` — 14/14 backend checks plus the Playwright pass on the
 Google button/callback and the whole CMS editor. `retest_needed: false`.
 
+
+## 2026-06 — Owner's account, password change, admin rights, gallery arrows, production data
+### The owner's own account (`auth.ensure_owner`, called from on_startup)
+`OWNER_EMAIL` / `OWNER_PASSWORD` in backend/.env (and `owner_email` / `owner_password` in the
+Ansible group_vars + `backend.env.j2`). Currently `martingtodorov@gmail.com` / `Nero` — FOUR
+characters, at the owner's explicit instruction. The seed re-applies `is_admin` on every boot
+but writes the password ONLY when the account has none, so a password changed in the profile
+survives a restart. Because that account already HAD a password (registered 02.08), the seed
+would not have touched it, so the hash was set once by hand.
+* THE TRAP THIS EXPOSED: the login form enforced `MIN_PASSWORD` (8) via `minLength` AND a
+  client-side check, so "Nero" could not be submitted — the form silently refused, no request,
+  no error. A minimum length is a rule for CHOOSING a password, never for typing one that
+  already exists. `LoginPage` now applies it only when `mode === "register"`.
+### Change your own password
+`POST /api/auth/password` ({current, new}) + `components/PasswordPanel.js` on the account page.
+Requires the current password, unless the account has none because it only ever signed in with
+Google — then the same card reads "set a password" and the signed-in session is the proof.
+Drops every OTHER session afterwards and keeps the one that made the change, and reports how
+many were signed out. Verified: wrong current -> 401, short -> 400, same -> 400, and a second
+cookie jar for the same user goes dead while the acting one still passes /auth/me.
+### Making other people administrators
+`PUT /api/admin/users/{email}/admin` ({is_admin}) + an Admin column in
+`components/admin/AdminBuyers.js`. Two rails: nobody changes their OWN flag, and the last
+administrator cannot be demoted. Audited. The buyers table now lists EVERY account, not only
+the ones with browsing history, otherwise a fresh account could never be promoted.
+### The header shows the first name
+`ProfileMenu` shows `user.name`'s first word (falling back to the email local part) instead of
+"Моят профил". Test id `header-profile-name`.
+### Gallery arrows
+The owner asked for no left arrow on the first photo and no right arrow on the last. They were
+already `disabled` with `disabled:opacity-0`, but the hover rule that makes them appear at all
+was winning over it, so a dead arrow still showed. `PhotoSwiper` now RENDERS them conditionally
+(`active > 0`, `active < count - 1`). The testing agent then caught the real reason the owner
+saw nothing change on result cards: `CarCard` never passed `arrows` at all and PhotoSwiper's
+default is `false`, so grid cards had no arrows in the first place. Fixed. NOTE `Lightbox` is
+deliberately left cycling (modulo), so its arrows always work.
+### Production (encareurope.com) had no dropdowns, no merges, no year spans
+All three are DATA, not code. `taxonomy`, `model_years`, `facets` and `option_dicts` are derived
+from `listings` and self-heal on the first `/meta/taxonomy` read; `taxonomy_overrides`,
+`site_pages`, `site_settings`, `settings` and `translations` are the owner's own work and cannot
+be rebuilt anywhere.
+* **`backend/seed_curation.py` + `backend/seed/curation.json`** — the merges/renames and the
+  year spans now TRAVEL IN THE REPOSITORY and are applied at startup, INSERT-IF-MISSING by
+  `_id`, so every deploy carries them and a live edit is never clobbered by the next restart.
+  Regenerate after curating: `cd /app/backend && python3 seed_curation.py --dump`
+  (9 overrides + 1,252 year spans, 93 KB). Verified against a scratch database: a fresh server
+  gets everything, a restart adds nothing, and an edit made on the server survives.
+* **`deploy/doctor.py`** — run on the box, prints every collection with a count and what breaks
+  when it is empty, then checks the three symptoms properly (taxonomy per level + how many have
+  slugs, `sync_state.taxonomy.built_at`, span count, the overrides listed one by one, admin
+  count, pricing settings), then which integration keys are BLANK, then the remedy. It already
+  found 2 of 1,261 level-2 models with no slug.
+* **`deploy/export_data.py` collection list was stale and lost money**: it asked for
+  "purchases", which does not exist — the real names are `deposits` and `purchased_listings`, so
+  every paid reservation deposit was silently left behind. Also added `site_pages`,
+  `site_settings`, `shipment_events`, `price_watch`, `search_watch`, `push_subscriptions`,
+  `audit_log`.
+* A full verified `mongodump --gzip --archive` of everything lives in `/app/db_export/`
+  (31 collections, 251,635 documents, 60 indexes, 19.6 MB) plus a curation-only pair of
+  `.jsonl.gz` files in `/app/db_export/curation/`. NOTE: the mongodump in this image is old and
+  does NOT accept `--nsInclude`; use `--collection` or the jsonl route.
+### Facts established while answering the owner's questions
+* **Catalogue coverage**: 62 makes (all of them), 1,261 models, 5,988 submodels, 3,339 trims =
+  10,650 precomputed nodes. But the index holds 145,451 of Encar's 210,046 exportable cars =
+  **69.2%**, and every single brand sits at 68-74%. A uniform shortfall like that is a
+  systematic cap in the partitioned crawl, not brand-specific failures — worth investigating
+  (`sync._crawl_node`, `LEAF_MAX = 500`, and the `min(count, 20_000)` window on unsplittable
+  buckets).
+* **JsonCargo works**: `x-api-key` (NOT `Authorization: Bearer` — an early test of mine used the
+  wrong header and produced a misleading 401). `GET /api_key/stats` answers 200: plan MARINER,
+  15 of 1,000 requests used. So "Проследяването още не е свързано" on production means
+  `jsoncargo_api_key` is EMPTY in the owner's group_vars, not a broken integration.
+* I cannot create or push to a GitHub repository. That is the "Save to Github" button.
+### Still open
+* Pre-warming the taxonomy translations after a sync so the FIRST search is not slow. Today
+  `/meta/taxonomy` calls `translate_many` inline, and with the dead Anthropic key each miss
+  burns the retry ladder before falling back. The fix has two halves: warm all four levels for
+  all three languages after `build_taxonomy`, and make the dropdown path use
+  `translate_cached_only` + `schedule_translation` so it can never block on an LLM.
+* The ~31% of the catalogue that is not indexed.
+* `/app/test_reports/iteration_31.json` — everything else passed.
+

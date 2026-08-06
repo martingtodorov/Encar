@@ -50,6 +50,7 @@ if _missing:
 import auth                  # noqa: E402
 import archive                # noqa: E402
 import cms                    # noqa: E402
+import seed_curation          # noqa: E402
 import deposits              # noqa: E402
 import notify                # noqa: E402
 import fx as fx_mod          # noqa: E402
@@ -2592,6 +2593,12 @@ async def on_startup():
     await sync_mod.ensure_indexes(db)
     await auth.ensure_indexes(db)
     await auth.ensure_owner(db)
+    # The owner's merges, renames and year spans travel in the repo, so a fresh server has
+    # the same dropdowns without anybody copying a database.
+    try:
+        await seed_curation.ensure_curation(db)
+    except Exception as e:
+        log.warning("curation seed failed: %s", str(e)[:200])
     if not await db.settings.find_one({"_id": "pricing"}):
         await db.settings.update_one(
             {"_id": "pricing"},
