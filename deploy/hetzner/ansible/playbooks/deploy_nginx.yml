@@ -55,7 +55,7 @@
 
     - name: Site configuration
       ansible.builtin.template:
-        src: ../templates/nginx-site.conf.j2
+        src: ../templates/nginx-encar.conf.j2
         dest: "/etc/nginx/sites-available/{{ app_name }}.conf"
         mode: "0644"
       notify: Reload nginx
