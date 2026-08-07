@@ -2183,6 +2183,11 @@ async def create_enquiry(body: EnquiryBody, request: Request):
     log.info("enquiry %s for listing %s (guest=%s)", doc["_id"], doc["listing_id"],
              doc["is_guest"])
     mailer.send_enquiry_emails(doc)
+    # The operator hears about it on their phone, not only when they next open the panel.
+    notify.push_to_admins_later(
+        "New enquiry",
+        f"{doc['name'] or doc['email']} asked about {doc['car_title'] or doc['listing_id']}",
+        f"/{doc['lang']}/admin", "enquiry")
     return {"ok": True, "id": doc["_id"]}
 
 

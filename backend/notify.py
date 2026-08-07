@@ -24,11 +24,14 @@ import auth
 log = logging.getLogger("notify")
 router = APIRouter()
 
-EVENTS = ("saved_search", "price_drop", "shipment", "enquiry")
+EVENTS = ("saved_search", "price_drop", "shipment", "enquiry", "deposit")
 DEFAULTS = {
     "email": {"enabled": True, **{e: True for e in EVENTS}},
     "push": {"enabled": False, **{e: True for e in EVENTS}},
 }
+# The operator's own alerts. A buyer never has these switched on because a buyer never has a
+# subscription for them: they are only ever sent to accounts with is_admin.
+ADMIN_EVENTS = ("enquiry", "deposit")
 
 _db = None
 
@@ -63,6 +66,7 @@ class ChannelPrefs(BaseModel):
     price_drop: bool = True
     shipment: bool = True
     enquiry: bool = True
+    deposit: bool = True
 
 
 class PrefsBody(BaseModel):
@@ -188,6 +192,36 @@ async def push_to_user(user_id, title, body, url="/", event=None):
         except Exception as e:                       # noqa: BLE001
             log.warning("push error: %s", str(e)[:160])
     return sent
+
+
+async def push_to_admins(title, body, url="/", event=None):
+    """Tell the operators something happened on the shop floor.
+
+    Enquiries and deposits were invisible until someone opened the admin panel: a buyer who
+    just put money on hold could sit there for a day. Every admin account is reached, each on
+    its own devices, and each can still switch the event off for itself.
+    """
+    admins = await _db.users.find({"is_admin": True}, {"_id": 1}).to_list(50)
+    sent = 0
+    for admin in admins:
+        sent += await push_to_user(admin["_id"], title, body, url, event)
+    if not sent:
+        log.info("no admin device could be reached for %s", event or "notice")
+    return sent
+
+
+def push_to_admins_later(title, body, url="/", event=None):
+    """Fire and forget: an operator's alert must never slow down or fail a buyer's request."""
+    async def job():
+        try:
+            await push_to_admins(title, body, url, event)
+        except Exception as e:                        # noqa: BLE001
+            log.warning("admin push failed: %s", str(e)[:160])
+
+    try:
+        asyncio.get_running_loop().create_task(job())
+    except RuntimeError:
+        pass
 
 
 @router.post("/push/test")

@@ -118,7 +118,7 @@ def _drive_stripe_checkout(checkout_url):
         try:
             page.wait_for_url("**/payment/success**", timeout=90000)
         except Exception:
-            page.screenshot(path="/app/test_reports/stripe_partial_error.png", quality=40)
+            page.screenshot(path="/app/test_reports/stripe_partial_error.png")
             html = page.content()[:1500]
             browser.close()
             raise AssertionError(f"Stripe checkout did not redirect. URL={page.url}\n{html}")

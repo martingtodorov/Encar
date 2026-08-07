@@ -14,6 +14,8 @@ import {
   apiPutFavourites,
   apiPutSearches,
   apiRegister,
+  apiResendCode,
+  apiVerifyEmail,
   saveBilling,
 } from "@/lib/api";
 import http from "@/lib/api";
@@ -149,16 +151,25 @@ export function AuthProvider({ children }) {
   }, []);
 
   const register = useCallback(
-    async (email, password, name, billing) => {
+    async (email, password, name, billing, lang = "") => {
       const local = favourites;
       const localSearches = searches;
-      const { user: u } = await apiRegister({ email, password, name: name || "" });
+      const { user: u } = await apiRegister({ email, password, name: name || "", lang });
       await adopt(u, local, localSearches);
       setJustRegistered(true);
       return u;
     },
     [adopt, favourites, searches]
   );
+
+  /** The six digits from the email. On success the user object carries email_verified. */
+  const verifyEmail = useCallback(async (code) => {
+    const { user: u } = await apiVerifyEmail(code);
+    setUser(u || null);
+    return u;
+  }, []);
+
+  const resendCode = useCallback((lang = "") => apiResendCode(lang), []);
 
   const logout = useCallback(async () => {
     await apiLogout().catch(() => {});
@@ -216,6 +227,8 @@ export function AuthProvider({ children }) {
       googleSession,
       refresh,
       register,
+      verifyEmail,
+      resendCode,
       logout,
       passkeyLogin,
       addPasskey,
@@ -225,7 +238,8 @@ export function AuthProvider({ children }) {
       justRegistered,
       clearJustRegistered,
     }),
-    [user, loading, login, loginMfa, googleSession, refresh, register, logout, passkeyLogin,
+    [user, loading, login, loginMfa, googleSession, refresh, register, verifyEmail, resendCode,
+     logout, passkeyLogin,
      addPasskey,
      updateBilling,
      justRegistered,

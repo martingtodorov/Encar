@@ -35,6 +35,7 @@ import archive
 import auth
 import translate
 import mailer
+import notify
 
 log = logging.getLogger("deposits")
 router = APIRouter()
@@ -216,6 +217,13 @@ async def _settle(session_id, payment_intent="", payment_status="authorised", ex
             # The buyer now owns a claim on this car, so the ad becomes ours to keep: the
             # listing and every photo are copied to our disk before Encar can withdraw it.
             archive.archive_later(_db, record["car_id"])
+            # And the operator is told at once: a hold lasts 7 days, so a reservation nobody
+            # noticed is a sale nobody made.
+            notify.push_to_admins_later(
+                "Car reserved" if payment_status == "authorised" else "Deposit paid",
+                f"€{float(record.get('amount') or 0):,.0f} held on "
+                f"{record.get('car_title') or record['car_id']} by {record.get('email') or ''}",
+                f"/{record.get('lang') or 'en'}/admin", "deposit")
 
 
 @router.get("/deposit/status/{session_id}")

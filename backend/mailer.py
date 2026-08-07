@@ -510,6 +510,44 @@ RELEASED = {
 }
 
 
+VERIFY = {
+    "bg": {
+        "subject": "Кодът за потвърждение: {code}",
+        "heading": "Потвърдете имейл адреса си",
+        "body": ("Въведете този код в отворената страница, за да потвърдите адреса си. "
+                 "Кодът е валиден 15 минути и важи само веднъж."),
+        "code": "Код", "ignore": "Ако не сте се регистрирали при нас, просто изтрийте това писмо.",
+    },
+    "ro": {
+        "subject": "Codul de confirmare: {code}",
+        "heading": "Confirmă adresa de e-mail",
+        "body": ("Introdu acest cod în pagina deschisă pentru a confirma adresa. Codul este "
+                 "valabil 15 minute și poate fi folosit o singură dată."),
+        "code": "Cod", "ignore": "Dacă nu te-ai înregistrat la noi, șterge acest e-mail.",
+    },
+    "en": {
+        "subject": "Your confirmation code: {code}",
+        "heading": "Confirm your email address",
+        "body": ("Enter this code on the open page to confirm your address. The code is valid "
+                 "for 15 minutes and works only once."),
+        "code": "Code", "ignore": "If you did not register with us, just delete this email.",
+    },
+}
+
+
+async def send_verify_code(to, code, name="", lang="en"):
+    """The code goes in the SUBJECT too: on a phone it is readable from the notification."""
+    t = VERIFY.get(lang) or VERIFY["en"]
+    hello = f"{_esc(name)}, " if name else ""
+    rows = (f'<tr><td colspan="2" style="padding:0 0 12px;color:#111">{hello}{t["body"]}</td></tr>'
+            + f'<tr><td colspan="2" style="padding:8px 0 4px"><div style="font:700 30px/1.2 '
+              f'-apple-system,Segoe UI,Roboto,Arial,sans-serif;letter-spacing:6px;color:#111">'
+              f'{_esc(code)}</div></td></tr>')
+    return await _send(to, t["subject"].format(code=code),
+                       _shell(t["heading"], rows, t["ignore"]))
+
+
+
 EXPIRING = {
     "bg": {
         "subject": "Блокираната сума пада утре",

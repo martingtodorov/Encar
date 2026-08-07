@@ -398,6 +398,17 @@ export async function apiRegister(body) {
   return data;
 }
 
+export async function apiVerifyEmail(code) {
+  const { data } = await http.post("/auth/verify-email", { code });
+  return data;
+}
+
+export async function apiResendCode(lang = "") {
+  const { data } = await http.post(
+    `/auth/resend-code${lang ? `?lang=${encodeURIComponent(lang)}` : ""}`, {});
+  return data;
+}
+
 export async function apiLogin(body) {
   const { data } = await http.post("/auth/login", body);
   return data;

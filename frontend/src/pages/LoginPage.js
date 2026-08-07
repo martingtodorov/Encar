@@ -50,15 +50,18 @@ export default function LoginPage() {
   const [recovery, setRecovery] = useState(false);
 
   useEffect(() => {
-    if (user) go("/", { replace: true });
+    // An account that has not proved its address goes to the code screen, not home: this is
+    // also what stops the register redirect from racing with the one below.
+    if (user && user.email_verified === false) go("/verify-email", { replace: true });
+    else if (user) go("/", { replace: true });
   }, [user, go]);
 
   const run = async (kind, fn) => {
     setError("");
     setBusy(kind);
     try {
-      await fn();
-      go("/", { replace: true });
+      const to = await fn();
+      go(to || "/", { replace: true });
     } catch (e) {
       if (e?.mfa) return;          // a second factor is owed, not a failure
       const msg = errorMessage(e, t("authFailed"));
@@ -77,7 +80,13 @@ export default function LoginPage() {
       setError(t("passwordTooShort", { n: MIN_PASSWORD }));
       return;
     }
-    if (mode === "register") run("register", () => register(email, password, name, billing));
+    if (mode === "register")
+      // Straight to the code screen: the letter is already on its way, and an address nobody
+      // proves is an account we can never send a reset or a reservation to.
+      run("register", async () => {
+        await register(email, password, name, billing, lang);
+        return "/verify-email";
+      });
     else
       run("login", async () => {
         const answer = await login(email, password);

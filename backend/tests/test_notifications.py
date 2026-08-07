@@ -33,7 +33,10 @@ def test_defaults_and_toggles():
     assert data["prefs"]["email"]["enabled"] is True
     assert data["prefs"]["push"]["enabled"] is False
     assert data["devices"] == 0
-    assert set(data["events"]) == {"saved_search", "price_drop", "shipment", "enquiry"}
+    # "enquiry" and "deposit" are the OPERATOR's alerts: a buyer carries the switches but
+    # never a subscription for them, because they are only ever sent to is_admin accounts.
+    assert set(data["events"]) == {"saved_search", "price_drop", "shipment", "enquiry",
+                                   "deposit"}
 
     prefs = data["prefs"]
     prefs["email"]["price_drop"] = False

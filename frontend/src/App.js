@@ -12,6 +12,7 @@ import SavedSearchesPage from "@/pages/SavedSearchesPage";
 import HowItWorksPage from "@/pages/HowItWorksPage";
 import TrackPage from "@/pages/TrackPage";
 import LoginPage from "@/pages/LoginPage";
+import VerifyEmailPage from "@/pages/VerifyEmailPage";
 import AccountPage from "@/pages/AccountPage";
 import AdminPage from "@/pages/AdminPage";
 import LegalPage from "@/pages/LegalPage";
@@ -39,6 +40,7 @@ function AppRouter() {
         <Route path="how-it-works" element={<HowItWorksPage />} />
         <Route path="track" element={<TrackPage />} />
         <Route path="login" element={<LoginPage />} />
+        <Route path="verify-email" element={<VerifyEmailPage />} />
         <Route path="account" element={<AccountPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="terms" element={<LegalPage slug="terms" />} />

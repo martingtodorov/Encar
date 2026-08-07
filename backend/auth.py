@@ -35,6 +35,7 @@ from webauthn import (
 )
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 
+import mailer
 import twofa
 from webauthn.helpers.structs import (
     AuthenticatorSelectionCriteria,
@@ -76,6 +77,9 @@ async def ensure_indexes(db):
     await db.webauthn_challenges.create_index("expires_at", expireAfterSeconds=0)
     await db.sessions.create_index("token_hash", unique=True)
     await db.sessions.create_index("expires_at", expireAfterSeconds=0)
+    # Codes clean themselves up: an expired one must not sit in the database waiting to be
+    # tried offline.
+    await db.email_codes.create_index("expires_at", expireAfterSeconds=0)
 
 
 async def ensure_owner(db):
@@ -143,6 +147,65 @@ def _expected_origins(request: Request, origin: str):
 # ── sessions ------------------------------------------------------------------
 def _hash_token(raw: str):
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+# ── email verification codes --------------------------------------------------
+# A fresh six-digit code on every send, hashed at rest, dead after fifteen minutes or five
+# wrong guesses. Six digits is only a million combinations, so the ATTEMPT LIMIT is what makes
+# it safe, not the length: without it a code like this is guessable.
+VERIFY_TTL_MINUTES = 15
+VERIFY_MAX_ATTEMPTS = 5
+VERIFY_RESEND_SECONDS = 60
+VERIFY_MAX_SENDS = 8
+
+
+def _lang(value):
+    """Kept local on purpose: importing server.norm_lang here would be a circular import."""
+    got = (value or "").strip().lower()[:2]
+    return got if got in ("bg", "ro", "en") else "en"
+
+
+def _new_code():
+    # secrets, not random: this is a credential.
+    return f"{secrets.randbelow(1_000_000):06d}"
+
+
+async def _issue_code(user, lang="en"):
+    """Replace whatever code was outstanding and email the new one.
+
+    Replacing is deliberate - an old code stops working the moment a new one is asked for, so
+    a code read over someone's shoulder yesterday is worthless today.
+    """
+    code = _new_code()
+    now = _now()
+    existing = await _db.email_codes.find_one({"_id": user["_id"]}) or {}
+    await _db.email_codes.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"code_hash": _hash_token(code), "expires_at": now + timedelta(
+            minutes=VERIFY_TTL_MINUTES), "attempts": 0, "sent_at": now,
+            "email": user["email"], "lang": lang},
+         "$inc": {"sends": 1}},
+        upsert=True)
+    sent = await mailer.send_verify_code(user["email"], code,
+                                         user.get("name") or "", lang)
+    if not sent:
+        # Loudly: a buyer staring at a code screen with no letter coming is the worst possible
+        # silence, and right now the Resend key in this environment is rejected.
+        log.error("verification code for %s could not be emailed - check RESEND_API_KEY",
+                  user["email"])
+    return bool(existing)
+
+
+def _aware(value):
+    """Mongo hands back naive UTC; comparing that to an aware `now` raises."""
+    if value and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def _verified(user):
+    """Accounts created before this existed are trusted: nobody gets locked out by a rollout."""
+    return bool(user.get("email_verified", True))
 
 
 async def _start_session(response: Response, user_id: str, request: Request = None):
@@ -221,6 +284,7 @@ def _public(user, passkeys=0):
         "favourites": user.get("favourites") or [],
         "saved_searches": user.get("saved_searches") or [],
         "is_admin": bool(user.get("is_admin")),
+        "email_verified": _verified(user),
         "billing": user.get("billing") or {},
         "consent": user.get("consent") or "",
         "consent_record": user.get("consent_record") or {},
@@ -259,6 +323,7 @@ class Credentials(BaseModel):
     email: EmailStr
     password: str
     name: str = ""
+    lang: str = ""
     billing: Billing | None = None
 
 
@@ -296,6 +361,9 @@ async def register(body: Credentials, request: Request, response: Response):
         "webauthn_user_id": bytes_to_base64url(secrets.token_bytes(32)),
         "favourites": [],
         "is_admin": False,
+        # New accounts start unproven. Accounts that existed before verification did are
+        # trusted by `_verified()`, so nobody is locked out by the rollout.
+        "email_verified": False,
         "created_at": _now(),
     }
     # Stored only when the buyer actually filled it in: an empty form leaves no address
@@ -313,7 +381,60 @@ async def register(body: Credentials, request: Request, response: Response):
     except Exception:
         raise HTTPException(409, "that email is already registered")
     await _start_session(response, user["_id"], request)
+    # The address has to be proved before it is trusted with a reset link or a reservation,
+    # so a fresh code goes out now. The session still starts: making someone verify before
+    # they can even look around loses the buyer, and nothing sensitive is reachable unverified.
+    await _issue_code(user, _lang(body.lang))
     return {"user": _public(user)}
+
+
+class CodeBody(BaseModel):
+    code: str = Field(min_length=4, max_length=12)
+
+
+@router.post("/auth/verify-email")
+async def verify_email(body: CodeBody, user=Depends(current_user)):
+    """Prove the address. Wrong guesses are counted, and five of them burn the code."""
+    if _verified(user):
+        return {"user": _public(user), "already": True}
+    record = await _db.email_codes.find_one({"_id": user["_id"]})
+    if not record or _aware(record.get("expires_at")) and _aware(record["expires_at"]) < _now():
+        raise HTTPException(410, {"code": "expired"})
+    if (record.get("attempts") or 0) >= VERIFY_MAX_ATTEMPTS:
+        raise HTTPException(429, {"code": "too_many_attempts"})
+    if not secrets.compare_digest(_hash_token(body.code.strip()),
+                                  record.get("code_hash") or ""):
+        await _db.email_codes.update_one({"_id": user["_id"]}, {"$inc": {"attempts": 1}})
+        left = VERIFY_MAX_ATTEMPTS - (record.get("attempts") or 0) - 1
+        # A machine-readable detail: the buyer reads this on a Bulgarian or Romanian page, so
+        # the wording belongs in the frontend's own dictionary, not in an English string here.
+        raise HTTPException(400, {"code": "wrong", "left": max(0, left)})
+
+    await _db.users.update_one({"_id": user["_id"]},
+                               {"$set": {"email_verified": True,
+                                         "email_verified_at": _now()}})
+    await _db.email_codes.delete_one({"_id": user["_id"]})
+    log.info("email verified for %s", user["email"])
+    fresh = await _db.users.find_one({"_id": user["_id"]})
+    return {"user": _public(fresh), "verified": True}
+
+
+@router.post("/auth/resend-code")
+async def resend_code(request: Request, user=Depends(current_user)):
+    """A new code, with a cooldown so the button cannot be used as a mail cannon."""
+    if _verified(user):
+        return {"already": True}
+    record = await _db.email_codes.find_one({"_id": user["_id"]}) or {}
+    sent_at = _aware(record.get("sent_at"))
+    if sent_at:
+        waited = (_now() - sent_at).total_seconds()
+        if waited < VERIFY_RESEND_SECONDS:
+            raise HTTPException(
+                429, {"code": "cooldown", "seconds": int(VERIFY_RESEND_SECONDS - waited)})
+    if (record.get("sends") or 0) >= VERIFY_MAX_SENDS:
+        raise HTTPException(429, {"code": "too_many_sends"})
+    await _issue_code(user, _lang(request.query_params.get("lang") or record.get("lang")))
+    return {"sent": True, "cooldown": VERIFY_RESEND_SECONDS}
 
 
 @router.post("/auth/login")

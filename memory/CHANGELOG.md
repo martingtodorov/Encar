@@ -765,3 +765,60 @@ and an expired hold releases itself and re-lists the car. Cards only (nothing el
 `/pw-browsers/chromium_headless_shell-*` is NOT persistent — it disappeared mid-session and
 every Playwright test errored with "Executable doesn't exist". Fix, whenever that shows up:
 `PLAYWRIGHT_BROWSERS_PATH=/pw-browsers playwright install chromium`.
+
+## 2026-06-07 (evening) — Meta title, admin push alerts, email verification codes
+### Meta title/description (owner was emphatic: never "Emergent" or "full stack app")
+- `public/index.html` said `<title>Emergent | Fullstack App</title>` and
+  `description="A product of emergent.sh"`. Both replaced with the site's own words:
+  "Korean cars with a final landed price | Encar Europe" and a description about the final
+  price including duty, VAT, freight and delivery. Per-page SEO (`lib/seo.js`) was already
+  correct - this was only the pre-hydration fallback, which is exactly what a crawler that does
+  not run JS sees. `manifest.json` was already clean.
+- STILL OPEN: `public/sitemap.xml` lists the PREVIEW domain
+  (`encar-multi-lang.preview.emergentagent.com`), which tells Google to index the preview rather
+  than encareurope.com. Worth fixing before any SEO push.
+
+### Admin push notifications for enquiries and deposits (owner: both events, push, all admins)
+- Answer to their question was NO: push only ever went to buyers (saved searches, price drops).
+  Enquiries emailed `ADMIN_NOTIFY_EMAIL`; a new deposit notified nobody at all.
+- `notify.push_to_admins()` / `push_to_admins_later()` fan out to every `is_admin` account over
+  the same proven `push_to_user` path; `deposit` added to `EVENTS`/`ChannelPrefs` so each admin
+  can still switch an event off. Wired at the enquiry insert (`server.py`) and in
+  `deposits._settle` when a hold is authorised.
+- HONEST LIMIT: I could not verify a DELIVERED notification - that needs an admin browser with a
+  live push subscription, and none exists in this environment. The fan-out and preference gate
+  are covered by `test_notifications.py`; the delivery path is the one already in daily use.
+
+### Email verification with a rotating code on first registration
+- `auth.py`: registration writes `email_verified: False` and issues a fresh six-digit code
+  (`secrets.randbelow`), stored ONLY as a sha256 hash in `email_codes` with `_id = user_id`, a
+  15-minute TTL index, attempt counter and resend counter. Asking for a new code REPLACES the
+  old one, so a code seen over a shoulder yesterday is worthless.
+- Endpoints: `POST /api/auth/verify-email` {code} and `POST /api/auth/resend-code`. 5 wrong
+  guesses burn the code (and then even the right code is refused), 60s resend cooldown, 8 sends
+  maximum. Six digits is a million combinations - the ATTEMPT LIMIT is what makes it safe.
+- Details are machine-readable (`{"code": "wrong", "left": 3}`, `expired`, `cooldown`, …) so the
+  buyer reads the message in their OWN language; the wording lives in `i18n_account.js` in
+  BG/RO/EN. First attempt returned English sentences on a Bulgarian page - fixed.
+- Accounts created before this rollout are treated as verified (`_verified()` defaults to True
+  when the field is absent), so nobody is locked out. `_public()` now exposes `email_verified`.
+- Frontend: `pages/VerifyEmailPage.js` at `/:lang/verify-email` (six-digit input, resend with a
+  countdown, noindex). Registration goes there instead of home, and LoginPage's redirect sends
+  an unverified session to the code screen so the two redirects cannot race.
+- TWO BUGS FOUND AND FIXED WHILE TESTING: `email_verified` was missing from the new user
+  document, so a fresh account looked already verified; and Mongo returns NAIVE datetimes, so
+  comparing `expires_at` to an aware `now` raised a 500 (`_aware()` helper now coerces).
+- Tests: `tests/test_email_verification.py` (10 passed) - unverified on registration, code
+  recovered from its hash (proving the clear text is never stored), right code verifies and the
+  row is deleted so it cannot be replayed, five wrong guesses count down and then lock out even
+  the right code, resend throttled without rotating the code, expired code refused, both
+  endpoints need a session, legacy accounts read as verified.
+- Also fixed: two Playwright failure-path screenshots passed `quality=` with a `.png` path,
+  which errors in Playwright and masked the real failure.
+- VERIFIED: full backend suite 203 passed / 2 skipped / 0 failed, plus a browser run of
+  register → code screen → wrong code showing the Bulgarian message.
+
+### Note for whoever sends test registrations
+New accounts now start UNVERIFIED and land on `/verify-email`. Read the code out of the
+`email_codes` collection (it is hashed - see `_code_of()` in the test for how) because the
+Resend key in this environment is still rejected and no letter arrives.
