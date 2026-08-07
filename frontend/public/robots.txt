@@ -5,4 +5,4 @@ Allow: /
 # instead of a Disallow: a crawler that is not allowed to fetch a page can never see the
 # noindex on it, and a robots.txt full of private paths is a map of them.
 
-Sitemap: https://encar-multi-lang.preview.emergentagent.com/sitemap.xml
+Sitemap: https://encareurope.com/sitemap.xml
