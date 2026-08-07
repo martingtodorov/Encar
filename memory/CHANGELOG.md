@@ -718,3 +718,13 @@ and an expired hold releases itself and re-lists the car. Cards only (nothing el
   `per_model` is back to 2; `per_make` alone was what starved the shelf.
 - VERIFIED: full backend suite 187 passed / 3 skipped / 0 failed, plus screenshots of the
   buyer's hold wording and the admin capture panel.
+
+## 2026-06-07 — Link to the original Encar ad in the admin cost & margin panel
+- Added an "Original ad on Encar (<id>)" link at the bottom of the admin-only Cost & margin
+  panel on the car page (`CarDetailPage.js`, `data-testid="admin-encar-link"`). The address is
+  fixed apart from the id: `https://fem.encar.com/cars/detail/{car.id}` — our listing id IS the
+  Encar id, so nothing needs mapping. Opens in a new tab, `rel="noreferrer noopener"`.
+- It sits inside the `car.admin &&` block, so it is only ever sent to and rendered for a
+  signed-in admin: a buyer never sees where the car came from.
+- VERIFIED live as the owner's account on /bg/car/42174890: link present exactly once, href
+  `https://fem.encar.com/cars/detail/42174890`.

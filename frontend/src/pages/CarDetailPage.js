@@ -11,6 +11,7 @@ import {
   XCircle,
   Loader2,
   Calculator,
+  ExternalLink,
   SearchX,
   X,
 } from "lucide-react";
@@ -550,10 +551,21 @@ export default function CarDetailPage() {
                       the percentage.
                     </p>
                   )}
+                  {/* The original ad, one click away: an operator checking a margin usually
+                      wants to see what Encar itself is showing for the same car. Only the id
+                      changes - the rest of the address is fixed. */}
+                  <a
+                    data-testid="admin-encar-link"
+                    href={`https://fem.encar.com/cars/detail/${car.id}`}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-medium text-[hsl(var(--primary))] underline-offset-4 transition-opacity hover:opacity-80 hover:underline"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                    Original ad on Encar ({car.id})
+                  </a>
                 </Panel>
               )}
-
-              {/* specs */}
               <Panel title={t("specs")} icon={FileCheck2} testId="detail-specs" tone="info">
                 <Row label={t("year")} value={formatYearMonth(Number(car.year_month), car.form_year)} />
                 <Row label={t("mileage")} value={formatMileage(car.spec?.mileage, lang, t("km"))} />
