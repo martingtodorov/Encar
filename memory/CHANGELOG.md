@@ -1029,3 +1029,65 @@ the running `/etc/encar/backend.env`, not merely that the carrier was blank. The
 `curl` from back1 succeeded because he supplied the key by hand, which proves the network and
 the key but says nothing about what the application reads.
 Still outstanding from the owner: `grep JSONCARGO /etc/encar/backend.env`.
+
+## 2026-06-08 — Live visitor bar (admin only) + a bill of lading tied to a car
+
+### 1. Cookieless visitor counting
+`backend/traffic.py`. What identifies a visit is `HMAC(daily_salt, ip|user-agent)` truncated to
+20 hex chars. The salt is generated fresh each day in `traffic_salt` and expires after two days,
+so once it is gone nobody — us included — can recompute yesterday's fingerprints or link them to
+today. The raw IP is never stored. Nothing is written to the visitor's device, so ePrivacy's
+consent rule for storage does not apply and the count is honest rather than "only those who
+accepted a banner". Basis: legitimate interest, Art. 6(1)(f).
+- `traffic_hits` keeps `{v, p, l, at}` only, TTL 40 days.
+- `POST /api/traffic/ping` — public. Drops known bots by user agent AND drops an administrator's
+  own browsing: an owner watching his own shop must not appear in his own "live now" figure.
+  Wrapped so a counting failure can never break a page.
+- `GET /api/admin/traffic` — live (5 min), what is being viewed right now (people per page, top
+  6), and day / week / month as {visitors, views}. Unique counts use `$group` by visitor then
+  count, never `$addToSet`, so a busy month cannot hit the 16MB document limit. 10-second cache
+  because an open bar polls every 20s and every poll is an aggregation.
+- `AdminTrafficBar.js` — thin dark strip, `sticky top-0`, collapsible. It sets `--admin-bar-h`
+  on the document while mounted and `HeaderBar` now reads `top-[var(--admin-bar-h,0px)]` as its
+  sticky offset, so the two stack instead of overlapping.
+- `LangLayout` pings 1.2s after each route change: `useSeo` has set the title by then, and that
+  title's first segment ("Hyundai Santa Fe DM") is the readable label. The delay also means a
+  visitor bouncing through three pages in a second is not counted three times.
+- Privacy policy: new section 2.10 in BG/RO/EN describing exactly this, and the stamp moves to
+  v1.4 — section 17's own rule for a material change. THE OWNER'S LAWYER SHOULD SEE 2.10.
+
+### 2. A bill of lading tied to a specific car
+The gap was small and invisible: `/api/purchases` already joins shipments by `car_id`, and
+`MyPurchasesPage` already renders a Track button per purchased car — but the admin form had no
+car field, so `car_id` was always "" and the join never matched. The buyer therefore never saw
+the reference and nothing anywhere said why.
+- `GET /api/admin/customer-cars?email=` — that customer's reserved cars, newest first, with
+  titles and `assigned_ref` so the operator can see a car is already on another B/L. An id typed
+  from memory is an id typed wrong, and a mismatch here is silent.
+- `AdminShipments.js` — a car picker that loads when a customer is chosen; the list shows the car
+  by NAME instead of a bare id.
+- `GET /api/admin/shipments` now resolves car titles in one lookup for the page.
+
+### VERIFIED
+- Traffic: `tests/test_traffic.py`, 9 tests — the digest is 20 hex chars and holds no address or
+  user agent, the same visitor gets one digest within a day (else "people" and "views" would be
+  the same number), the salt exists with a 2-day TTL, hits have a 40-day TTL, bots are refused,
+  the numbers are 401 for a visitor, every window is present with views >= visitors, a fresh view
+  appears as live, and windows widen rather than shrink.
+- Live proof: four views from three browsers → `live: 3`, `day: {visitors: 3, views: 4}` (the
+  browser that looked twice counted as ONE person), pages strip showed all three real labels.
+  Bar screenshot confirms it renders above the header with `--admin-bar-h: 28px`, and the collapse
+  toggle hides the windows while keeping the live count.
+- Shipment→car end to end: seeded a held deposit → the car appeared in the picker → assigned B/L
+  271191199 to it → the admin list showed "Hyundai Santa Fe DM (42341529)" → the picker flagged
+  `assigned_ref: 271191199` → `GET /api/purchases` as the buyer returned `ref: '271191199'` on
+  that car. Seed data removed afterwards.
+- Suites: full run 219 passed / 2 skipped / 14 errors, where all 14 are the Stripe-hosted-checkout
+  tests driven through Chromium; `test_deposit_refund_e2e.py` alone = 19 passed and
+  `test_partial_refund_and_commission.py` alone = 9 passed. The errors are xdist contention on
+  Stripe's page (`input#cardNumber` not visible inside 60s), not a regression.
+
+### Environment note
+`/pw-browsers` had lost its Chromium, which made 20 deposit tests ERROR with
+"Executable doesn't exist". `python -m playwright install chromium` fixes it. Check this before
+suspecting the payment code.

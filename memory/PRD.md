@@ -1485,3 +1485,15 @@ empty and an empty env var beats a code default. Fixed in the config reader, bot
 examples and all three env templates; config-caused failures are no longer cached. 219 backend
 tests pass. Owner should confirm `JSONCARGO_SHIPPING_LINE=MAERSK` in `/etc/encar/backend.env`
 after the next deploy.
+
+### 2026-06-08 (later) — live visitor bar + shipment tied to a car
+- Admin-only traffic bar above the header on every page: live now (5 min), what is being viewed
+  right now, and day/week/month as visitors + views. Counted first-party and cookieless via a
+  daily-rotating salted HMAC of IP+user-agent; raw IP never stored, nothing written to the
+  device, admins and bots excluded. Privacy policy gained section 2.10 and moved to v1.4.
+- A bill of lading can now be tied to one of the customer's reserved cars from the admin panel,
+  which is what puts the Track button on that car in the buyer's Purchases page. The join
+  already existed; the car field did not, so car_id was always empty.
+- P1: owner's lawyer should review privacy section 2.10 (new processing described).
+- P2: 14 Stripe-checkout tests error under parallel xdist workers (Stripe's page is slow to
+  render `input#cardNumber`); they pass when the file runs alone. Consider marking them serial.

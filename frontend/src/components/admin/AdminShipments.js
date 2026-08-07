@@ -7,13 +7,14 @@ import {
   assignShipment,
   deleteShipment,
   getAdminShipments,
+  getCustomerCars,
   getTrackingQuota,
   refreshShipment,
 } from "@/lib/api";
 import { Spinner, ago } from "@/components/admin/AdminBits";
 import { CustomerPicker } from "@/components/admin/CustomerPicker";
 
-const BLANK = { email: "", ref: "", by: "bol" };
+const BLANK = { email: "", ref: "", by: "bol", car_id: "" };
 
 export const AdminShipments = () => {
   const [rows, setRows] = useState(null);
@@ -22,6 +23,7 @@ export const AdminShipments = () => {
   const [checking, setChecking] = useState("");
   const [result, setResult] = useState(null);
   const [quota, setQuota] = useState(null);
+  const [cars, setCars] = useState([]);
 
   const load = useCallback(async () => {
     setRows(await getAdminShipments());
@@ -31,6 +33,23 @@ export const AdminShipments = () => {
   useEffect(() => {
     load();
   }, [load]);
+
+  // The car list belongs to the chosen customer: a B/L can only sensibly be tied to something
+  // that person actually reserved.
+  useEffect(() => {
+    const email = form.email.trim();
+    if (!email) {
+      setCars([]);
+      return;
+    }
+    let dead = false;
+    getCustomerCars(email)
+      .then((list) => !dead && setCars(list))
+      .catch(() => !dead && setCars([]));
+    return () => {
+      dead = true;
+    };
+  }, [form.email]);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -151,6 +170,33 @@ export const AdminShipments = () => {
             />
           </label>
 
+          {/* Tying the reference to a car is what puts the Track button on that car in the
+              buyer's Purchases page: `/api/purchases` joins shipments by car id, so an empty
+              one means the buyer never sees the reference at all. A picked car cannot be a
+              typo, which a hand-typed id silently can. */}
+          <label className="flex flex-col gap-1.5 sm:col-span-2">
+            <span className="text-[12px] font-medium text-muted-foreground">
+              Car {form.email.trim() ? `(${cars.length} reserved)` : "(choose a customer first)"}
+            </span>
+            <select
+              data-testid="shipment-car"
+              value={form.car_id}
+              onChange={set("car_id")}
+              disabled={!cars.length}
+              className="h-10 rounded-[8px] border border-border bg-background px-3 text-[13px] text-foreground disabled:opacity-50"
+            >
+              <option value="">
+                {cars.length ? "Not tied to a car" : "No reserved cars for this customer"}
+              </option>
+              {cars.map((c) => (
+                <option key={c.car_id} value={c.car_id}>
+                  {c.title} · {c.car_id}
+                  {c.assigned_ref ? ` — already on ${c.assigned_ref}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <div className="sm:col-span-2">
             <Button
               data-testid="shipment-assign"
@@ -197,7 +243,7 @@ export const AdminShipments = () => {
                   </div>
                   <div className="mt-0.5 text-[11.5px] text-muted-foreground">
                     assigned {ago(r.updated_at)} by {r.updated_by}
-                    {r.car_id ? ` · car ${r.car_id}` : ""}
+                    {r.car_id ? ` · ${r.car_title || "car"} (${r.car_id})` : " · not tied to a car"}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

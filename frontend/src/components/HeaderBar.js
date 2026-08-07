@@ -17,7 +17,7 @@ export const HeaderBar = ({ hidden = false, onBack, flush = false }) => {
       data-hidden={hidden ? "true" : "false"}
       // `flush`: something sits immediately below (the mobile filter bar), and the
       // header's own shadow and border would read as a dividing line between them.
-      className={`sticky top-0 z-40 bg-card transition-transform duration-300 lg:translate-y-0 ${
+      className={`sticky top-[var(--admin-bar-h,0px)] z-40 bg-card transition-transform duration-300 lg:translate-y-0 ${
         flush ? "border-b-0 shadow-none" : "border-b border-border shadow-sm"
       } ${hidden ? "-translate-y-full" : "translate-y-0"}`}
     >

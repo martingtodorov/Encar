@@ -410,6 +410,18 @@ export async function apiResendCode(lang = "") {
 }
 
 /** Ask for a reset link. The answer never says whether the address exists. */
+/** Live/day/week/month traffic. Admin only — the endpoint refuses anyone else. */
+export async function getTraffic() {
+  const { data } = await http.get("/admin/traffic");
+  return data;
+}
+
+/** The cars this customer has reserved, so a B/L can be tied to one of them by name. */
+export async function getCustomerCars(email) {
+  const { data } = await http.get("/admin/customer-cars", { params: { email } });
+  return data.items || [];
+}
+
 export async function apiForgotPassword(email, lang = "en") {
   const { data } = await http.post("/auth/forgot-password", { email, lang });
   return data;

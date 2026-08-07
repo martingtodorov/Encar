@@ -45,3 +45,15 @@ None for three different reasons, give it somewhere to say which.
 A metered third-party API is a witness: if the counter does not move while the user is loading
 the page, their server never called it. That single number separated "the key is wrong" from
 "the key never reached the process" faster than any log would have.
+
+## Never send parallel edits to the SAME file (2026-06-08)
+Five parallel `search_replace` calls on one test file silently clobbered each other: every call
+reported success, but only some of the changes survived, and the result was a NameError for a
+constant I had "definitely added". Parallel tool calls are for INDEPENDENT targets. Two edits to
+one file are not independent — batch them into one call or run them in sequence.
+
+## Check the browser binary before suspecting the payment code
+20 deposit tests ERRORed with "Executable doesn't exist at /pw-browsers/...". That is
+`python -m playwright install chromium`, not a bug in Stripe handling. Also: those tests drive
+Stripe's real hosted page and time out under two xdist workers, so verify them in isolation
+before calling a failure a regression.

@@ -62,6 +62,7 @@ import slugs as slugs_mod    # noqa: E402
 import syncjob as syncjob_mod  # noqa: E402
 import contracts as contracts_mod  # noqa: E402
 import postqueue  # noqa: E402
+import traffic  # noqa: E402
 import pricewatch as pricewatch_mod  # noqa: E402
 import searchwatch as searchwatch_mod  # noqa: E402
 import digest as digest_mod  # noqa: E402
@@ -2449,7 +2450,62 @@ async def admin_post_queue_add(encar_id: str, request: Request,
 async def admin_shipments(request: Request, x_admin_token: str = Header(default="")):
     await _require_admin(request, x_admin_token)
     rows = await db.shipments.find({}, {"_id": 0}).sort("updated_at", -1).to_list(200)
+
+    # The list used to print the bare car id, which tells an operator nothing about whether the
+    # right car was tied to the reference. One lookup for the whole page, names in the rows.
+    ids = [r["car_id"] for r in rows if r.get("car_id")]
+    titles = {}
+    if ids:
+        async for d in db.deposits.find({"car_id": {"$in": ids}, "car_title": {"$ne": ""}},
+                                        {"car_id": 1, "car_title": 1}):
+            titles.setdefault(d["car_id"], d.get("car_title") or "")
+        async for lst in db.listings.find({"_id": {"$in": [i for i in ids if i not in titles]}},
+                                          {"manufacturer": 1, "model": 1}):
+            titles[lst["_id"]] = " ".join(str(x) for x in [lst.get("manufacturer"),
+                                                           lst.get("model")] if x)
+    for r in rows:
+        r["car_title"] = titles.get(r.get("car_id") or "", "")
     return {"items": rows}
+
+
+@api.get("/admin/customer-cars")
+async def admin_customer_cars(request: Request, email: str,
+                              x_admin_token: str = Header(default="")):
+    """The cars this customer has actually reserved, newest first.
+
+    The bill of lading has to be tied to a car by its id, and an id typed from memory is an id
+    typed wrong: a mismatch is invisible - the reference simply never appears on the buyer's
+    purchases page and nothing anywhere says why. So the operator picks from this list instead.
+    """
+    await _require_admin(request, x_admin_token)
+    user = await db.users.find_one({"email": email.strip().lower()}, {"_id": 1})
+    if not user:
+        raise HTTPException(404, f"no account for {email}")
+
+    rows = await db.deposits.find(
+        {"user_id": user["_id"], "payment_status": {"$in": list(deposits.HELD_STATES)}},
+        {"car_id": 1, "car_title": 1, "updated_at": 1, "created_at": 1}
+    ).sort("updated_at", -1).to_list(50)
+
+    assigned = {s["car_id"]: s["ref"] async for s in db.shipments.find(
+        {"user_id": user["_id"], "car_id": {"$nin": ["", None]}}, {"car_id": 1, "ref": 1})}
+
+    items, seen = [], set()
+    for row in rows:
+        car_id = row.get("car_id") or ""
+        if not car_id or car_id in seen:
+            continue
+        seen.add(car_id)
+        title = row.get("car_title") or ""
+        if not title:
+            listing = await db.listings.find_one({"_id": car_id},
+                                                {"manufacturer": 1, "model": 1}) or {}
+            title = " ".join(str(x) for x in [listing.get("manufacturer"),
+                                              listing.get("model")] if x)
+        items.append({"car_id": car_id, "title": title or car_id,
+                      "reserved_at": jsonable(row.get("updated_at") or row.get("created_at")),
+                      "assigned_ref": assigned.get(car_id, "")})
+    return {"items": items}
 
 
 @api.post("/admin/shipments")
@@ -2855,6 +2911,8 @@ cms.set_audit(_audit)
 api.include_router(cms.router)
 postqueue.set_db(db)
 api.include_router(postqueue.router)
+traffic.set_db(db)
+api.include_router(traffic.router)
 app.include_router(api)
 
 # The archived photos of purchased cars, served from our own disk so a withdrawn ad still
@@ -2891,6 +2949,7 @@ async def on_startup():
     await auth.ensure_indexes(db)
     await csrf_mod.ensure_indexes(db)
     await postqueue.ensure_indexes(db)
+    await traffic.ensure_indexes(db)
     # The de-duplication fingerprints are useful for a day and kept a little longer only so a
     # late-running digest can still be computed; after that they are noise.
     await db.car_view_seen.create_index("at", expireAfterSeconds=40 * 86400)
