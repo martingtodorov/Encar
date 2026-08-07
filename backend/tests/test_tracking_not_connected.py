@@ -12,9 +12,32 @@ charged for running the suite.
 import os
 
 import pytest
+import requests
 
 import jsoncargo
 import tracking
+
+BASE = os.environ["REACT_APP_BACKEND_URL"].rstrip("/") + "/api"
+# The schema lives at the app root, which the ingress sends to the FRONTEND - only /api/* is
+# routed to the backend. So this one read goes straight to the service.
+SCHEMA_URL = "http://localhost:8001/openapi.json"
+
+
+def test_the_tracking_endpoint_still_exposes_refresh():
+    """A guard against a revert.
+
+    `refresh` is the ONLY way to throw away an answer cached while the carrier was
+    misconfigured, and a bill of lading is cached for 30 days - so one stale empty answer
+    outlives the fix by a month. Reading the schema costs no provider request; calling the
+    endpoint with refresh=true would cost two.
+    """
+    schema = requests.get(SCHEMA_URL, timeout=30).json()
+    names = {p["name"]: p for p in schema["paths"]["/api/tracking"]["get"]["parameters"]}
+    assert "refresh" in names, f"the refresh parameter is gone: {sorted(names)}"
+    assert names["refresh"]["schema"]["type"] == "boolean"
+    assert names["refresh"]["schema"].get("default") is False, "refresh must not default to on"
+    for required in ("ref", "by"):
+        assert required in names
 
 
 @pytest.fixture

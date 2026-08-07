@@ -150,7 +150,7 @@ export default function MyPurchasesPage() {
                       <Button
                         data-testid={`purchase-track-${row.car_id}`}
                         onClick={() =>
-                          go(row.ref ? `/track?ref=${row.ref}&by=${row.by || "bol"}` : "/track")
+                          go(row.ref ? `/track/${encodeURIComponent(row.ref)}` : "/track")
                         }
                         className="h-10 gap-2 rounded-[10px] bg-[hsl(var(--primary))] px-4 text-[13.5px] font-semibold text-primary-foreground hover:brightness-110"
                       >

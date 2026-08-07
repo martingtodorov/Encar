@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Anchor,
   Container,
@@ -78,6 +78,22 @@ const EVENTS = {
 
 const label = (lang, code) => EVENTS[lang]?.[code] || EVENTS.en[code] || code;
 
+/**
+ * Work out what kind of number this is from its shape.
+ *
+ * A container number is ISO 6346: four letters then seven digits (MRSU5757040). A Maersk bill of
+ * lading is digits only (271191199). The page used to keep a mode in state that the visitor could
+ * not see or change — the chip always read "Bill of lading" while a deep link could quietly set
+ * the mode to container — so a container number typed into the box was looked up as a B/L and
+ * came back "not found" for no visible reason.
+ */
+export const detectBy = (value) => {
+  const v = (value || "").trim().toUpperCase();
+  if (/^[A-Z]{4}\d{6,7}$/.test(v)) return "container";
+  if (/^\d{6,}$/.test(v)) return "bol";
+  return /^[A-Z]{4}/.test(v) ? "container" : "bol";
+};
+
 const when = (iso, lang) => {
   if (!iso) return "";
   const d = new Date(iso);
@@ -141,7 +157,6 @@ export default function TrackPage() {
   const { user } = useAuth();
   // Buyers only ever hold the bill of lading we send them, so that is the only kind of
   // reference the page accepts.
-  const [by, setBy] = useState("bol");
   const [ref, setRef] = useState("");
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -150,6 +165,13 @@ export default function TrackPage() {
   const [cars, setCars] = useState([]);
   const polls = useRef(0);
   const [params] = useSearchParams();
+  const { ref: pathRef, lang: urlLang } = useParams();
+  const navigate = useNavigate();
+  // The language must come from the ADDRESS, not from context. On the first render after a cold
+  // load, context still holds the previously remembered language while the URL already says
+  // /bg — building a redirect from context threw a Bulgarian buyer following an old link from
+  // his account straight into the English site.
+  const at = urlLang || lang;
   // Numbers this browser has looked up before, kept in a 90-day cookie so a returning
   // buyer never has to dig the reference out of an email again.
   const [recent, setRecent] = useState(() => {
@@ -157,7 +179,14 @@ export default function TrackPage() {
     return Array.isArray(rows) ? rows.filter((r) => r?.ref).slice(0, 6) : [];
   });
 
-  useSeo({ lang, title: `${t("trackTitle")} · Encar`, description: t("seoTrackDesc") });
+  useSeo({
+    lang,
+    title: `${t("trackTitle")} · Encar`,
+    description: t("seoTrackDesc"),
+    // A reference in the path makes an unbounded number of URLs, and someone else's shipment is
+    // not a page for a search engine. Only the bare /track is indexable.
+    noindex: Boolean(pathRef),
+  });
 
   useEffect(() => {
     if (!user) {
@@ -229,22 +258,50 @@ export default function TrackPage() {
     return () => clearTimeout(id);
   }, [data, lookup]);
 
-  // Deep link from the account page: /track?ref=MSKU1234567&by=container
+  // The reference lives in the PATH — /bg/track/271191199 — so the address can be copied,
+  // bookmarked and sent to a buyer, and the browser's back button walks between lookups.
   useEffect(() => {
-    const r = params.get("ref");
-    if (!r) return;
-    const mode = params.get("by") === "bol" ? "bol" : "container";
-    setRef(r.toUpperCase());
-    setBy(mode);
+    const r = (pathRef || "").trim().toUpperCase();
+    if (!r) {
+      setRef("");
+      setData(null);
+      setError("");
+      return;
+    }
+    const asked = params.get("by");
+    const mode = asked === "bol" || asked === "container" ? asked : detectBy(r);
+    setRef(r);
     lookup(r, mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathRef]);
+
+  // Older links from the account and purchases pages carry ?ref=&by=. Send them to the path
+  // form once, so only one shape of tracking URL ends up in the wild.
+  useEffect(() => {
+    const q = params.get("ref");
+    if (!q || pathRef) return;
+    const r = q.trim().toUpperCase();
+    const asked = params.get("by");
+    // Keep the override only when it disagrees with the shape of the number; otherwise it is
+    // noise, and the point of this rewrite is that one shipment has one address.
+    const keep = asked === "bol" || asked === "container" ? asked : "";
+    navigate(
+      `/${at}/track/${encodeURIComponent(r)}${keep && keep !== detectBy(r) ? `?by=${keep}` : ""}`,
+      { replace: true }
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openSaved = (item) => {
-    setRef(item.ref);
-    setBy(item.by || "container");
-    lookup(item.ref, item.by || "container");
+  const open = (value, mode) => {
+    const r = (value || "").trim().toUpperCase();
+    if (!r) return;
+    const asked = mode || detectBy(r);
+    // Pushing the URL is what triggers the lookup, through the effect above — one path in, so
+    // the address bar and what is on screen can never disagree.
+    navigate(`/${at}/track/${encodeURIComponent(r)}${asked !== detectBy(r) ? `?by=${asked}` : ""}`);
   };
+
+  const openSaved = (item) => open(item.ref, item.by);
 
   const save = (carId) =>
     saveTrackedShipment({
@@ -284,17 +341,20 @@ export default function TrackPage() {
           className="mt-8 flex flex-col gap-2 sm:flex-row"
           onSubmit={(e) => {
             e.preventDefault();
-            lookup(ref, by);
+            open(ref);
           }}
         >
-          <div className="flex items-center rounded-[10px] border border-input bg-muted px-3 py-2 text-[13px] font-medium text-muted-foreground">
-            {t("trackByBol")}
+          <div
+            data-testid="track-kind"
+            className="flex items-center rounded-[10px] border border-input bg-muted px-3 py-2 text-[13px] font-medium text-muted-foreground"
+          >
+            {t(detectBy(ref) === "container" ? "trackByContainer" : "trackByBol")}
           </div>
           <Input
             data-testid="track-input"
             value={ref}
             onChange={(e) => setRef(e.target.value.toUpperCase())}
-            placeholder={t(by === "container" ? "trackRefHint" : "trackBolHint")}
+            placeholder={t(detectBy(ref) === "container" ? "trackRefHint" : "trackBolHint")}
             className="h-11 flex-1 bg-background"
           />
           <Button data-testid="track-submit" type="submit" disabled={busy || !ref.trim()} className="h-11 gap-2">

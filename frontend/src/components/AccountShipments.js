@@ -106,7 +106,7 @@ export const AccountShipments = () => {
                   )}
                 </div>
                 <Link
-                  to={`/${lang}/track?ref=${encodeURIComponent(s.ref)}&by=${s.by || "container"}`}
+                  to={`/${lang}/track/${encodeURIComponent(s.ref)}`}
                   data-testid={`account-shipment-open-${s.ref}`}
                   className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-border px-3 text-[12.5px] font-medium text-foreground hover:bg-muted"
                 >

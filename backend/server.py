@@ -2205,14 +2205,17 @@ class TrackBody(BaseModel):
 
 
 @api.get("/tracking")
-async def tracking_lookup(request: Request, ref: str, by: str = "container"):
+async def tracking_lookup(request: Request, ref: str, by: str = "container",
+                         refresh: bool = False):
     if by not in ("container", "bol"):
         raise HTTPException(400, "by must be container or bol")
     # An admin looking at the buyer-facing page gets the provider's own reason for a failure;
-    # a buyer never does.
+    # a buyer never does. `refresh` bypasses the cache: an answer cached while the carrier was
+    # misconfigured outlives the fix by up to a day, and without this there was no way to say
+    # "ask again for real".
     viewer = await auth.optional_user(request)
     try:
-        return await tracking.track(db, ref, by,
+        return await tracking.track(db, ref, by, refresh=refresh,
                                     admin=bool(viewer and viewer.get("is_admin")))
     except ValueError as e:
         raise HTTPException(400, str(e))

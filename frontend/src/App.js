@@ -41,6 +41,7 @@ function AppRouter() {
         <Route path="searches" element={<SavedSearchesPage />} />
         <Route path="how-it-works" element={<HowItWorksPage />} />
         <Route path="track" element={<TrackPage />} />
+        <Route path="track/:ref" element={<TrackPage />} />
         <Route path="login" element={<LoginPage />} />
         <Route path="verify-email" element={<VerifyEmailPage />} />
         <Route path="forgot-password" element={<ForgotPasswordPage />} />
