@@ -505,10 +505,13 @@ export default function SearchPage() {
   );
   const barVisible = triggerOffscreen;
 
+  // The landing view advertises the whole library: `total_all` is the catalogue count, while
+  // `total` stays the floored one that paging is built from.
+  const shownTotal = result.total_all ?? result.total;
   const countLabel =
-    result.total === 1
+    shownTotal === 1
       ? t("resultsCountOne")
-      : t("resultsCount", { n: formatNumber(result.total, lang) });
+      : t("resultsCount", { n: formatNumber(shownTotal, lang) });
 
   return (
     <div className="min-h-screen bg-background">
@@ -519,9 +522,12 @@ export default function SearchPage() {
       <div
         // Flush against the header (or the top edge once the header collapses) and edge
         // to edge, so there is no gap and nothing of the menu is ever covered. z-30 keeps
-        // it under the header's z-40.
+        // it under the header's z-40. Both offsets add `--admin-bar-h`, because the admin
+        // traffic bar is pinned above everything and pushes the header down with it.
         className={`fixed inset-x-0 z-30 -mt-px transition-all duration-300 lg:hidden ${
-          headerHidden ? "top-0" : "top-16"
+          headerHidden
+            ? "top-[var(--admin-bar-h,0px)]"
+            : "top-[calc(var(--admin-bar-h,0px)_+_4rem)]"
         } ${
           triggerOffscreen
             ? "pointer-events-auto opacity-100"
@@ -539,7 +545,7 @@ export default function SearchPage() {
             {t("changeFilters")}
           </span>
           <span className="tnum ml-auto shrink-0 text-[14px] text-muted-foreground">
-            {formatNumber(result.total, lang)}
+            {formatNumber(shownTotal, lang)}
           </span>
           {anyFilterActive && (
             <span
@@ -650,7 +656,7 @@ export default function SearchPage() {
                       onClick={() => setSheetOpen(false)}
                       className="tnum h-11 flex-[1.4] rounded-[10px] bg-[hsl(var(--primary))] text-sm text-primary-foreground hover:brightness-110"
                     >
-                      {t("showResults")} ({formatNumber(result.total, lang)})
+                      {t("showResults")} ({formatNumber(shownTotal, lang)})
                     </Button>
                   </div>
                 </SheetContent>

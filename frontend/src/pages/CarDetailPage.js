@@ -270,8 +270,9 @@ export default function CarDetailPage() {
         onToggleSave={() => toggleFavourite(id, car)}
       />
 
-      {/* Mobile clears the always-visible car bar; desktop only needs the normal gap. */}
-      <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-[72px] sm:px-6 lg:pt-2">
+      {/* Mobile clears the always-visible car bar; desktop only needs the normal gap. The car
+          bar itself sits below the header, which the admin traffic bar pushes down. */}
+      <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-[calc(var(--admin-bar-h,0px)_+_72px)] sm:px-6 lg:pt-2">
         <Button
           data-testid="back-to-results-button"
           variant="ghost"

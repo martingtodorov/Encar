@@ -30,10 +30,24 @@ def test_relevant_returns_the_same_total_as_any_other_sort():
     assert ranked["total"] == plain["total"], "ranking must not shrink the result set"
     assert guest["total"] == plain["total"]
 
-    narrowed = {"manufacturer": plain["items"][0]["manufacturer"]}
+    narrowed = {"makes": [plain["items"][0]["manufacturer"]]}
     a = search(sort="price_asc", **narrowed)
     b = search(sort="relevant", taste=TASTE, **narrowed)
     assert a["total"] == b["total"], "ranking must not shrink a filtered result set either"
+
+
+def test_the_shop_window_floor_only_applies_to_the_bare_landing_view():
+    """The landing view hides cars under HOME_MIN_EUR, but a bargain hunter is not fenced in.
+
+    `price_asc` says "cheapest first", so pushing the floor at that visitor would be the
+    opposite of helpful — and the counter still advertises the whole library either way.
+    """
+    window = search(sort="newest")
+    hunter = search(sort="price_asc")
+    assert hunter["total"] > window["total"], "sorting by price must lift the floor"
+    assert window["total_all"] == hunter["total"], "the counter must show the whole library"
+    assert min(i["sale_eur"] for i in window["items"]) >= 18000
+    assert min(i["sale_eur"] for i in hunter["items"]) < 18000
 
 
 def test_pages_walk_the_whole_pool_without_gaps_or_repeats():

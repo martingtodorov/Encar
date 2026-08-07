@@ -161,6 +161,15 @@ outbound traffic is policy-routed into it (fwmark 0x1 -> table 100). Hetzner's o
 Details and the full list of what was measured: CHANGELOG.md, 2026-06. Cannot be tested from
 this pod — the owner runs the playbook.
 
+## Landing view: floor, real counter, price diversity (2026-06)
+* `sort=price_asc` LIFTS the EUR 18 000 floor — a bargain hunter is never fenced in.
+* `/search` returns `total_all` (whole catalogue, cached) for the counter; `total` stays the
+  floored count so paging never offers empty pages.
+* Price diversity: `_band()` + `_spread(per_band=)` cap one price bracket at 6 of 24 on the shop
+  window, because `relevant` (popular list AND taste proximity) collapsed onto ~EUR 23 000.
+* `DetailStickyBar` no longer hides under the menu when the admin traffic bar is up. Tailwind
+  arbitrary `calc()` needs UNDERSCORES around `+`. Details: CHANGELOG.md.
+
 ## Landing view floor + footer + per-language static meta (2026-06)
 * The home (unfiltered) view and the taste shelf never show a car under **EUR 18 000**
   (`server.HOME_MIN_EUR`, env `HOME_MIN_EUR`). It is silent — never a filter chip — and it

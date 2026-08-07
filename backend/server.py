@@ -271,6 +271,18 @@ def apply_home_floor(query):
     return query
 
 
+_catalogue_count = {"at": 0.0, "n": 0}
+
+
+async def _catalogue_total():
+    """How many cars the catalogue really holds, cached: it is the same number for everyone."""
+    now = time.time()
+    if now - _catalogue_count["at"] > 300:
+        _catalogue_count["n"] = await db.listings.count_documents(build_query({}))
+        _catalogue_count["at"] = now
+    return _catalogue_count["n"]
+
+
 RELEVANT_POOL = 600
 
 SORTS = {
@@ -684,7 +696,11 @@ async def search(body: SearchBody, request: Request):
     p = body.model_dump()
     await curate.refresh(db)
     query = build_query(p)
-    if unfiltered(p):
+    # A visitor who asks for the cheapest first is telling us they are hunting a bargain, so
+    # the shop window's floor is dropped for them — pushing 18k cars at someone sorting by
+    # price is the opposite of helpful.
+    floored = unfiltered(p) and body.sort != "price_asc"
+    if floored:
         apply_home_floor(query)
     sort = SORTS.get(body.sort, SORTS["newest"])
 
@@ -696,6 +712,9 @@ async def search(body: SearchBody, request: Request):
         await _remember_search(request, p)
 
     total = await db.listings.count_documents(query)
+    # The counter should advertise the whole library, not the slice the shop-window floor
+    # leaves behind, so the floored count stays for PAGING and the real one is sent alongside.
+    total_all = await _catalogue_total() if floored else total
 
     rows = None
     if body.sort == "relevant":
@@ -713,7 +732,8 @@ async def search(body: SearchBody, request: Request):
             # caps used to DROP the cars they rejected, so a search showed only a slice of
             # its own results; those cars now simply queue up behind the picked ones.
             picked = _space(_spread(scored, len(scored), per_model=2,
-                                    per_make=max(2, size // 4)))
+                                    per_make=max(2, size // 4),
+                                    per_band=max(3, size // 4) if floored else None))
             taken = {d["_id"] for _, _, d in picked}
             head = ([d for _, _, d in picked]
                     + [d for _, _, d in scored if d["_id"] not in taken])
@@ -735,6 +755,16 @@ async def search(body: SearchBody, request: Request):
                 hot = {d["_id"]: d async for d in
                        db.listings.find({**query, "_id": {"$in": ids}})}
                 ordered = [hot[i] for i in ids if i in hot]
+                if floored:
+                    # The popular list clusters hard around one price, so the shop window
+                    # spreads it across brackets. Nothing is dropped: what the caps reject
+                    # queues up behind, keeping the pages complete.
+                    kept = [d for _, _, d in
+                            _spread([(0, "", d) for d in ordered], len(ordered),
+                                    per_model=2, per_make=max(2, size // 4),
+                                    per_band=max(3, size // 4))]
+                    taken = {d["_id"] for d in kept}
+                    ordered = kept + [d for d in ordered if d["_id"] not in taken]
                 rows = ordered[skip:skip + size]
                 if len(rows) < size:
                     # Top up with the newest ads the popular list did not cover.
@@ -770,6 +800,7 @@ async def search(body: SearchBody, request: Request):
 
     return {
         "total": total,
+        "total_all": total_all,
         "page": page,
         "page_size": size,
         "pages": (total + size - 1) // size,
@@ -839,18 +870,36 @@ def _rank_by_taste(rows, makes, models, fuels, price, mileage):
     return scored
 
 
-def _spread(scored, limit, per_model=3, per_make=6):
+_BANDS = (22_000, 28_000, 35_000, 45_000, 60_000, 90_000)
+
+
+def _band(doc):
+    """Which price bracket a car sits in, so one bracket cannot take over the shelf."""
+    price = doc.get("sale_eur") or 0
+    return next((i for i, edge in enumerate(_BANDS) if price < edge), len(_BANDS))
+
+
+def _spread(scored, limit, per_model=3, per_make=6, per_band=None):
     """A shelf of near-identical cars is not a choice: cap how many share a model, and cap
     the make too — a buyer who looked at three Mercedes should not be handed a page of
-    nothing but Mercedes."""
-    out, models, makes = [], {}, {}
+    nothing but Mercedes.
+
+    `per_band` caps the PRICE bracket the same way. Without it the landing view collapses onto
+    whatever price everyone has been clicking — a page of nothing but €23,000 cars — because
+    both the popular list and the taste ranking pull towards a single number.
+    """
+    out, models, makes, bands = [], {}, {}, {}
     for row in scored:
         model = row[2].get("model") or ""
         make = row[2].get("manufacturer") or ""
+        band = _band(row[2])
         if models.get(model, 0) >= per_model or makes.get(make, 0) >= per_make:
+            continue
+        if per_band and bands.get(band, 0) >= per_band:
             continue
         models[model] = models.get(model, 0) + 1
         makes[make] = makes.get(make, 0) + 1
+        bands[band] = bands.get(band, 0) + 1
         out.append(row)
         if len(out) >= limit:
             break
@@ -870,13 +919,20 @@ def _space(scored, gap=2):
 
     A strict round-robin across makes is the opposite mistake: it hands out exactly one car
     per brand and buries the preference the ranking just found. This only breaks up RUNS, so
-    a favourite make still comes back every few rows.
+    a favourite make still comes back every few rows. Price bracket is broken up the same way
+    but only as a SECOND preference, so a row of near-identical prices reads as a range
+    without the ranking being thrown away.
     """
     pool, out = list(scored), []
     while pool:
-        recent = {(r[2].get("manufacturer") or "") for r in out[-gap:]}
+        makes = {(r[2].get("manufacturer") or "") for r in out[-gap:]}
+        bands = {_band(r[2]) for r in out[-gap:]}
         pick = next((i for i, row in enumerate(pool)
-                     if (row[2].get("manufacturer") or "") not in recent), 0)
+                     if (row[2].get("manufacturer") or "") not in makes
+                     and _band(row[2]) not in bands), None)
+        if pick is None:
+            pick = next((i for i, row in enumerate(pool)
+                         if (row[2].get("manufacturer") or "") not in makes), 0)
         out.append(pool.pop(pick))
     return out
 

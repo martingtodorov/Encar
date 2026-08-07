@@ -1312,3 +1312,52 @@ KNOWN LIMITS, deliberate: a CMS seo override (Admin -> Pages, per language - /ro
 currently have one) wins at RUNTIME but is not baked into the static copies, and a deep route
 read WITHOUT JS still shows the English default. Both need SSR or a build-time API call; not
 worth it while Googlebot renders JS.
+
+## 2026-06 — Bargain hunters, the real counter, price diversity, and a hidden car title
+
+### A visitor sorting by cheapest first is not fenced in by the shop-window floor
+`floored = unfiltered(p) and body.sort != "price_asc"`. Someone asking for the cheapest cars is
+hunting a bargain; pushing EUR 18 000 cars at them is the opposite of helpful. Verified:
+unfiltered default sort -> total 63 517, cheapest 18 499; `sort=price_asc` -> total 146 253,
+cheapest 6 099.
+
+### The counter advertises the whole library, not the floored slice
+`/search` returns `total_all` (the real catalogue count, cached 5 min in `_catalogue_total()`)
+next to `total`, which stays the FLOORED count so paging never offers empty pages. The frontend
+reads `result.total_all ?? result.total` for the count label, the floating filters bar and the
+"show results" button. On a filtered search the two are identical.
+
+### Why the landing view was a wall of EUR 23 000 cars, and the fix
+The home page sorts by `relevant`, which is either the popular list (most opened of the
+fortnight) or the visitor's taste ranking scored on PRICE PROXIMITY to their own browsing
+centre. Both pull towards a single number, and the diversity caps in `_spread` only ever
+looked at model and make — never price. The new EUR 18 000 floor then cut off the bottom and
+compressed what was left into an even narrower band.
+* `_band(doc)` buckets by `sale_eur` at 22k/28k/35k/45k/60k/90k.
+* `_spread(..., per_band=)` caps a bracket like it caps a model or a make; passed as
+  `max(3, size // 4)` (6 of 24) and ONLY on the shop-window view, so a visitor's own price
+  filter is never second-guessed.
+* `_space` breaks up price-bracket RUNS as a SECOND preference, after make, so the ranking
+  survives.
+* The popular branch had no diversity at all and now gets the same treatment, with everything
+  the caps reject queued behind so paging stays complete.
+Verified on page 1: popular branch 7 brackets, max 6 in one (19k...419k); taste branch
+7 brackets, max 6 in one, with the visitor's own bracket still holding the most.
+
+### The car title was hidden behind the menu (admin only, which is why the owner saw it)
+`DetailStickyBar` was `fixed top-16` — a hardcoded 64px that assumes the header starts at 0.
+`HeaderBar` sits at `top-[var(--admin-bar-h,0px)]`, so the admin traffic bar (28px, admins
+only) pushed the header down over the car bar. Now
+`top-[calc(var(--admin-bar-h,0px)_+_4rem_+_1px)]`, and `CarDetailPage`'s mobile padding plus
+the SearchPage mobile filter bar got the same treatment.
+TWO GOTCHAS, both cost a round trip: CSS `calc()` REQUIRES whitespace around `+`, and Tailwind
+arbitrary values cannot contain spaces — so it must be written with UNDERSCORES
+(`calc(var(--x)_+_4rem)`). Without them the declaration is invalid and silently dropped.
+Verified as a signed-in admin: header 28-93px, car bar starts at 93, title at 105 - fully
+visible.
+
+### Test suite
+`tests/test_home_floor.py` (5 tests) covers `unfiltered()`, the raise-never-lower floor and the
+narrowing fields. `test_relevant_sort.py` gained a shop-window test, and its old "filtered"
+assertion was fixed: it passed `manufacturer`, which is NOT a search field, so it was really
+comparing two landing views. 249 backend tests pass.
