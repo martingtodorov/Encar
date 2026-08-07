@@ -86,6 +86,10 @@ jsoncargo_api_key: ""
 # without it. Leave the value spelled out; an empty string here reaches the backend as an empty
 # env var, which beats the code's own MAERSK default.
 jsoncargo_shipping_line: "MAERSK"
+# The mobile.bg posting bot sends this as `Authorization: Bearer <token>` on /api/post-queue.
+# It is REQUIRED — deploy_backend.yml rewrites backend.env from this file on every deploy, so
+# a missing value here wipes the token off the server and the bot starts getting 401/503.
+encareurope_api_token: ""
 # Optional. Empty simply switches the direct carrier EDI feed off; JSONCargo covers tracking
 # on its own.
 edi_ingest_token: ""

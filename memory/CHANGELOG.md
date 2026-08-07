@@ -1210,3 +1210,17 @@ string, stderr) and `nginx-encar.conf.j2` renders `listen 443 ssl http2;` below 
 Ansible for 1.24.0 and 1.27.3 — the right form each time.
 The `protocol options redefined for 0.0.0.0:443` and `duplicate MIME type "text/html"` lines
 are WARNINGS from the other site on that host (sites-enabled/autoandbid), not our config.
+
+### A deploy was WIPING ENCAREUROPE_API_TOKEN off the server (2026-06, fixed)
+`templates/backend.env.j2` had no `ENCAREUROPE_API_TOKEN` line, and `deploy_backend.yml`
+REWRITES /etc/encar/backend.env from that template on every deploy — so the mobile.bg bot's
+token vanished after each run and `/api/post-queue` answered 503
+("ENCAREUROPE_API_TOKEN is not configured"). The value was never gone from group_vars; the
+template was the hole. Line restored, `encareurope_api_token` documented as REQUIRED in
+group_vars/all.yml.example.
+Guard so it cannot happen again to any other secret:
+`backend/tests/test_deploy_env_complete.py` asserts the template writes every key the app
+cannot work without (24 of them). Tuning knobs with in-code defaults are deliberately not
+listed. Run it before a deploy, like test_requirements_portable.py.
+Checked at the same time: the only other keys in the pod's .env missing from the template are
+EMERGENT_LLM_KEY and PLAYWRIGHT_BROWSERS_PATH, both platform-only and correctly absent.
