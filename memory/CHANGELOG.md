@@ -728,3 +728,40 @@ and an expired hold releases itself and re-lists the car. Cards only (nothing el
   signed-in admin: a buyer never sees where the car came from.
 - VERIFIED live as the owner's account on /bg/car/42174890: link present exactly once, href
   `https://fem.encar.com/cars/detail/42174890`.
+
+## 2026-06-07 (later) — mobile.bg posting queue + the hold-expiry warning
+### Post queue (an OUTSIDE bot does the posting)
+- New `backend/postqueue.py` + `post_queue` collection keyed by `_id = encar_id`, so there is
+  exactly one row per car and asking twice just re-queues it (and clears the previous result,
+  so a stale mobile.bg link cannot linger).
+- Bot endpoints, both behind `Authorization: Bearer $ENCAREUROPE_API_TOKEN` (401 otherwise):
+  `GET /api/post-queue` → `{"pending": ["41307034", ...]}` (that exact shape, nothing else)
+  `POST /api/post-queue/{encar_id}` with `{status, mobilebg_url, note}` → `{"ok": true}`;
+  404 for a car that is not queued, 400 for a status outside pending|posted|failed.
+- Operator endpoints (admin session or `x-admin-token`): `GET|POST /api/admin/post-queue/{id}`
+  and `GET /api/admin/post-queue` for the whole list. Queuing is audited.
+- `csrf.exempt()` now also lets a `Bearer` request through: the bot has no cookies with us and
+  a cross-origin page cannot set an Authorization header. Without this the bot's POST was 403.
+- UI: `components/admin/PostToMobileBg.js`, inside the admin-only Cost & margin panel on the
+  car page — button plus "Pending…" / "Posted" (linking to the mobile.bg ad) / "Failed: note".
+- `/api/car/{id}` was NOT touched: the bot reads the final price from `quote.suggested_sale`.
+- TOKEN lives in `backend/.env` as `ENCAREUROPE_API_TOKEN` (value also handed to the owner for
+  the bot's own .env). Never sent to the browser.
+- Tests: `tests/test_post_queue.py` (6 passed) asserts the literal wire shapes, the 401s on
+  both endpoints, queue → poll → report round trip, failure with a reason, one row per car,
+  and the 404/400 refusals. This is a contract another program depends on, so drift here would
+  otherwise be silent: cars would just stop being posted.
+
+### Deposit hold expiry warning
+- `deposits.warn_expiring()` (in the same 30-minute scheduler as `sweep_expired`) emails the
+  buyer once, 24h before a 7-day hold lapses. `warned_at` is set in the SAME update that
+  selects the row, so two workers cannot send two letters.
+- `mailer.send_deposit_expiring` in BG/RO/EN: says plainly that nothing has been taken, when
+  the hold ends, and that replying keeps the car.
+- VERIFIED with a synthetic hold expiring in 6h: warned once, second pass sent nothing,
+  `warned_at` written.
+
+### Environment note for the next agent
+`/pw-browsers/chromium_headless_shell-*` is NOT persistent — it disappeared mid-session and
+every Playwright test errored with "Executable doesn't exist". Fix, whenever that shows up:
+`PLAYWRIGHT_BROWSERS_PATH=/pw-browsers playwright install chromium`.

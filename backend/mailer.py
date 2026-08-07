@@ -510,6 +510,51 @@ RELEASED = {
 }
 
 
+EXPIRING = {
+    "bg": {
+        "subject": "Блокираната сума пада утре",
+        "heading": "Резервацията ви изтича утре",
+        "body": ("Блокирането на сума по карта важи 7 дни. Ако не потвърдим автомобила до "
+                 "срока по-долу, сумата се освобождава сама и автомобилът се връща в обявите. "
+                 "Ако още го искате, просто ни отговорете на този имейл и ще го задържим."),
+        "car": "Автомобил", "amount": "Блокирана сума", "until": "Изтича",
+        "footer": "Не сме взели нищо от картата ви.",
+    },
+    "ro": {
+        "subject": "Suma blocată expiră mâine",
+        "heading": "Rezervarea ta expiră mâine",
+        "body": ("Blocarea sumei pe card este valabilă 7 zile. Dacă nu confirmăm automobilul "
+                 "până la termenul de mai jos, suma se eliberează singură, iar automobilul "
+                 "revine în listă. Dacă îl mai dorești, răspunde la acest e-mail."),
+        "car": "Automobil", "amount": "Sumă blocată", "until": "Expiră",
+        "footer": "Nu am încasat nimic de pe cardul tău.",
+    },
+    "en": {
+        "subject": "The hold on your card expires tomorrow",
+        "heading": "Your reservation expires tomorrow",
+        "body": ("A hold on a card lasts 7 days. If we do not confirm the car by the time "
+                 "below, the amount is released by itself and the car goes back on the "
+                 "market. If you still want it, just reply to this email and we will keep it."),
+        "car": "Car", "amount": "Amount held", "until": "Expires",
+        "footer": "We have taken nothing from your card.",
+    },
+}
+
+
+async def send_deposit_expiring(to, car_title, amount_eur, expires_at, lang="en"):
+    t = EXPIRING.get(lang) or EXPIRING["en"]
+    when = ""
+    if expires_at:
+        when = (expires_at.strftime("%d.%m.%Y %H:%M UTC")
+                if hasattr(expires_at, "strftime") else str(expires_at)[:16])
+    rows = (f'<tr><td colspan="2" style="padding:0 0 12px;color:#111">{t["body"]}</td></tr>'
+            + _row(t["car"], _esc(car_title))
+            + _row(t["amount"], f"\u20ac{amount_eur:,.0f}")
+            + _row(t["until"], when))
+    return await _send(to, t["subject"], _shell(t["heading"], rows, t["footer"]))
+
+
+
 async def send_deposit_captured(to, car_title, taken_eur, released_eur, lang="en"):
     t = CAPTURED.get(lang) or CAPTURED["en"]
     rows = (f'<tr><td colspan="2" style="padding:0 0 12px;color:#111">{t["body"]}</td></tr>'

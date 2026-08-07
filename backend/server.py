@@ -61,6 +61,7 @@ import pricing               # noqa: E402
 import slugs as slugs_mod    # noqa: E402
 import syncjob as syncjob_mod  # noqa: E402
 import contracts as contracts_mod  # noqa: E402
+import postqueue  # noqa: E402
 import pricewatch as pricewatch_mod  # noqa: E402
 import searchwatch as searchwatch_mod  # noqa: E402
 import digest as digest_mod  # noqa: E402
@@ -2402,6 +2403,37 @@ async def admin_deposit_release(session_id: str, request: Request,
     return jsonable(out)
 
 
+@api.get("/admin/post-queue")
+async def admin_post_queue(request: Request, x_admin_token: str = Header(default="")):
+    """Everything the operator has ever sent to the mobile.bg bot, newest change first."""
+    await _require_admin(request, x_admin_token)
+    return {"items": await postqueue.recent()}
+
+
+@api.get("/admin/post-queue/{encar_id}")
+async def admin_post_queue_one(encar_id: str, request: Request,
+                               x_admin_token: str = Header(default="")):
+    """The button's own state: queued, posted (with the link), or failed (with the reason)."""
+    await _require_admin(request, x_admin_token)
+    return {"item": await postqueue.status_for(encar_id)}
+
+
+@api.post("/admin/post-queue/{encar_id}")
+async def admin_post_queue_add(encar_id: str, request: Request,
+                               x_admin_token: str = Header(default="")):
+    """Queue one car for mobile.bg. The bot picks it up on its next poll."""
+    admin = await _require_admin(request, x_admin_token)
+    who = _actor(admin)
+    car = await db.listings.find_one({"_id": encar_id}, {"_id": 1})
+    if not car:
+        raise HTTPException(404, "no such car")
+    item = await postqueue.queue(encar_id, who)
+    await _audit(request, who, "queued for mobile.bg", encar_id)
+    return {"item": item}
+
+
+
+
 
 
 @api.get("/admin/shipments")
@@ -2806,6 +2838,8 @@ cms.set_db(db)
 cms.set_admin_guard(_require_admin)
 cms.set_audit(_audit)
 api.include_router(cms.router)
+postqueue.set_db(db)
+api.include_router(postqueue.router)
 app.include_router(api)
 
 # The archived photos of purchased cars, served from our own disk so a withdrawn ad still
@@ -2841,6 +2875,7 @@ async def on_startup():
     await sync_mod.ensure_indexes(db)
     await auth.ensure_indexes(db)
     await csrf_mod.ensure_indexes(db)
+    await postqueue.ensure_indexes(db)
     # The de-duplication fingerprints are useful for a day and kept a little longer only so a
     # late-running digest can still be computed; after that they are noise.
     await db.car_view_seen.create_index("at", expireAfterSeconds=40 * 86400)

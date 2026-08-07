@@ -321,6 +321,16 @@ export async function getAdminDeposits() {
   return data;
 }
 
+export async function queueForMobileBg(carId) {
+  const { data } = await http.post(`/admin/post-queue/${encodeURIComponent(carId)}`);
+  return data.item;
+}
+
+export async function getMobileBgStatus(carId) {
+  const { data } = await http.get(`/admin/post-queue/${encodeURIComponent(carId)}`);
+  return data.item;
+}
+
 export async function refundDeposit(sessionId) {
   const { data } = await http.post(`/admin/deposits/${encodeURIComponent(sessionId)}/refund`);
   return data;

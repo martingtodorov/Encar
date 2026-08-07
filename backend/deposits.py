@@ -411,10 +411,38 @@ async def sweep_expired():
     return len(due)
 
 
+async def warn_expiring(hours=24):
+    """Nudge the buyer before the network drops the hold, so a reservation is not lost quietly.
+
+    One letter per hold, ever: `warned_at` is set in the same update that selects it, so two
+    workers sweeping at once cannot send two.
+    """
+    soon = _now() + timedelta(hours=hours)
+    due = await _db.deposits.find(
+        {"payment_status": "authorised", "warned_at": {"$exists": False},
+         "expires_at": {"$gt": _now(), "$lte": soon}}).to_list(100)
+    sent = 0
+    for record in due:
+        claimed = await _db.deposits.update_one(
+            {"session_id": record["session_id"], "warned_at": {"$exists": False}},
+            {"$set": {"warned_at": _now()}})
+        if not claimed.modified_count:
+            continue
+        await mailer.send_deposit_expiring(
+            record.get("email"), record.get("car_title") or record["car_id"],
+            float(record.get("amount") or 0), record.get("expires_at"),
+            record.get("lang") or "en")
+        sent += 1
+    if sent:
+        log.info("warned %s buyer(s) that their hold expires within %sh", sent, hours)
+    return sent
+
+
 async def scheduler(period=1800):
-    """One sweep every half hour: an expiry is never more than that late."""
+    """One pass every half hour: a warning is never late and an expiry never lingers."""
     while True:
         try:
+            await warn_expiring()
             await sweep_expired()
         except Exception as e:                      # noqa: BLE001 - a loop must not die
             log.warning("deposit expiry sweep: %s", str(e)[:200])

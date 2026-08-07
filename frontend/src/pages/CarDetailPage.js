@@ -39,6 +39,7 @@ import { allows } from "@/lib/consent";
 import Lightbox from "@/components/Lightbox";
 import BodyDiagram from "@/components/BodyDiagram";
 import MechChecks from "@/components/MechChecks";
+import PostToMobileBg from "@/components/admin/PostToMobileBg";
 import { useSeo, useJsonLd } from "@/lib/seo";
 import { formatMileage, formatMoney, formatNumber, formatYearMonth,
          stripGenerationYears } from "@/lib/format";
@@ -564,6 +565,7 @@ export default function CarDetailPage() {
                     <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                     Original ad on Encar ({car.id})
                   </a>
+                  <PostToMobileBg carId={car.id} />
                 </Panel>
               )}
               <Panel title={t("specs")} icon={FileCheck2} testId="detail-specs" tone="info">

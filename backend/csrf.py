@@ -131,6 +131,10 @@ def exempt(request: Request) -> bool:
     # page cannot set custom headers. This is how the deploy and seed scripts call us.
     if request.headers.get("x-admin-token"):
         return True
+    # Same reasoning for the mobile.bg bot: it authenticates with a bearer token, has no
+    # cookies with us at all, and a web page cannot set an Authorization header cross-origin.
+    if request.headers.get("authorization", "").lower().startswith("bearer "):
+        return True
     # Deliberately NOT exempt: a request with no cookies at all. Signing in is itself worth
     # forging (an attacker can try to log you into THEIR account and watch what you do next),
     # so login and registration must carry a pre-auth token too. The browser client fetches
