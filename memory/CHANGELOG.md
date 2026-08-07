@@ -1091,3 +1091,29 @@ the reference and nothing anywhere said why.
 `/pw-browsers` had lost its Chromium, which made 20 deposit tests ERROR with
 "Executable doesn't exist". `python -m playwright install chromium` fixes it. Check this before
 suspecting the payment code.
+
+## 2026-06-08 — "are you sure the view count is working": it was, but only half-checked
+
+The owner was right to push. Everything so far had been verified with `curl` and pytest, which
+prove the SERVER counts. Nothing had proved that a real browser actually sends the ping — and
+`ping()` ends in `.catch(() => {})`, so a 403 from the CSRF layer or a broken import would have
+been swallowed in total silence and the bar would simply have read 0 forever.
+
+Verified properly: an ANONYMOUS Chromium session (admins are not counted, so an admin session
+proves nothing here) with an ordinary browser user agent set, listening on the network for
+`/traffic/ping`. Five page loads → five requests, all `200 {"counted":true}`, five rows in
+`traffic_hits`, ONE digest across all five (same person, five views), and the snapshot read
+`live: 1, day: {visitors: 1, views: 5}`.
+
+### A real defect the check exposed
+The label came from `document.title.split(" · ")[0]`. Car pages set "{name} · Encar" so they
+worked, but the home page title is "Автомобили от Корея с крайна цена до България | Encar" — a
+pipe, not a middle dot — so the whole SEO headline became the label and would have swamped the
+strip. Fixed with `labelFor()` in `lib/traffic.js`: fixed short names for every known route, and
+the title only for a car page, because a car is the only page whose name cannot be known in
+advance. Capped at 42 chars so several cars still fit on one line.
+Now reads: `1× Начало · 1× Hyundai Santa Fe DM (2013-2016) · 1× Проследяване · 1× Как работи ·
+1× Поверителност`.
+
+Lesson recorded in agent_learnings.md: a fire-and-forget call that swallows its errors has to be
+watched from the browser's network, not inferred from the endpoint working.

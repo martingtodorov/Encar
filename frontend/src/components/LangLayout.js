@@ -9,7 +9,7 @@ import { LANGS } from "@/i18n";
 import { stripLang } from "@/lib/seo";
 import { allows, onConsentChange } from "@/lib/consent";
 import { syncAnalytics } from "@/lib/analytics";
-import { ping } from "@/lib/traffic";
+import { ping, labelFor } from "@/lib/traffic";
 
 const CODES = LANGS.map((l) => l.code);
 
@@ -39,15 +39,15 @@ export const LangLayout = () => {
     return onConsentChange(() => syncAnalytics(allows("statistics")));
   }, []);
 
-  // One count per page. Deliberately delayed: `useSeo` sets the document title after the page
-  // has its data, and that title ("Hyundai Santa Fe DM · Encar") is the readable name the
-  // admin bar shows. Waiting also means a visitor bouncing through three pages in a second is
-  // not counted three times over.
+  // One count per page. Deliberately delayed: on a car page `useSeo` only sets the title once
+  // the car has loaded, and that title is where the car's name comes from. Waiting also means a
+  // visitor bouncing through three pages in a second is not counted three times over.
   useEffect(() => {
     if (!valid) return undefined;
     clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      ping(stripLang(pathname) || "/", (document.title || "").split(" \u00b7 ")[0]);
+      const path = stripLang(pathname) || "/";
+      ping(path, labelFor(path, document.title || ""));
     }, 1200);
     return () => clearTimeout(timer.current);
   }, [pathname, valid]);

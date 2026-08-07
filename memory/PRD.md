@@ -1497,3 +1497,9 @@ after the next deploy.
 - P1: owner's lawyer should review privacy section 2.10 (new processing described).
 - P2: 14 Stripe-checkout tests error under parallel xdist workers (Stripe's page is slow to
   render `input#cardNumber`); they pass when the file runs alone. Consider marking them serial.
+
+### 2026-06-08 — view counting confirmed from a real browser
+Owner challenged the verification and was right: only the server side had been proven. Confirmed
+end to end with an anonymous browser session (5 loads → 5 counted pings → 5 rows → 1 visitor,
+5 views). The check exposed a wrong label separator on non-car pages, now fixed with fixed short
+route names in `lib/traffic.js::labelFor`.

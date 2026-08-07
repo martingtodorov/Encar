@@ -57,3 +57,10 @@ one file are not independent — batch them into one call or run them in sequenc
 `python -m playwright install chromium`, not a bug in Stripe handling. Also: those tests drive
 Stripe's real hosted page and time out under two xdist workers, so verify them in isolation
 before calling a failure a regression.
+
+## Prove the CLIENT calls it, not just that the endpoint works (2026-06-08)
+A counter pinged fire-and-forget with `.catch(() => {})` cannot report its own failure. Testing
+the endpoint with curl and pytest proves the server counts; it proves nothing about whether the
+app ever asks. Verify from a real browser with a network listener, and as the right kind of
+visitor — an admin session proved nothing here, because admin views are deliberately excluded.
+Doing that immediately exposed a wrong label separator that no server-side test could have seen.
