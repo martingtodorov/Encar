@@ -33,7 +33,11 @@ export default function PaymentResultPage({ outcome = "success" }) {
         const { data } = await http.get(`/deposit/status/${sessionId}`);
         if (cancelled) return;
         setRecord(data);
-        if (data.payment_status !== "paid" && n < 8) {
+        // With a pre-authorisation the money is HELD, not taken: Stripe reports the session
+        // as "unpaid" and the record lands on "authorised". Waiting for "paid" would have
+        // spun for sixteen seconds and then told a reserved buyer their payment failed.
+        const done = ["authorised", "captured", "paid"].includes(data.payment_status);
+        if (!done && n < 8) {
           timer = setTimeout(() => {
             setTries(n + 1);
             poll(n + 1);
@@ -50,7 +54,7 @@ export default function PaymentResultPage({ outcome = "success" }) {
     };
   }, [sessionId, outcome]);
 
-  const paid = record?.payment_status === "paid";
+  const paid = ["authorised", "captured", "paid"].includes(record?.payment_status);
   const pending = outcome === "success" && !paid && tries < 8;
   const money = (v) => formatMoney(v, currency, lang, rates);
 

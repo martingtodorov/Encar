@@ -673,3 +673,48 @@ and what it took:
   previous text, and stamping a translation with a version it does not contain is the one lie a
   legal page cannot tell. Awaiting the owner's decision on translating v1.3 (the LLM providers
   are down, so it would be a hand translation).
+
+## 2026-06-06 (night) — Deposits switched from a charge to a PRE-AUTHORISATION
+The owner's decision: hold the money, do not take it. Confirmed with them first — 7-day hold,
+manual capture from the admin panel in EUR 100 steps, car reserved on the authorisation alone,
+and an expired hold releases itself and re-lists the car. Cards only (nothing else can hold).
+- `deposits.py`: Checkout now creates the intent with `capture_method="manual"` and
+  `payment_method_types=["card"]`, keeping `setup_future_usage` (verified against live Stripe:
+  the two coexist). State machine is now pending → authorised → captured | released | expired.
+  "paid" is still honoured everywhere a held car matters, so deposits taken before the change
+  keep working and stay refundable through the old path.
+- THE TRAP, and it would have broken everything: with manual capture Stripe reports the
+  Checkout Session as `payment_status: "unpaid"` even after a perfect authorisation, and the
+  old poll treated `status == "complete"` as paid. Both the poll and the webhook now read the
+  PaymentIntent (`requires_capture` = held, `succeeded` = captured).
+- New: `capture(session_id, amount_eur)` — round hundreds OR the whole hold (a deposit is 10%
+  of a car and almost never a round number, so hundreds alone would make the last euros
+  uncapturable). Stripe releases the uncaptured remainder for good, so capture is one-shot and
+  the UI says so before it happens. `release()` cancels the authorisation — no refund object,
+  nothing taken — and re-lists the car.
+- New webhook events: `payment_intent.amount_capturable_updated`, `payment_intent.succeeded`,
+  `payment_intent.canceled` (the last one frees the car whether we, the dashboard or the card
+  network at expiry cancelled it).
+- `sweep_expired()` + `deposits.scheduler()` (every 30 min, started at boot): a hold nobody
+  captured is released and the car goes back on the market even if the webhook never arrived.
+- Buyer emails added in all three languages: hold captured (with the released remainder) and
+  hold released / expired. Contract signing now accepts a HELD deposit (`HELD_STATES`), and
+  account deletion refuses while a hold is live, not just a charge.
+- Admin panel (`AdminDeposits.js`): a EUR 100 stepper, "All €X", Capture, Release, a "held"
+  badge and a days-left pill that turns red at 2 days. Buyer-facing copy in BG/RO/EN now says
+  the card is not charged, that the amount is held for 7 days, and that the hold falls away by
+  itself. `PaymentResultPage` treats authorised as success — waiting for "paid" would have told
+  a reserved buyer their payment failed.
+- TESTS REWRITTEN against real Stripe (test mode, Playwright hosted checkout):
+  `test_deposit_refund_e2e.py` (19 passed) proves `requires_capture` with nothing received,
+  capture refusing non-hundreds and over-the-hold amounts, release cancelling the hold with NO
+  refund object, car freed, purchases emptied, double release and post-release capture both
+  409. `test_partial_refund_and_commission.py` (9 passed) proves a EUR 100 capture takes
+  exactly 10000 cents, releases the rest, leaves the car RESERVED, refuses a second capture,
+  and that the full non-round hold can be captured. Both suites now reset their car so they
+  are repeatable — the first version passed once and then skipped for ever.
+- Recommendations follow-up from the same session: the widening retry was too generous (a
+  €20,000 profile saw a €53,999 car) — only the MILEAGE window widens now, never the price.
+  `per_model` is back to 2; `per_make` alone was what starved the shelf.
+- VERIFIED: full backend suite 187 passed / 3 skipped / 0 failed, plus screenshots of the
+  buyer's hold wording and the admin capture panel.

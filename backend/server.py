@@ -909,22 +909,22 @@ async def recommendations(body: TasteBody, request: Request):
         query["mileage"] = {"$lte": max(mileage_high * 1.6, 30_000)}
 
     rows = [d async for d in db.listings.find(query).sort(SORTS["newest"]).limit(300)]
-    if len(rows) < limit and ("sale_eur" in query or "mileage" in query):
-        # The window can be genuinely empty (one look at a rare car). Widen once rather than
-        # falling through to the popular shelf, which ignores the profile entirely.
+    if len(rows) < limit and "mileage" in query:
+        # The mileage window can be genuinely empty (one look at a nearly-new car). Widening
+        # THAT is fair; widening the price is not - a €20,000 buyer being shown a €54,000 car
+        # is the very mismatch this window exists to prevent.
         query.pop("mileage", None)
-        if price_low and price_high:
-            query["sale_eur"] = {"$gte": price_low * 0.45, "$lte": price_high * 2.2}
         rows = [d async for d in db.listings.find(query).sort(SORTS["newest"]).limit(300)]
     if not rows:
         return {"items": await _popular_shelf(lang, body.exclude, limit),
                 "lang": lang, "source": "popular"}
 
     # Variety must not starve the shelf: with a single-make profile every candidate is that
-    # make, and a flat cap of four returned four cars for a request for twelve.
+    # make, and a flat cap of four returned four cars for a request for twelve. Two of the
+    # same model is still the limit - twelve near-identical cars are not a shelf.
     per_make = max(4, -(-limit // max(1, len(makes)))) if makes else limit
     best = _space(_spread(_rank_by_taste(rows, makes, models, fuels, price, mileage),
-                          limit, per_model=max(2, -(-limit // 4)), per_make=per_make))
+                          limit, per_model=2, per_make=per_make))
 
     docs = [d for _, _, d in best]
     await translate_listings(db, docs, lang)
@@ -2278,7 +2278,7 @@ async def my_purchases(user=Depends(auth.current_user)):
     so the Track button knows the bill of lading as soon as an operator assigns one.
     """
     paid = await db.deposits.find(
-        {"user_id": user["_id"], "payment_status": "paid"}
+        {"user_id": user["_id"], "payment_status": {"$in": list(deposits.HELD_STATES)}}
     ).sort("updated_at", -1).to_list(100)
 
     car_ids = [d["car_id"] for d in paid]
@@ -2370,6 +2370,37 @@ async def admin_deposit_refund(session_id: str, request: Request,
     await _audit(request, who, "deposit refunded", session_id,
                  f"car {out.get('car_id') or '?'}")
     return jsonable(out)
+
+
+class CaptureBody(BaseModel):
+    amount_eur: float
+
+
+@api.post("/admin/deposits/{session_id}/capture")
+async def admin_deposit_capture(session_id: str, body: CaptureBody, request: Request,
+                                x_admin_token: str = Header(default="")):
+    """Take part (or all) of a held amount. The rest is released by Stripe for good."""
+    admin = await _require_admin(request, x_admin_token)
+    who = _actor(admin)
+    out = await deposits.capture(session_id, body.amount_eur,
+                                 (admin or {}).get("email") or "")
+    await _audit(request, who, "deposit captured", session_id,
+                 f"€{out.get('captured_eur')} of €{out.get('held_eur')} "
+                 f"on car {out.get('car_id') or '?'}")
+    return jsonable(out)
+
+
+@api.post("/admin/deposits/{session_id}/release")
+async def admin_deposit_release(session_id: str, request: Request,
+                                x_admin_token: str = Header(default="")):
+    """Let a hold go without taking a cent and put the car back on the market."""
+    admin = await _require_admin(request, x_admin_token)
+    who = _actor(admin)
+    out = await deposits.release(session_id, (admin or {}).get("email") or "")
+    await _audit(request, who, "deposit hold released", session_id,
+                 f"car {out.get('car_id') or '?'}")
+    return jsonable(out)
+
 
 
 
@@ -2676,14 +2707,14 @@ async def admin_user_delete(email: str, request: Request,
     user = await db.users.find_one({"email": email}, {"_id": 1})
     if not user:
         raise HTTPException(404, "no such customer")
-    # A deposit is money still held while its payment_status is "paid"; the refund writes
-    # "refunded". The old query looked for a `refunded` flag in a `purchases` collection that
-    # does not exist, so this guard never actually fired.
+    # Money is still on the buyer's card while the deposit is authorised, captured or (older
+    # flow) paid; a release or refund is what settles it.
     live = await db.deposits.count_documents(
-        {"user_id": user["_id"], "payment_status": "paid"})
+        {"user_id": user["_id"], "payment_status": {"$in": list(deposits.HELD_STATES)}})
     if live:
         raise HTTPException(
-            400, f"this customer has {live} deposit(s) that are not refunded — refund first")
+            400, f"this customer has {live} deposit(s) that are not settled — release or "
+                 "refund them first")
     uid = user["_id"]
     for coll in ("sessions", "webauthn_credentials", "challenges"):
         await db[coll].delete_many({"user_id": uid})
@@ -2832,6 +2863,9 @@ async def on_startup():
     asyncio.get_running_loop().create_task(syncjob_mod.scheduler(db))
     # The weekly saved-search digest keeps its own clock (Saturday afternoon in Sofia).
     asyncio.get_running_loop().create_task(digest_mod.scheduler(db))
+    # A card hold lasts seven days; this hands back the ones nobody captured and re-lists
+    # the car, even if Stripe's webhook never reached us.
+    asyncio.get_running_loop().create_task(deposits.scheduler())
     log.info("startup complete: %s listings in index",
              await db.listings.count_documents({}))
 

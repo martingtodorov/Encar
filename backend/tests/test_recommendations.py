@@ -65,7 +65,10 @@ def test_price_window_clusters_results():
     r = _post({
         "makes": {"BMW": 3.0},
         "models": {},
-        "price": price,
+        # A bare `price` field was sent here for years and quietly ignored - TasteBody has no
+        # such field. The browser sends SAMPLES: [price, mileage, weight] per car looked at,
+        # and that is what defines the window, so the test now speaks the same language.
+        "samples": [[price, 60000, 3.0]],
         "limit": 12,
         "lang": "bg",
     })

@@ -443,6 +443,93 @@ async def send_deposit_returned(to, car_title, returned_eur, commission_eur, lan
     return await _send(to, t["subject"], _shell(t["heading"], rows, t["footer"]))
 
 
+
+# ── hold captured / hold released ────────────────────────────────────────────
+# A pre-authorisation is money the buyer can see missing from their card without ever having
+# been charged, so both of these letters exist to prevent the phone call that follows.
+CAPTURED = {
+    "bg": {
+        "subject": "Взехме част от блокираната сума",
+        "heading": "Депозитът ви е усвоен",
+        "body": ("Взехме сумата по-долу от блокираната по картата ви. Ако е останала "
+                 "разлика, тя се освобождава от банката ви и се връща по картата."),
+        "car": "Автомобил", "taken": "Усвоена сума", "back": "Освободена сума",
+        "footer": "Ако нещо не е ясно, просто отговорете на този имейл.",
+    },
+    "ro": {
+        "subject": "Am încasat o parte din suma blocată",
+        "heading": "Depozitul tău a fost încasat",
+        "body": ("Am încasat suma de mai jos din suma blocată pe cardul tău. Diferența, "
+                 "dacă există, este eliberată de bancă și revine pe card."),
+        "car": "Automobil", "taken": "Sumă încasată", "back": "Sumă eliberată",
+        "footer": "Dacă ceva nu este clar, răspunde pur și simplu la acest e-mail.",
+    },
+    "en": {
+        "subject": "We have taken part of the amount held",
+        "heading": "Your deposit has been taken",
+        "body": ("We have taken the amount below from the sum held on your card. Anything "
+                 "left over is released by your bank and returns to your card."),
+        "car": "Car", "taken": "Taken", "back": "Released",
+        "footer": "If anything is unclear, just reply to this email.",
+    },
+}
+
+RELEASED = {
+    "bg": {
+        "subject": "Блокираната сума е освободена",
+        "heading": "Освободихме блокираната сума",
+        "body": ("Не сме взели нищо от картата ви. Блокираната сума е освободена и според "
+                 "банката ви може да отнеме няколко работни дни, докато изчезне от извлечението."),
+        "expired": ("Блокирането на сума важи 7 дни и това време изтече, затова я освободихме "
+                    "и върнахме автомобила в обявите. Ако още го искате, започнете резервацията отново."),
+        "car": "Автомобил", "amount": "Освободена сума",
+        "footer": "Ако нещо не е ясно, просто отговорете на този имейл.",
+    },
+    "ro": {
+        "subject": "Suma blocată a fost eliberată",
+        "heading": "Am eliberat suma blocată",
+        "body": ("Nu am încasat nimic de pe cardul tău. Suma blocată a fost eliberată și, în "
+                 "funcție de bancă, pot trece câteva zile lucrătoare până dispare din extras."),
+        "expired": ("Blocarea sumei este valabilă 7 zile, iar termenul a expirat, așa că am "
+                    "eliberat-o și am repus automobilul în listă. Dacă îl mai dorești, "
+                    "începe rezervarea din nou."),
+        "car": "Automobil", "amount": "Sumă eliberată",
+        "footer": "Dacă ceva nu este clar, răspunde pur și simplu la acest e-mail.",
+    },
+    "en": {
+        "subject": "The amount held has been released",
+        "heading": "We have released the hold",
+        "body": ("We have taken nothing from your card. The held amount has been released "
+                 "and, depending on your bank, can take a few working days to disappear."),
+        "expired": ("A hold on a card lasts 7 days and that time has now passed, so we have "
+                    "released it and put the car back on the market. If you still want it, "
+                    "start the reservation again."),
+        "car": "Car", "amount": "Released",
+        "footer": "If anything is unclear, just reply to this email.",
+    },
+}
+
+
+async def send_deposit_captured(to, car_title, taken_eur, released_eur, lang="en"):
+    t = CAPTURED.get(lang) or CAPTURED["en"]
+    rows = (f'<tr><td colspan="2" style="padding:0 0 12px;color:#111">{t["body"]}</td></tr>'
+            + _row(t["car"], _esc(car_title))
+            + _row(t["taken"], f"\u20ac{taken_eur:,.0f}"))
+    if released_eur:
+        rows += _row(t["back"], f"\u20ac{released_eur:,.0f}")
+    return await _send(to, t["subject"], _shell(t["heading"], rows, t["footer"]))
+
+
+async def send_deposit_released(to, car_title, amount_eur, payment_status="released",
+                                lang="en"):
+    t = RELEASED.get(lang) or RELEASED["en"]
+    body = t["expired"] if payment_status == "expired" else t["body"]
+    rows = (f'<tr><td colspan="2" style="padding:0 0 12px;color:#111">{body}</td></tr>'
+            + _row(t["car"], _esc(car_title))
+            + _row(t["amount"], f"\u20ac{amount_eur:,.0f}"))
+    return await _send(to, t["subject"], _shell(t["heading"], rows, t["footer"]))
+
+
 def send_enquiry_emails(doc):
     """Fire-and-forget both messages so the buyer's POST returns immediately."""
     async def _job():

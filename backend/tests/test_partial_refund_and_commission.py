@@ -1,14 +1,16 @@
-"""Iteration 29: partial refund with EUR 300 commission and the commission-swallows-deposit edge case.
+"""Capturing a pre-authorised reservation deposit, and the EUR 300 commission on the quote.
 
-Two paid Stripe test deposits are put through the admin refund flow:
+Two real Stripe test HOLDS are driven through the admin panel:
 
-1. Partial refund happy path — the Stripe Refund object must equal (deposit - 300) in cents,
-   the charge must be PARTIALLY refunded, and our record must show returned + commission.
-2. Edge case — the deposit's `amount` is patched to 250 EUR in Mongo BEFORE refund, so the
-   commission swallows the whole deposit. There must be NO new Stripe Refund and the car
-   must still be released.
+1. Partial capture — EUR 100 of a larger hold. Stripe must receive exactly that, release the
+   remainder for good (no refund object, nothing left capturable), and the car must STAY
+   reserved because money has now been taken for it. A second capture, or a release, must be
+   refused.
+2. Full capture — the whole held amount, which is 10% of a car and therefore almost never a
+   round hundred. This is allowed alongside the hundreds, or the last euros could never be
+   taken at all.
 
-Regression: /api/deposit/car/{id} must expose commission_eur.
+Regression: /api/deposit/car/{id} and /api/deposit/status/{id} must expose commission_eur.
 """
 import asyncio
 import os
@@ -123,17 +125,17 @@ def _drive_stripe_checkout(checkout_url):
         browser.close()
 
 
-def _poll_paid(session_id, timeout=90):
+def _poll_held(session_id, timeout=90):
     end = time.time() + timeout
     last = None
     while time.time() < end:
         r = requests.get(f"{BASE_URL}/api/deposit/status/{session_id}", timeout=20)
         if r.status_code == 200:
             last = r.json()
-            if last.get("payment_status") == "paid":
+            if last.get("payment_status") in ("authorised", "captured", "paid"):
                 return last
         time.sleep(2)
-    raise AssertionError(f"deposit never became paid within {timeout}s: {last}")
+    raise AssertionError(f"deposit never became held within {timeout}s: {last}")
 
 
 def _mongo():
@@ -150,7 +152,7 @@ def admin():
     return _admin_session()
 
 
-def _make_paid_deposit(car_id):
+def _make_held_deposit(car_id):
     session, email = _register_buyer()
     q = session.get(f"{BASE_URL}/api/deposit/car/{car_id}", timeout=20).json()
     if q.get("reserved"):
@@ -160,20 +162,44 @@ def _make_paid_deposit(car_id):
     assert r.status_code == 200, r.text
     body = r.json()
     _drive_stripe_checkout(body["checkout_url"])
-    st = _poll_paid(body["session_id"])
+    st = _poll_held(body["session_id"])
     return {"session_id": body["session_id"], "amount": body["amount_eur"],
             "email": email, "buyer": session, "quote": q, "status": st,
             "car_id": car_id}
 
 
+def _reset_car(car_id, session_id):
+    """Give the test its car back.
+
+    A captured hold keeps the car reserved on purpose - that is the product behaviour. But a
+    test suite that leaves it reserved can only pass once: every later run skipped with "car
+    already reserved" and the capture path stopped being tested at all.
+    """
+    async def go():
+        client, db = _mongo()
+        try:
+            await db.deposits.delete_one({"session_id": session_id})
+            await db.listings.update_one(
+                {"_id": car_id},
+                {"$unset": {"reserved": "", "reserved_by": "", "reserved_at": ""}})
+        finally:
+            client.close()
+
+    asyncio.run(go())
+
+
 @pytest.fixture(scope="module")
 def partial_deposit():
-    return _make_paid_deposit(CAR_PARTIAL)
+    held = _make_held_deposit(CAR_PARTIAL)
+    yield held
+    _reset_car(CAR_PARTIAL, held["session_id"])
 
 
 @pytest.fixture(scope="module")
 def edge_deposit():
-    return _make_paid_deposit(CAR_EDGE)
+    held = _make_held_deposit(CAR_EDGE)
+    yield held
+    _reset_car(CAR_EDGE, held["session_id"])
 
 
 # ---------- Regression: commission_eur exposed on quote ---------------------
@@ -195,156 +221,92 @@ def test_deposit_status_returns_commission_eur(partial_deposit):
     body = r.json()
     assert body.get("commission_eur") == 300.0
 
+# ---------- MAIN JOB: capture part of a hold, in round hundreds ---------------
 
-# ---------- MAIN JOB: partial refund keeps EUR 300 commission ---------------
 
-
-def test_partial_refund_returns_deposit_minus_commission(admin, partial_deposit):
+def test_capture_takes_only_the_hundreds_asked_for(admin, partial_deposit):
+    """EUR 100 of a larger hold: Stripe takes exactly that and lets the rest go for good."""
     sid = partial_deposit["session_id"]
-    amount = partial_deposit["amount"]
+    held = partial_deposit["amount"]
+    if held < 200:
+        pytest.skip(f"hold of EUR {held} is too small to capture a part of")
 
-    r = admin.post(f"{BASE_URL}/api/admin/deposits/{sid}/refund", timeout=60)
-    assert r.status_code == 200, r.text
-    out = r.json()
-    print(f"[PARTIAL] session={sid} car={partial_deposit['car_id']} "
-          f"amount_eur={amount} refund_id={out.get('refund_id')} "
-          f"returned_eur={out.get('returned_eur')} commission={out.get('commission_eur')}")
-
-    # API response asserts
-    assert out["refunded"] is True
-    assert abs(out["returned_eur"] - (amount - 300)) < 0.01, \
-        f"returned {out['returned_eur']} vs expected {amount - 300}"
-    assert out["commission_eur"] == 300.0
-    assert out.get("refund_id"), "no refund_id returned"
-    partial_deposit["refund_id"] = out["refund_id"]
-
-    # Stripe assertions - PARTIAL refund
     st = stripe.checkout.Session.retrieve(sid)
     intent_id = st.payment_intent
     partial_deposit["intent_id"] = intent_id
+
+    r = admin.post(f"{BASE_URL}/api/admin/deposits/{sid}/capture",
+                   json={"amount_eur": 100}, timeout=60)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["captured"] is True
+    assert out["captured_eur"] == 100
+    assert abs(out["released_eur"] - (held - 100)) < 0.01, out
+
     pi = stripe.PaymentIntent.retrieve(intent_id, expand=["latest_charge"])
-    charge = pi.latest_charge
-
-    expected_cents = int(round((amount - 300) * 100))
-    print(f"[PARTIAL] Stripe charge.amount_refunded={charge.amount_refunded} cents, "
-          f"expected={expected_cents}, charge.refunded(full?)={charge.refunded}")
-
-    assert charge.amount_refunded == expected_cents, \
-        f"Stripe refunded {charge.amount_refunded} cents, expected {expected_cents} " \
-        f"(deposit {amount * 100} - 30000). FULL REFUND DETECTED - HIGH PRIORITY BUG"
-    # Partial refund - charge.refunded should be False (only True when 100% refunded)
-    assert charge.refunded is False, \
-        f"charge.refunded=True means Stripe treated this as a FULL refund " \
-        f"(amount_refunded={charge.amount_refunded}, captured={charge.amount})"
-
-    refunds = stripe.Refund.list(payment_intent=intent_id, limit=10)
-    assert len(refunds.data) == 1
-    assert refunds.data[0].amount == expected_cents
-    assert refunds.data[0].id == out["refund_id"]
+    assert pi.status == "succeeded", pi.status
+    assert pi.amount_received == 10000, pi.amount_received
+    # The uncaptured remainder is released by Stripe, not refunded by us.
+    assert (pi.amount_capturable or 0) == 0
+    assert pi.latest_charge.amount_captured == 10000
+    assert not stripe.Refund.list(payment_intent=intent_id, limit=5).data, \
+        "a partial capture must not create a refund object"
 
 
-def test_partial_refund_persisted_in_mongo(partial_deposit):
-    sid = partial_deposit["session_id"]
-
+def test_capture_persisted_in_mongo(partial_deposit):
     async def check():
         client, db = _mongo()
         try:
-            return await db.deposits.find_one({"session_id": sid})
+            return await db.deposits.find_one({"session_id": partial_deposit["session_id"]})
         finally:
             client.close()
 
     doc = asyncio.run(check())
     assert doc is not None
-    assert doc["payment_status"] == "refunded"
-    assert abs(doc["returned_eur"] - (partial_deposit["amount"] - 300)) < 0.01
-    assert doc["commission_eur"] == 300.0
+    assert doc["payment_status"] == "captured"
+    assert doc["captured_eur"] == 100
+    assert abs(doc["released_eur"] - (partial_deposit["amount"] - 100)) < 0.01
+    assert doc.get("captured_at") and doc.get("captured_by")
 
 
-def test_partial_refund_releases_car(partial_deposit):
-    r = requests.get(
-        f"{BASE_URL}/api/deposit/car/{partial_deposit['car_id']}", timeout=15)
-    assert r.status_code == 200
-    body = r.json()
-    assert body["reserved"] is False, f"car still reserved: {body}"
+def test_car_stays_reserved_after_capture(partial_deposit):
+    """We have taken money for this car, so it certainly does not go back on the market."""
+    body = requests.get(
+        f"{BASE_URL}/api/deposit/car/{partial_deposit['car_id']}", timeout=15).json()
+    assert body["reserved"] is True, body
 
 
-def test_different_buyer_can_reserve_after_partial_refund(partial_deposit):
-    s, _ = _register_buyer()
-    r = s.post(f"{BASE_URL}/api/deposit/checkout",
-               json={"car_id": partial_deposit["car_id"], "origin_url": BASE_URL},
-               timeout=30)
-    assert r.status_code == 200, \
-        f"another buyer should reserve after refund, got {r.status_code}: {r.text}"
-
-    async def cleanup(sid):
-        client, db = _mongo()
-        try:
-            await db.deposits.delete_one({"session_id": sid, "payment_status": "pending"})
-        finally:
-            client.close()
-
-    asyncio.run(cleanup(r.json()["session_id"]))
+def test_capture_cannot_happen_twice(admin, partial_deposit):
+    """Stripe releases the remainder on the first capture: there is nothing left to nibble."""
+    r = admin.post(f"{BASE_URL}/api/admin/deposits/{partial_deposit['session_id']}/capture",
+                   json={"amount_eur": 100}, timeout=30)
+    assert r.status_code == 409, r.text
+    r = admin.post(f"{BASE_URL}/api/admin/deposits/{partial_deposit['session_id']}/release",
+                   timeout=30)
+    assert r.status_code == 409, r.text
 
 
-# ---------- EDGE CASE: commission >= deposit --------------------------------
+# ---------- Full capture: the whole hold, not a round number ------------------
 
 
-def test_edge_case_commission_swallows_deposit(admin, edge_deposit):
-    """Deposit is patched to 250 EUR in Mongo. Refund must NOT hit Stripe."""
+def test_capture_can_take_the_whole_hold(admin, edge_deposit):
+    """A deposit is 10% of a car and almost never a round hundred, so the full amount is
+    always allowed as well - otherwise the last euros could never be taken."""
     sid = edge_deposit["session_id"]
-    car_id = edge_deposit["car_id"]
-
-    # Patch amount to 250 (below 300 commission)
-    async def patch():
-        client, db = _mongo()
-        try:
-            await db.deposits.update_one(
-                {"session_id": sid}, {"$set": {"amount": 250}})
-        finally:
-            client.close()
-
-    asyncio.run(patch())
-
-    # Get the payment intent BEFORE refund so we can prove no new Stripe refund was made
+    held = edge_deposit["amount"]
     st = stripe.checkout.Session.retrieve(sid)
     intent_id = st.payment_intent
-    refunds_before = stripe.Refund.list(payment_intent=intent_id, limit=10)
-    n_before = len(refunds_before.data)
 
-    r = admin.post(f"{BASE_URL}/api/admin/deposits/{sid}/refund", timeout=30)
+    r = admin.post(f"{BASE_URL}/api/admin/deposits/{sid}/capture",
+                   json={"amount_eur": held}, timeout=60)
     assert r.status_code == 200, r.text
     out = r.json()
-    print(f"[EDGE] session={sid} car={car_id} returned={out.get('returned_eur')} "
-          f"commission={out.get('commission_eur')} refund_id={out.get('refund_id')}")
+    assert out["captured_eur"] == pytest.approx(held)
+    assert out["released_eur"] == 0
 
-    assert out["refunded"] is True
-    assert out["returned_eur"] == 0
-    assert out["commission_eur"] == 250
-    # No stripe refund_id should be reported
-    assert "refund_id" not in out or not out.get("refund_id"), \
-        f"edge case must not create a Stripe refund but got refund_id={out.get('refund_id')}"
-
-    # NO new Stripe Refund
-    refunds_after = stripe.Refund.list(payment_intent=intent_id, limit=10)
-    assert len(refunds_after.data) == n_before, \
-        f"edge case created a Stripe refund: {len(refunds_after.data)} vs before {n_before}"
-
-    # Mongo shows refunded status
-    async def check():
-        client, db = _mongo()
-        try:
-            return await db.deposits.find_one({"session_id": sid})
-        finally:
-            client.close()
-
-    doc = asyncio.run(check())
-    assert doc["payment_status"] == "refunded"
-    assert doc["returned_eur"] == 0
-    assert doc["commission_eur"] == 250
-
-    # Car still released
-    q = requests.get(f"{BASE_URL}/api/deposit/car/{car_id}", timeout=15).json()
-    assert q["reserved"] is False, f"edge case car still reserved: {q}"
+    pi = stripe.PaymentIntent.retrieve(intent_id)
+    assert pi.status == "succeeded"
+    assert pi.amount_received == int(round(held * 100)), pi.amount_received
 
 
 # ---------- Body panels regression ------------------------------------------
@@ -356,7 +318,6 @@ def test_body_panels_car_42179408():
     bp = r.json().get("body_panels")
     assert bp is not None and bp.get("available") is True
     slugs = {f["slug"] for f in bp["findings"]}
-    # Expected findings per problem statement
     expected = {"hood", "rear_door_right", "front_door_right",
                 "rear_door_left", "quarter_panel_left", "radiator_support"}
     assert expected.issubset(slugs), f"missing panels: {expected - slugs}"

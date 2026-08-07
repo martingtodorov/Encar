@@ -326,6 +326,17 @@ export async function refundDeposit(sessionId) {
   return data;
 }
 
+export async function captureDeposit(sessionId, amountEur) {
+  const { data } = await http.post(
+    `/admin/deposits/${encodeURIComponent(sessionId)}/capture`, { amount_eur: amountEur });
+  return data;
+}
+
+export async function releaseDeposit(sessionId) {
+  const { data } = await http.post(`/admin/deposits/${encodeURIComponent(sessionId)}/release`);
+  return data;
+}
+
 export async function putSyncSchedule(body) {
   const { data } = await http.put("/admin/catalogue-sync/schedule", body);
   return data;

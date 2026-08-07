@@ -18,6 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 import auth
+import deposits
 
 log = logging.getLogger("contracts")
 router = APIRouter()
@@ -223,8 +224,10 @@ async def _own_deposit(session_id, user):
     record = await _db.deposits.find_one({"session_id": session_id})
     if not record or record.get("user_id") != user["_id"]:
         raise HTTPException(404, "no such payment")
-    if record.get("payment_status") != "paid":
-        raise HTTPException(409, "the deposit has not cleared yet")
+    # A pre-authorisation is enough to sign on: the car is reserved the moment the amount is
+    # held, and the contract is what we capture against.
+    if record.get("payment_status") not in deposits.HELD_STATES:
+        raise HTTPException(409, "the reservation has not cleared yet")
     return record
 
 
