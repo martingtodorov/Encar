@@ -133,6 +133,12 @@ async def deposit_quote(car_id: str, request: Request):
 
 @router.post("/deposit/checkout")
 async def deposit_checkout(body: CheckoutBody, user=Depends(auth.current_user)):
+    # A reservation is a hold on someone's card and a car taken off the market for a week.
+    # Both of those need an address we can actually reach, so the address has to be proved
+    # first. Accounts older than the verification rollout are trusted by `_verified()`.
+    # Checked before anything else: it is a fact about the buyer, not about our configuration.
+    if not auth._verified(user):
+        raise HTTPException(403, {"code": "email_unverified"})
     if not stripe.api_key:
         raise HTTPException(503, "card payments are not connected yet")
     car = await _car(body.car_id)

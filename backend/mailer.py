@@ -547,6 +547,56 @@ async def send_verify_code(to, code, name="", lang="en"):
                        _shell(t["heading"], rows, t["ignore"]))
 
 
+RESET = {
+    "bg": {
+        "subject": "Възстановяване на паролата",
+        "heading": "Задайте нова парола",
+        "body": ("Натиснете бутона по-долу, за да зададете нова парола. Връзката е валидна "
+                 "{minutes} минути и може да се използва само веднъж."),
+        "button": "Задай нова парола",
+        "fallback": "Ако бутонът не работи, отворете тази връзка:",
+        "ignore": ("Ако не сте поискали смяна на паролата, изтрийте това писмо — паролата "
+                   "ви остава непроменена."),
+    },
+    "ro": {
+        "subject": "Resetarea parolei",
+        "heading": "Setează o parolă nouă",
+        "body": ("Apasă butonul de mai jos pentru a seta o parolă nouă. Linkul este valabil "
+                 "{minutes} minute și poate fi folosit o singură dată."),
+        "button": "Setează parola nouă",
+        "fallback": "Dacă butonul nu funcționează, deschide acest link:",
+        "ignore": ("Dacă nu ai cerut schimbarea parolei, șterge acest e-mail — parola ta "
+                   "rămâne neschimbată."),
+    },
+    "en": {
+        "subject": "Reset your password",
+        "heading": "Set a new password",
+        "body": ("Press the button below to set a new password. The link is valid for "
+                 "{minutes} minutes and works only once."),
+        "button": "Set a new password",
+        "fallback": "If the button does not work, open this link:",
+        "ignore": ("If you did not ask to change your password, delete this email — your "
+                   "password stays as it is."),
+    },
+}
+
+
+async def send_password_reset(to, link, name="", lang="en", minutes=30):
+    t = RESET.get(lang) or RESET["en"]
+    hello = f"{_esc(name)}, " if name else ""
+    safe = _esc(link)
+    rows = (f'<tr><td colspan="2" style="padding:0 0 16px;color:#111">{hello}'
+            f'{t["body"].format(minutes=minutes)}</td></tr>'
+            f'<tr><td colspan="2" style="padding:0 0 16px"><a href="{safe}" '
+            f'style="display:inline-block;background:#111;color:#fff;text-decoration:none;'
+            f'padding:13px 22px;border-radius:10px;font:600 15px/1 -apple-system,Segoe UI,'
+            f'Roboto,Arial,sans-serif">{t["button"]}</a></td></tr>'
+            f'<tr><td colspan="2" style="padding:0 0 4px;color:#666;font-size:12px">'
+            f'{t["fallback"]}<br><a href="{safe}" style="color:#666;word-break:break-all">'
+            f'{safe}</a></td></tr>')
+    return await _send(to, t["subject"], _shell(t["heading"], rows, t["ignore"]))
+
+
 
 EXPIRING = {
     "bg": {

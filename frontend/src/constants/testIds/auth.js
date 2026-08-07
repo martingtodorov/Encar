@@ -28,6 +28,22 @@ export const REGISTER = {
 	loginLink: 'register-login-link',
 };
 
+export const FORGOT = {
+	emailInput: 'forgot-email-input',
+	submitButton: 'forgot-submit-button',
+	sentNotice: 'forgot-sent-notice',
+	backToLogin: 'forgot-back-to-login',
+};
+
+export const RESET = {
+	passwordInput: 'reset-password-input',
+	confirmInput: 'reset-password-confirm-input',
+	submitButton: 'reset-submit-button',
+	error: 'reset-error',
+	deadLink: 'reset-dead-link',
+	done: 'reset-done',
+};
+
 export const LOGOUT = {
 	button: 'logout-button',
 };

@@ -341,6 +341,15 @@ export default function LoginPage() {
         </form>
 
         <div className="mt-6 flex flex-col items-center gap-2.5">
+          {!registering && (
+            <Link
+              to={path("/forgot-password")}
+              data-testid="login-forgot-password-link"
+              className="text-[13.5px] text-[hsl(var(--primary))] transition-opacity hover:opacity-80"
+            >
+              {t("forgotLink")}
+            </Link>
+          )}
           <p className="text-base text-muted-foreground">
             {registering ? t("haveAccountPrompt") : t("noAccountPrompt")}
           </p>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Lock, ShieldCheck } from "lucide-react";
+import { Loader2, Lock, MailWarning, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
@@ -50,7 +50,12 @@ export const ReserveCar = ({ car }) => {
       });
       window.location.assign(data.checkout_url);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "could not start the payment");
+      const d = e?.response?.data?.detail;
+      // The backend answers unverified addresses with a code, not a sentence: the wording
+      // belongs in our own dictionary, and a raw object thrown at a toast renders as junk.
+      if (typeof d === "object" && d?.code === "email_unverified")
+        toast.error(t("depositVerifyFirst"));
+      else toast.error(typeof d === "string" ? d : "could not start the payment");
       setBusy(false);
     }
   };
@@ -69,6 +74,35 @@ export const ReserveCar = ({ car }) => {
         <span data-testid="detail-reserve-taken">
           {quote.mine ? t("depositMine") : t("depositReserved")}
         </span>
+      </div>
+    );
+  }
+
+  // A reservation holds money on a card and takes the car off the market for a week, so the
+  // address has to be proved first. The button is shown DEAD rather than hidden: a buyer who
+  // cannot see the price of reserving cannot decide to do it.
+  if (user && user.email_verified === false) {
+    return (
+      <div data-testid="detail-reserve">
+        <Button
+          data-testid="detail-reserve-button"
+          variant="outline"
+          disabled
+          className="h-12 w-full justify-center gap-2 rounded-[12px] border-2 border-border bg-card text-[14px] font-semibold text-muted-foreground"
+        >
+          <MailWarning className="h-[18px] w-[18px]" aria-hidden="true" />
+          {t("depositVerifyFirst")}
+        </Button>
+        <a
+          href={path("/verify-email")}
+          data-testid="detail-reserve-verify-link"
+          className="mt-2.5 inline-block text-[12.5px] font-semibold text-[hsl(var(--primary))] transition-opacity hover:opacity-80"
+        >
+          {t("depositVerifyLink")}
+        </a>
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
+          {t("depositVerifyBlurb")}
+        </p>
       </div>
     );
   }

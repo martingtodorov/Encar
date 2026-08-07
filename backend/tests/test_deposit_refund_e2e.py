@@ -17,6 +17,7 @@ import uuid
 import pytest
 import requests
 import stripe
+from conftest import mark_verified
 from dotenv import load_dotenv
 
 load_dotenv("/app/backend/.env")
@@ -44,6 +45,7 @@ def _register_buyer():
     r = s.post(f"{BASE_URL}/api/auth/register",
                json={"email": email, "password": BUYER_PASSWORD}, timeout=30)
     assert r.status_code == 200, f"register failed: {r.status_code} {r.text}"
+    mark_verified(email)
     return s, email
 
 

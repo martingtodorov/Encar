@@ -80,6 +80,9 @@ async def ensure_indexes(db):
     # Codes clean themselves up: an expired one must not sit in the database waiting to be
     # tried offline.
     await db.email_codes.create_index("expires_at", expireAfterSeconds=0)
+    # Same for reset tokens: a dead one is a liability, not a record.
+    await db.password_resets.create_index("token_hash", unique=True)
+    await db.password_resets.create_index("expires_at", expireAfterSeconds=0)
 
 
 async def ensure_owner(db):
@@ -157,6 +160,14 @@ VERIFY_TTL_MINUTES = 15
 VERIFY_MAX_ATTEMPTS = 5
 VERIFY_RESEND_SECONDS = 60
 VERIFY_MAX_SENDS = 8
+
+# ── password reset ------------------------------------------------------------
+# A long random token, hashed at rest, single use, dead after thirty minutes. Unlike the
+# verification code this is NOT six digits: it arrives as a link and is the only thing
+# standing between a stranger and an account, so it has to be unguessable outright.
+RESET_TTL_MINUTES = 30
+RESET_COOLDOWN_SECONDS = 60
+RESET_MAX_PER_DAY = 5
 
 
 def _lang(value):
@@ -435,6 +446,111 @@ async def resend_code(request: Request, user=Depends(current_user)):
         raise HTTPException(429, {"code": "too_many_sends"})
     await _issue_code(user, _lang(request.query_params.get("lang") or record.get("lang")))
     return {"sent": True, "cooldown": VERIFY_RESEND_SECONDS}
+
+
+class ForgotBody(BaseModel):
+    email: EmailStr
+    lang: str = "en"
+
+
+class ResetBody(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
+    password: str
+
+
+def _site_base(request: Request):
+    """Where the link in the letter should point.
+
+    PUBLIC_SITE_URL wins when it is set, because a letter outlives the request that made it
+    and must land on the real domain. With nothing configured we fall back to the host the
+    request came in on, which keeps the flow usable on a preview deployment.
+    """
+    base = (os.environ.get("PUBLIC_SITE_URL") or "").strip().rstrip("/")
+    if base:
+        return base
+    return _rp(request)[1]
+
+
+@router.post("/auth/forgot-password")
+async def forgot_password(body: ForgotBody, request: Request):
+    """Ask for a reset link.
+
+    The answer is ALWAYS the same, whether or not the address exists, is verified or has a
+    password: a different reply here is a free tool for working out who has an account.
+    A link is only ever sent to an address that has been PROVED - otherwise a reset email
+    would go to whoever happens to own an address the account never confirmed.
+    """
+    email = str(body.email).strip().lower()
+    lang = _lang(body.lang)
+    user = await _db.users.find_one({"email_norm": email})
+    if user and _verified(user):
+        now = _now()
+        last = await _db.password_resets.find_one({"user_id": user["_id"]},
+                                                  sort=[("created_at", -1)])
+        recent = await _db.password_resets.count_documents(
+            {"user_id": user["_id"], "created_at": {"$gte": now - timedelta(days=1)}})
+        waited = (now - _aware(last["created_at"])).total_seconds() if last else None
+        if recent >= RESET_MAX_PER_DAY or (waited is not None
+                                           and waited < RESET_COOLDOWN_SECONDS):
+            log.info("reset link for %s throttled", email)
+            return {"sent": True}
+        # Any older link stops working the moment a new one is asked for.
+        await _db.password_resets.delete_many({"user_id": user["_id"]})
+        raw = secrets.token_urlsafe(32)
+        await _db.password_resets.insert_one({
+            "_id": str(uuid.uuid4()),
+            "token_hash": _hash_token(raw),
+            "user_id": user["_id"],
+            "email": user["email"],
+            "lang": lang,
+            "created_at": now,
+            "expires_at": now + timedelta(minutes=RESET_TTL_MINUTES),
+        })
+        link = f"{_site_base(request)}/{lang}/reset-password?token={raw}"
+        sent = await mailer.send_password_reset(user["email"], link,
+                                               user.get("name") or "", lang,
+                                               RESET_TTL_MINUTES)
+        if not sent:
+            log.error("reset link for %s could not be emailed - check RESEND_API_KEY", email)
+    else:
+        log.info("reset asked for %s: no account, or the address was never confirmed", email)
+    return {"sent": True}
+
+
+@router.post("/auth/reset-password")
+async def reset_password(body: ResetBody, request: Request):
+    """Spend the link. It works once, and every other session is dropped with it."""
+    if len(body.password) < MIN_PASSWORD:
+        raise HTTPException(400, {"code": "too_short", "min": MIN_PASSWORD})
+    record = await _db.password_resets.find_one({"token_hash": _hash_token(body.token.strip())})
+    if not record:
+        raise HTTPException(400, {"code": "bad_token"})
+    if _aware(record.get("expires_at")) and _aware(record["expires_at"]) < _now():
+        await _db.password_resets.delete_one({"_id": record["_id"]})
+        raise HTTPException(410, {"code": "expired"})
+    user = await _db.users.find_one({"_id": record["user_id"]})
+    if not user:
+        await _db.password_resets.delete_one({"_id": record["_id"]})
+        raise HTTPException(400, {"code": "bad_token"})
+    await _db.users.update_one({"_id": user["_id"]},
+                               {"$set": {"password_hash": ph.hash(body.password)}})
+    # Single use, and gone from the database rather than merely flagged.
+    await _db.password_resets.delete_many({"user_id": user["_id"]})
+    # Whoever knew the old password - or was sitting in a stolen session - is now out.
+    gone = await _db.sessions.delete_many({"user_id": user["_id"]})
+    log.info("password reset for %s (%s sessions dropped)", user["email"], gone.deleted_count)
+    return {"reset": True, "signed_out": gone.deleted_count}
+
+
+@router.get("/auth/reset-valid")
+async def reset_valid(token: str):
+    """So the page can say "this link is dead" before the buyer types a new password."""
+    record = await _db.password_resets.find_one({"token_hash": _hash_token(token.strip())})
+    if not record:
+        return {"valid": False}
+    if _aware(record.get("expires_at")) and _aware(record["expires_at"]) < _now():
+        return {"valid": False}
+    return {"valid": True, "email": record.get("email", "")}
 
 
 @router.post("/auth/login")

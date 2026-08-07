@@ -88,6 +88,28 @@ def _env():
 
 
 
+def mark_verified(email):
+    """Prove a freshly registered test address, the way a buyer would with the emailed code.
+
+    A reservation now requires a CONFIRMED address, and no letter arrives in this environment,
+    so suites that register a throwaway buyer and then reserve have to pass that gate. This is
+    the only shortcut taken: the gate itself is exercised for real in test_password_reset.py.
+    """
+    import asyncio
+
+    from motor.motor_asyncio import AsyncIOMotorClient
+
+    async def go():
+        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+        try:
+            await client[os.environ["DB_NAME"]].users.update_one(
+                {"email_norm": email.strip().lower()}, {"$set": {"email_verified": True}})
+        finally:
+            client.close()
+
+    asyncio.run(go())
+
+
 @pytest.fixture(scope="module")
 def stripe_e2e_lock():
     """Only one Stripe browser suite at a time, whichever xdist worker it lands on.

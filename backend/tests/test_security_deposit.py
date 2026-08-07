@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 import pyotp
 import requests
+from conftest import mark_verified
 
 def _base():
     """The public HTTPS origin: session cookies are Secure and never ride over plain http."""
@@ -113,6 +114,8 @@ def test_deposit_is_ten_percent_with_no_floor():
     s = session()
     assert s.post(f"{BASE}/auth/register", json={"email": f"dep-{EMAIL}",
                                                  "password": PASSWORD}).status_code == 200
+    # A reservation needs a confirmed address; no letter arrives here, so prove it directly.
+    mark_verified(f"dep-{EMAIL}")
     rows = s.post(f"{BASE}/search", json={"page": 1, "page_size": 40,
                                           "lang": "en"}).json()["items"]
     cheap = min(rows, key=lambda r: r["sale_eur"])

@@ -1,0 +1,20 @@
+{
+  "summary": "Testing focused on the FRONTEND flows for the new password-reset + reservation-verify-email gate and multilingual privacy v1.3, per the main agent's request (backend suite already green with 211 passing). All ten review-request scenarios PASSED. Spot-checked the four backend endpoints listed in the review — /api/auth/reset-valid, /api/auth/forgot-password, /api/deposit/checkout — behave correctly (byte-identical enumeration-safe responses; 403 {code:email_unverified} on unverified reservation). Frontend UI in bg/ro/en renders correctly with no console errors on home/car detail/login/legal pages.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_password_reset.py"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "legal.js is ~700+ lines and mostly static content — acceptable, but if it grows further consider splitting per-language into content/legal/{bg,ro,en}.js for maintainability.",
+    "ReserveCar.js unverified branch checks user.email_verified === false explicitly — good, avoids gating pre-rollout accounts that lack the field. Same defensive treatment already applied server-side (auth._verified).",
+    "ForgotPasswordPage swallows all errors from apiForgotPassword to prevent enumeration; verified end-to-end (unknown vs confirmed admin address produce byte-identical UI and API responses)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (spot check 4/4 endpoints)", "frontend": "100% (10/10 scenarios)"},
+  "test_credentials": "Registered throwaway account test_ui3_1786104673@example.com / SecurityTest2026! (unverified, used to prove reservation gate).",
+  "seed_data_creation": "Two throwaway unverified accounts (test_unv_1786104471@example.com, test_ui3_1786104673@example.com) — harmless.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All ten scenarios from the review request pass on the preview URL. Detailed evidence: (1) login page shows data-testid=login-forgot-password-link -> /bg/forgot-password; disappears in register mode. (2) /bg/forgot-password: submitting unknown vs martingtodorov@gmail.com produces identical data-testid=forgot-sent-notice text ('Ако този адрес принадлежи на профил с потвърден имейл...'). (3) /bg/reset-password with no token AND with ?token=abcdefghijklmnopqrstuvwxyz both show data-testid=reset-dead-link, no password form, and an <a href=/bg/forgot-password> back-link. (4)+(5) Freshly registered unverified account on /bg/car/42157084 sees data-testid=detail-reserve with disabled data-testid=detail-reserve-button ('Потвърдете имейла си, за да резервирате') and data-testid=detail-reserve-verify-link -> /bg/verify-email; API POST /api/deposit/checkout with those cookies + fresh CSRF returns 403 {\"detail\":{\"code\":\"email_unverified\"}}. (6) GET /api/auth/reset-valid?token=<nonsense> and ?token= both return 200 {\"valid\":false}. (7) POST /api/auth/forgot-password returns 200 {\"sent\":true} for unknown and confirmed admin addresses alike (byte-identical). (8) /bg/privacy, /ro/privacy, /en/privacy all render, all show 'Версия 1.3'/'Versiunea 1.3'/'Version 1.3', all include section '18. Контакт'/'18. Contact', no '${' template leaks, COMPANY placeholders (name/eik/address/email/phone) are substituted. (9) /bg|ro|en/terms and /bg|ro|en/cookies all return 200 with substantial content. (10) /bg /ro /en home pages render 200 with no console errors. Reservation gate testids: detail-reserve, detail-reserve-button, detail-reserve-verify-link, detail-reserve-amount. Auth submit testid is auth-submit-button (not auth-submit).",
+  "rca of the issue": "N/A — no issues found."
+}

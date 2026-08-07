@@ -4,6 +4,7 @@ import re
 import time
 
 import requests
+from conftest import mark_verified
 from dotenv import load_dotenv
 
 load_dotenv("/app/backend/.env")
@@ -32,6 +33,8 @@ def test_purchases_lists_the_archived_car():
     email = f"buy-{int(time.time())}@example.com"
     assert s.post(f"{BASE}/auth/register",
                   json={"email": email, "password": PASSWORD}).status_code == 200
+    # A reservation needs a confirmed address; no letter arrives here, so prove it directly.
+    mark_verified(email)
 
     assert s.get(f"{BASE}/purchases").json()["items"] == []
 

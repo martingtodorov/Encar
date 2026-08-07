@@ -60,6 +60,34 @@ const ACCOUNT = {
     verifyExpired: "Кодът е изтекъл. Поискайте нов.",
     verifyTooMany: "Твърде много грешни опита. Поискайте нов код.",
     verifyTooManySends: "Твърде много поискани кодове. Свържете се с нас и ще помогнем.",
+    forgotTitle: "Забравена парола",
+    forgotBlurb:
+      "Въведете имейла на профила си и ще ви изпратим връзка за нова парола. Връзката важи 30 минути и работи само веднъж. Изпращаме я само на потвърден имейл адрес.",
+    forgotSend: "Изпрати връзка",
+    forgotSentTitle: "Проверете имейла си",
+    forgotSentBlurb:
+      "Ако този адрес принадлежи на профил с потвърден имейл, връзката за нова парола вече е на път. Валидна е 30 минути. Проверете и папката със спам.",
+    forgotBackToLogin: "Обратно към входа",
+    forgotLink: "Забравена парола?",
+    resetTitle: "Нова парола",
+    resetBlurb: "Изберете нова парола за профила си. Минимум 8 знака.",
+    resetChecking: "Проверяваме връзката…",
+    resetConfirmLabel: "Повторете новата парола",
+    resetSave: "Запази новата парола",
+    resetMismatch: "Двете пароли не съвпадат",
+    resetFailed: "Паролата не беше сменена",
+    resetSignsOut:
+      "След смяната ще излезем от всички устройства, включително от това — влезте отново с новата парола.",
+    resetDeadBlurb:
+      "Тази връзка вече не е валидна. Връзките важат 30 минути и работят само веднъж. Поискайте нова.",
+    resetAskAgain: "Поискай нова връзка",
+    resetDoneTitle: "Паролата е сменена",
+    resetDoneBlurb:
+      "Готово. Излязохме от всички устройства — влезте с новата си парола.",
+    depositVerifyFirst: "Потвърдете имейла си, за да резервирате",
+    depositVerifyLink: "Потвърди имейла",
+    depositVerifyBlurb:
+      "Резервацията блокира сума на картата ви и запазва автомобила за 7 дни, затова ни трябва потвърден имейл адрес.",
     depositTitle: "Резервирай този автомобил",
     depositBlurb:
       "Не таксуваме картата ви. Сумата се блокира за 7 дни и автомобилът се запазва за вас веднага. Усвояваме част или цялата сума само след като потвърдим автомобила; останалото се освобождава от банката ви. Ако не потвърдим до 7 дни, блокирането пада само и автомобилът се връща в обявите.",
@@ -139,6 +167,34 @@ const ACCOUNT = {
     verifyExpired: "Codul a expirat. Cere unul nou.",
     verifyTooMany: "Prea multe încercări greșite. Cere un cod nou.",
     verifyTooManySends: "Prea multe coduri cerute. Contactează-ne și te ajutăm.",
+    forgotTitle: "Parolă uitată",
+    forgotBlurb:
+      "Introdu e-mailul contului și îți trimitem un link pentru o parolă nouă. Linkul este valabil 30 de minute și funcționează o singură dată. Îl trimitem doar către o adresă confirmată.",
+    forgotSend: "Trimite linkul",
+    forgotSentTitle: "Verifică e-mailul",
+    forgotSentBlurb:
+      "Dacă adresa aparține unui cont cu e-mail confirmat, linkul pentru o parolă nouă este deja pe drum. Este valabil 30 de minute. Verifică și folderul spam.",
+    forgotBackToLogin: "Înapoi la autentificare",
+    forgotLink: "Ai uitat parola?",
+    resetTitle: "Parolă nouă",
+    resetBlurb: "Alege o parolă nouă pentru contul tău. Minimum 8 caractere.",
+    resetChecking: "Verificăm linkul…",
+    resetConfirmLabel: "Repetă parola nouă",
+    resetSave: "Salvează parola nouă",
+    resetMismatch: "Cele două parole nu coincid",
+    resetFailed: "Parola nu a fost schimbată",
+    resetSignsOut:
+      "După schimbare te deconectăm de pe toate dispozitivele, inclusiv de pe acesta — intră din nou cu parola nouă.",
+    resetDeadBlurb:
+      "Acest link nu mai este valabil. Linkurile sunt valabile 30 de minute și funcționează o singură dată. Cere unul nou.",
+    resetAskAgain: "Cere un link nou",
+    resetDoneTitle: "Parola a fost schimbată",
+    resetDoneBlurb:
+      "Gata. Te-am deconectat de pe toate dispozitivele — intră cu parola nouă.",
+    depositVerifyFirst: "Confirmă e-mailul ca să rezervi",
+    depositVerifyLink: "Confirmă e-mailul",
+    depositVerifyBlurb:
+      "Rezervarea blochează o sumă pe cardul tău și ține automobilul 7 zile, de aceea ne trebuie o adresă de e-mail confirmată.",
     depositTitle: "Rezervă acest automobil",
     depositBlurb:
       "Nu îți debităm cardul. Suma este blocată pentru 7 zile, iar automobilul este rezervat pentru tine imediat. Încasăm o parte sau toată suma abia după ce confirmăm automobilul; restul este eliberat de banca ta. Dacă nu confirmăm în 7 zile, blocarea expiră singură și automobilul revine în listă.",
@@ -217,6 +273,33 @@ const ACCOUNT = {
     verifyExpired: "That code has expired. Ask for a new one.",
     verifyTooMany: "Too many wrong attempts. Ask for a new code.",
     verifyTooManySends: "Too many codes requested. Contact us and we will help.",
+    forgotTitle: "Forgotten password",
+    forgotBlurb:
+      "Enter your account email and we will send you a link to set a new password. The link is valid for 30 minutes and works only once. We send it only to a confirmed address.",
+    forgotSend: "Send the link",
+    forgotSentTitle: "Check your email",
+    forgotSentBlurb:
+      "If that address belongs to an account with a confirmed email, the link to set a new password is already on its way. It is valid for 30 minutes. Check your spam folder too.",
+    forgotBackToLogin: "Back to sign in",
+    forgotLink: "Forgotten your password?",
+    resetTitle: "New password",
+    resetBlurb: "Choose a new password for your account. At least 8 characters.",
+    resetChecking: "Checking the link…",
+    resetConfirmLabel: "Repeat the new password",
+    resetSave: "Save the new password",
+    resetMismatch: "The two passwords do not match",
+    resetFailed: "The password was not changed",
+    resetSignsOut:
+      "After the change we sign you out of every device, this one included — sign in again with the new password.",
+    resetDeadBlurb:
+      "This link is no longer valid. Links last 30 minutes and work only once. Ask for a new one.",
+    resetAskAgain: "Ask for a new link",
+    resetDoneTitle: "Password changed",
+    resetDoneBlurb: "Done. We signed you out everywhere — sign in with your new password.",
+    depositVerifyFirst: "Confirm your email to reserve",
+    depositVerifyLink: "Confirm your email",
+    depositVerifyBlurb:
+      "A reservation holds an amount on your card and keeps the car for 7 days, so we need a confirmed email address.",
     depositTitle: "Reserve this car",
     depositBlurb:
       "We do not charge your card. The amount is held for 7 days and the car is reserved for you straight away. We take part or all of it only once we confirm the car; the rest is released by your bank. If we do not confirm within 7 days the hold falls away by itself and the car goes back on the market.",

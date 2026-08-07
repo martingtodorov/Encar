@@ -409,6 +409,22 @@ export async function apiResendCode(lang = "") {
   return data;
 }
 
+/** Ask for a reset link. The answer never says whether the address exists. */
+export async function apiForgotPassword(email, lang = "en") {
+  const { data } = await http.post("/auth/forgot-password", { email, lang });
+  return data;
+}
+
+export async function apiResetValid(token) {
+  const { data } = await http.get("/auth/reset-valid", { params: { token } });
+  return data;
+}
+
+export async function apiResetPassword(token, password) {
+  const { data } = await http.post("/auth/reset-password", { token, password });
+  return data;
+}
+
 export async function apiLogin(body) {
   const { data } = await http.post("/auth/login", body);
   return data;
