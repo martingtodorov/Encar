@@ -53,6 +53,20 @@
         line: "{{ backend_private_ip }} encar-back1"
       tags: [config]
 
+    - name: Which nginx this is
+      # `http2 on;` only exists from 1.25.1; before that HTTP/2 is a `listen` parameter, and
+      # an unknown directive is FATAL (`nginx -t` -> emerg). front1 runs the older one.
+      ansible.builtin.command: nginx -v
+      register: nginx_v
+      changed_when: false
+      tags: [config]
+
+    - name: Remember which http2 syntax it understands
+      ansible.builtin.set_fact:
+        nginx_version: >-
+          {{ (nginx_v.stderr ~ nginx_v.stdout) | regex_search('nginx/([0-9.]+)', '\1') | first }}
+      tags: [config]
+
     - name: Site configuration
       ansible.builtin.template:
         src: ../templates/nginx-encar.conf.j2

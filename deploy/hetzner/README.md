@@ -138,6 +138,13 @@ journalctl -fu nginx      # or /var/log/nginx/error.log
   when there is no Anthropic key), so both were removed.
   `backend/tests/test_requirements_portable.py` now fails if a URL pin, a platform-only package
   or agent tooling ever creeps back in — run it before a deploy.
+- **nginx's HTTP/2 syntax depends on the version.** `http2 on;` only exists from **1.25.1**;
+  on older builds (front1 runs one) it is an *unknown directive* and `nginx -t` fails with
+  `emerg`, so the deploy stops. `deploy_nginx.yml` reads `nginx -v` into `nginx_version` and
+  the template picks `listen 443 ssl http2;` or `listen 443 ssl;` + `http2 on;` accordingly.
+  The `protocol options redefined for 0.0.0.0:443` lines are only warnings — they come from the
+  other site on this host (`sites-enabled/autoandbid`) declaring different listen options for
+  the same port.
 - **A fresh Mongo is empty.** Either restore a dump or run the catalogue sync from
   Admin → Catalogue sync (a full crawl takes hours). Worth carrying over from the old box:
   `translations` (already paid for), `taxonomy_overrides` (your merges), `users`, `purchases`,

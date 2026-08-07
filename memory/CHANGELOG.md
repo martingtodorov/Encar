@@ -1200,3 +1200,13 @@ DIAGNOSTIC THAT SETTLED IT (keep for next time): on back1 `ip rule show`,
 `iptables -t mangle -S OUTPUT`, `iptables -t nat -S POSTROUTING`, `wg show` (compare
 received vs sent), and a DNS-free reachability test to an IP so a resolver failure cannot be
 mistaken for a routing failure.
+
+### nginx http2 syntax broke the nginx deploy (2026-06, fixed)
+front1's nginx is older than 1.25.1, where `http2 on;` does not exist — `nginx -t` failed with
+`[emerg] unknown directive "http2"` and `deploy_nginx.yml` stopped at "Configuration is valid".
+`deploy_nginx.yml` now reads `nginx -v` into `nginx_version` (regex on the `nginx/X.Y.Z`
+string, stderr) and `nginx-encar.conf.j2` renders `listen 443 ssl http2;` below 1.25.1 and
+`listen 443 ssl;` + `http2 on;` at or above it. Verified by rendering the template through
+Ansible for 1.24.0 and 1.27.3 — the right form each time.
+The `protocol options redefined for 0.0.0.0:443` and `duplicate MIME type "text/html"` lines
+are WARNINGS from the other site on that host (sites-enabled/autoandbid), not our config.
