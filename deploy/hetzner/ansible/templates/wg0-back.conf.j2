@@ -27,6 +27,11 @@ PostUp = ip route replace throw 192.168.0.0/16 table {{ nat_table }}
 PostUp = ip route replace default via {{ wg_front_ip }} dev %i table {{ nat_table }}
 PostUp = ip rule del fwmark {{ nat_mark }} lookup {{ nat_table }} 2>/dev/null || true; ip rule add fwmark {{ nat_mark }} lookup {{ nat_table }} priority {{ nat_rule_priority }}
 PostUp = iptables -t mangle -C OUTPUT -m owner --uid-owner {{ backend_service_user }} -j MARK --set-mark {{ nat_mark }} 2>/dev/null || iptables -t mangle -A OUTPUT -m owner --uid-owner {{ backend_service_user }} -j MARK --set-mark {{ nat_mark }}
+# The route is chosen BEFORE mangle OUTPUT, so the mark reroutes the packet onto %i but its
+# source address is still this host's private one. front1's cryptokey routing only accepts
+# {{ wg_back_ip }} from this peer and would silently drop the rest, so rewrite the source.
+PostUp = iptables -t nat -C POSTROUTING -o %i -j SNAT --to-source {{ wg_back_ip }} 2>/dev/null || iptables -t nat -A POSTROUTING -o %i -j SNAT --to-source {{ wg_back_ip }}
+PostDown = iptables -t nat -D POSTROUTING -o %i -j SNAT --to-source {{ wg_back_ip }} 2>/dev/null || true
 PostDown = iptables -t mangle -D OUTPUT -m owner --uid-owner {{ backend_service_user }} -j MARK --set-mark {{ nat_mark }} 2>/dev/null || true
 PostDown = ip rule del fwmark {{ nat_mark }} lookup {{ nat_table }} 2>/dev/null || true
 PostDown = ip route flush table {{ nat_table }} 2>/dev/null || true
