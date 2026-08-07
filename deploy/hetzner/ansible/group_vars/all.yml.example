@@ -65,7 +65,12 @@ owner_email: "martingtodorov@gmail.com"
 owner_password: "Nero"
 
 jsoncargo_api_key: ""
-jsoncargo_shipping_line: ""
+# The carrier is a REQUIRED query parameter on every container lookup - JSONCargo answers 400
+# without it. Leave the value spelled out; an empty string here reaches the backend as an empty
+# env var, which beats the code's own MAERSK default.
+jsoncargo_shipping_line: "MAERSK"
+# Optional. Empty simply switches the direct carrier EDI feed off; JSONCargo covers tracking
+# on its own.
 edi_ingest_token: ""
 # Reading Maersk's public page needs an egress IP Akamai accepts; it is OFF here.
 maersk_public_track: 0

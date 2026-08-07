@@ -1478,3 +1478,10 @@ Replacing the key restores the preferred provider with no code change.
 - P2: `server.py` is large and declares many routes; split by area when it next needs work.
 - P3: `backend/backend_test.py` still holds a preview URL. Stale standalone script, not part of
   the pytest suite; delete or repoint it.
+
+### 2026-06-08 (later) — production tracking fix
+Container tracking was dead on the Hetzner host because `jsoncargo_shipping_line` was deployed
+empty and an empty env var beats a code default. Fixed in the config reader, both group_vars
+examples and all three env templates; config-caused failures are no longer cached. 219 backend
+tests pass. Owner should confirm `JSONCARGO_SHIPPING_LINE=MAERSK` in `/etc/encar/backend.env`
+after the next deploy.

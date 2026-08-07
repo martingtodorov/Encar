@@ -35,7 +35,8 @@ sender_email: ""
 admin_notify_email: ""
 
 jsoncargo_api_key: ""
-jsoncargo_shipping_line: ""
+# Required by JSONCargo on every container lookup: an empty value means HTTP 400.
+jsoncargo_shipping_line: "MAERSK"
 edi_ingest_token: ""
 
 # python3 -c "from pywebpush import Vapid; ..." or keep the pair you already have.

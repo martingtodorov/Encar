@@ -879,3 +879,46 @@ Resend key in this environment is still rejected and no letter arrives.
 - `sitemap.xml` and `robots.txt` needed no change: both already pointed at
   `https://encareurope.com`. The only stale preview URL is in `backend/backend_test.py`, an old
   standalone script that is not part of the pytest suite.
+
+## 2026-06-08 (later) — Tracking dead on the Hetzner host: one empty line in a YAML file
+
+### The cause, reproduced not guessed
+`group_vars/all.yml.example` shipped `jsoncargo_shipping_line: ""`. Ansible writes EVERY
+variable whether it was filled in or not, so that reached the server as
+`JSONCARGO_SHIPPING_LINE=`. An empty env var is NOT a missing one: `os.environ.get(name,
+"MAERSK")` returns `""` and the default never fires. The carrier is a REQUIRED query parameter,
+so every container and B/L lookup on that host got:
+`400 {"error":{"title":"Missing required parameter \`shipping_line\`..."}}` — confirmed by
+calling the provider with an empty carrier. Preview had the value spelled out, so the failure
+existed ONLY in production. `tracking._cargo` swallows the RuntimeError and returns None, which
+is why the page showed "nothing found" instead of an error and the cause stayed invisible.
+
+### Fixed
+- `jsoncargo._env(name, fallback)` — an empty or whitespace-only env var counts as absent. Now
+  used for the key (a key pasted with a trailing newline read as "tracking not configured at
+  all"), the base URL and the carrier.
+- `jsoncargo.ConfigError(RuntimeError)` — a rejected key (401/403) or a 400 naming
+  `shipping_line` is OUR configuration, not the tracking number. It is never cached, and any row
+  cached before the misconfiguration was noticed is deleted. Without this, a corrected deploy
+  keeps failing for the 15-minute error TTL and looks unfixed. `/api/admin/tracking-quota`
+  surfaces the message (ConfigError is a RuntimeError, which it already catches).
+- Both `all.yml.example` files now ship `jsoncargo_shipping_line: "MAERSK"` with the reason.
+- All three env templates now use `| default('MAERSK', true)`, which fires on an EMPTY value and
+  not only an undefined one — so an all.yml already on disk with `""` is fixed by a redeploy
+  without anyone editing it.
+
+### Tests
+`tests/test_jsoncargo_config.py` (8 tests, offline): empty and whitespace carrier fall back to
+MAERSK, an explicit carrier is still honoured (the fallback must not become a hardcoding), a key
+with stray whitespace still counts as configured, an empty key reads as not configured, the base
+URL default survives an empty value, a ConfigError is never cached and clears a stale row, and an
+ordinary failure IS still cached (the plan is metered — a bad number must cost one call, not one
+per view).
+
+VERIFIED: full backend suite 219 passed / 2 skipped. Live check on preview:
+`GET /api/tracking?ref=MRSU5757040&by=container` → source `jsoncargo`, vessel GENOVA EXPRESS.
+Jinja render check: empty → MAERSK, unset → MAERSK, "MSC" → MSC.
+
+### To confirm on the server
+`grep JSONCARGO /etc/encar/backend.env` — the line must read `JSONCARGO_SHIPPING_LINE=MAERSK`.
+The key itself is fine: plan MARINER, 983 of 1000 requests left.

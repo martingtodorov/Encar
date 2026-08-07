@@ -44,11 +44,25 @@ PHRASES = [
 ]
 
 
+def _env(name, fallback=""):
+    """An env var set to an EMPTY string counts as absent.
+
+    This is not pedantry: the Ansible deploy writes every variable from group_vars whether it
+    was filled in or not, so `jsoncargo_shipping_line: ""` reaches the server as
+    `JSONCARGO_SHIPPING_LINE=` - and a plain `os.environ.get(name, default)` then returns the
+    empty string, silently beating the default. The carrier is a REQUIRED query parameter, so
+    every container lookup on that host answered 400 while the preview box, which happened to
+    have the value spelled out, worked. One empty line in a YAML file, tracking dead.
+    """
+    got = (os.environ.get(name) or "").strip()
+    return got or fallback
+
+
 def config():
     return {
-        "key": os.environ.get("JSONCARGO_API_KEY", ""),
-        "base": os.environ.get("JSONCARGO_BASE_URL", "https://api.jsoncargo.com/api/v1"),
-        "line": os.environ.get("JSONCARGO_SHIPPING_LINE", "MAERSK"),
+        "key": _env("JSONCARGO_API_KEY"),
+        "base": _env("JSONCARGO_BASE_URL", "https://api.jsoncargo.com/api/v1"),
+        "line": _env("JSONCARGO_SHIPPING_LINE", "MAERSK"),
     }
 
 
@@ -58,6 +72,16 @@ def configured():
 
 def _now():
     return datetime.now(timezone.utc)
+
+
+class ConfigError(RuntimeError):
+    """A failure caused by OUR configuration, not by the reference being looked up.
+
+    Deliberately NEVER cached. A missing carrier or a rejected key answers the same way for
+    every container, and the moment the setting is corrected the answer changes - so a stale
+    fifteen-minute row would make a freshly fixed deployment look broken and send whoever
+    fixed it looking for a second bug that is not there.
+    """
 
 
 async def _get(path, params=None):
@@ -77,6 +101,11 @@ async def _get(path, params=None):
     if r.is_error:
         msg = (body.get("error") or {}).get("title") if isinstance(body, dict) else ""
         log.warning("jsoncargo %s -> %s %s", path, r.status_code, str(body)[:200])
+        # A rejected key, or a 400 complaining about the carrier we were meant to send: that is
+        # this deployment's env file, not the tracking number.
+        if r.status_code in (401, 403) or (
+                r.status_code == 400 and "shipping_line" in str(body)):
+            raise ConfigError(msg or "the tracking provider rejected our configuration")
         raise RuntimeError(msg or "the tracking provider did not answer")
     return body.get("data") if isinstance(body, dict) else None
 
@@ -93,6 +122,11 @@ async def _cached(db, key, ttl, loader, refresh=False):
 
     try:
         payload = await loader()
+    except ConfigError:
+        # Drop any row we cached for this fact before the misconfiguration was noticed, so the
+        # first lookup after the fix goes out for real instead of replaying the old failure.
+        await db.cargo_cache.delete_one({"_id": key})
+        raise
     except RuntimeError as e:
         await db.cargo_cache.replace_one(
             {"_id": key}, {"_id": key, "stored_at": _now(), "payload": None,
