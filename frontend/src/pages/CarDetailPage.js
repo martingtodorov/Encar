@@ -637,18 +637,10 @@ export default function CarDetailPage() {
                         testId="insurance-own-claim-amount"
                       />
                     ) : null}
-                    {car.insurance.other_accident_cost_eur ? (
-                      <Row
-                        label={t("otherClaimAmount")}
-                        value={formatMoney(
-                          car.insurance.other_accident_cost_eur,
-                          currency,
-                          lang,
-                          rates
-                        )}
-                        testId="insurance-other-claim-amount"
-                      />
-                    ) : null}
+                    {/* The third-party claim amount is deliberately NOT shown: it is what the
+                        car's insurer paid to SOMEBODY ELSE, so it says nothing about the
+                        condition of this car and only made buyers think the car itself had
+                        995 EUR of damage. The claim COUNT above is the useful figure. */}
                   </>
                 ) : (
                   <p className="py-2 text-[13px] text-muted-foreground">{t("docNotAvailable")}</p>

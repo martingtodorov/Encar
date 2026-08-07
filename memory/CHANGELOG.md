@@ -959,3 +959,21 @@ last deployed from GitHub. Say this out loud whenever a bug report is about the 
 
 VERIFIED: 20 passed / 2 skipped on the tracking suites; admin panel screenshot reads
 "Provider plan MARINER: 983 of 1000 lookups left this month · carrier MAERSK".
+
+## 2026-06-08 — "Стойност на щетите на трети лица" removed from every listing
+
+The third-party CLAIM AMOUNT row is no longer rendered in the insurance panel on the car page
+(`CarDetailPage.js`, the only place it appeared, so it is gone in all three languages at once).
+That figure is what the car's insurer paid to SOMEBODY ELSE, so it says nothing about the
+condition of the car on the page and read as if this car had that much damage.
+
+- The third-party claim COUNT stays ("Щети на трети лица — 4 пъти"): that IS about this car.
+- The own-damage amount ("Стойност на собствените щети") is untouched — the owner named only the
+  third-party line.
+- The backend still computes `insurance.other_accident_cost_eur`; only the display is dropped, so
+  restoring the row is a four-line change. The `otherClaimAmount` i18n keys are kept in BG/RO/EN
+  for the same reason.
+
+VERIFIED on car 42341529, which really carries both figures (third-party 2793.75 EUR, own
+4427.52 EUR): `insurance-other-claim-amount` renders 0 times, `insurance-own-claim-amount` once
+(4428 EUR), and the panel text no longer contains "Стойност на щетите на трети лица".
