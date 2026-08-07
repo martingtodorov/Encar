@@ -922,3 +922,40 @@ Jinja render check: empty → MAERSK, unset → MAERSK, "MSC" → MSC.
 ### To confirm on the server
 `grep JSONCARGO /etc/encar/backend.env` — the line must read `JSONCARGO_SHIPPING_LINE=MAERSK`.
 The key itself is fine: plan MARINER, 983 of 1000 requests left.
+
+## 2026-06-08 (later still) — the production diagnosis, and making the failure visible
+
+### What production actually answered
+`GET https://encareurope.com/api/tracking?ref=271191199&by=bol` →
+`{"configured": false, "reference": "271191199", "by": "bol"}`.
+That is `tracking.track()`'s last line: no EDI events, `_cargo()` gave nothing, Maersk's public
+read is off, no manual shipment, no Maersk consumer key. The JSONCargo quota counter stayed at
+17-18 (this pod's own calls), so the DEPLOYED backend has never successfully called the provider.
+
+The owner's own `curl` from back1 returned real data for B/L 271191199 → container MRSU5757040,
+which rules out three theories at once: back1 has internet (NAT fine), the key works from their
+network, and the key is NOT restricted by IP or domain — it also answers 200 from this pod on a
+completely different address, and JSONCargo documents no allowlist.
+
+`_cargo()` returns None both when there is no key AND when the provider errors, so the two
+remaining causes are indistinguishable from outside: either `JSONCARGO_API_KEY` is empty in
+`/etc/encar/backend.env`, or the deployed release is still the OLD code with the empty
+`JSONCARGO_SHIPPING_LINE`. Both are fixed by the same deploy. `grep JSONCARGO
+/etc/encar/backend.env` on the host settles which it was.
+
+### THE POINT THAT COST FOUR ROUNDS
+Fixes made in the Emergent workspace are NOT on the Hetzner host. Production runs whatever was
+last deployed from GitHub. Say this out loud whenever a bug report is about the deployed site.
+
+### Made visible, so this cannot happen silently again
+- `jsoncargo._note()` / `last_error()` — the last provider failure (status + the provider's own
+  wording + which path) kept in memory. Never shown to a buyer.
+- `/api/admin/tracking-quota` now returns `last_error`, `shipping_line`, and, when there is no
+  key, an explicit `hint` naming the missing variable.
+- `AdminShipments.js` renders that line even when the provider is NOT connected — it used to be
+  hidden behind `quota?.configured`, so a missing key produced an empty space in the admin and
+  "nothing found" on the customer page, with nothing anywhere to contradict it. A live plan with
+  a failing carrier now shows both facts.
+
+VERIFIED: 20 passed / 2 skipped on the tracking suites; admin panel screenshot reads
+"Provider plan MARINER: 983 of 1000 lookups left this month · carrier MAERSK".

@@ -94,14 +94,33 @@ export const AdminShipments = () => {
           says.
         </p>
 
-        {quota?.configured && (
+        {/* Shown even when the provider is NOT connected. Hiding this line when there is no
+            key is what let a one-word misconfiguration read as "no shipments found" on the
+            customer page with nothing anywhere to contradict it. */}
+        {quota && (
           <p
             data-testid="tracking-quota"
-            className="tnum mt-2 text-[12px] font-medium text-muted-foreground"
+            className={`tnum mt-2 text-[12px] font-medium ${
+              quota.configured && !quota.error ? "text-muted-foreground" : "text-destructive"
+            }`}
           >
-            {quota.error
-              ? quota.error
-              : `Provider plan ${quota.plan}: ${quota.requests_available} of ${quota.requests_total} lookups left this month`}
+            {!quota.configured
+              ? `Tracking provider NOT connected — ${quota.hint || "no API key in this deployment"}`
+              : quota.error
+                ? quota.error
+                : `Provider plan ${quota.plan}: ${quota.requests_available} of ${quota.requests_total} lookups left this month · carrier ${quota.shipping_line}`}
+          </p>
+        )}
+
+        {/* The plan can be perfectly healthy while every single lookup fails — a wrong carrier
+            answers 400 for every reference. So the last provider failure is reported here, not
+            only in a log on the server. */}
+        {quota?.last_error && (
+          <p
+            data-testid="tracking-last-error"
+            className="mt-1 text-[12px] font-medium text-destructive"
+          >
+            Last provider failure on {quota.last_error.path}: {quota.last_error.message}
           </p>
         )}
 

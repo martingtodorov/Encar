@@ -2800,12 +2800,18 @@ async def admin_tracking_quota(request: Request, refresh: bool = False,
     """Provider plan usage. Cached, because asking is itself a billable request."""
     await _require_admin(request, x_admin_token)
     if not jsoncargo.configured():
-        return {"configured": False}
+        return {"configured": False,
+                "hint": "JSONCARGO_API_KEY is empty in this deployment's backend.env"}
     try:
         data = await jsoncargo.stats(db, refresh)
     except RuntimeError as e:
-        return {"configured": True, "error": str(e)}
-    return {"configured": True, **(data or {})}
+        return {"configured": True, "error": str(e), "last_error": jsoncargo.last_error(),
+                "shipping_line": jsoncargo.config()["line"]}
+    return {"configured": True, **(data or {}),
+            # The plan can be healthy while every lookup fails on a bad carrier, so the last
+            # provider failure is reported next to the quota rather than only in the log.
+            "last_error": jsoncargo.last_error(),
+            "shipping_line": jsoncargo.config()["line"]}
 
 
 @api.delete("/admin/shipments/{ref}")

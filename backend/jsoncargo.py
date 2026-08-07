@@ -32,6 +32,26 @@ TTL_NAME = int(os.environ.get("CARGO_TTL_NAME", "31536000"))          # identity
 TTL_STATS = int(os.environ.get("CARGO_TTL_STATS", "21600"))
 ERROR_TTL = {404: 86400, 429: 900, 400: 3600}
 
+# Why the last call failed, kept in memory only and never shown to a buyer. Without it a
+# missing carrier or a rejected key looks EXACTLY like "tracking not connected" on the page,
+# and the only trace is a warning in a log on a box you have to SSH into. That is what made a
+# one-line misconfiguration take an afternoon to find. Surfaced on the admin dashboard.
+_last_error = {"when": None, "message": "", "path": ""}
+
+
+def _note(path, message):
+    _last_error.update({"when": datetime.now(timezone.utc), "message": message[:300],
+                        "path": path})
+
+
+def last_error():
+    if not _last_error["message"]:
+        return None
+    return {"message": _last_error["message"], "path": _last_error["path"],
+            "when": _last_error["when"].isoformat() if _last_error["when"] else ""}
+
+
+
 # The carrier writes the status as prose ("Vessel arrival (GENOVA EXPRESS / 625W)").
 # Mapped onto the SAME codes the EDI feed uses so the UI keeps one label map.
 PHRASES = [
@@ -97,16 +117,19 @@ async def _get(path, params=None):
     if r.status_code == 404:
         return None
     if r.status_code == 429:
+        _note(path, "the tracking plan has no requests left this month")
         raise RuntimeError("the tracking plan has no requests left this month")
     if r.is_error:
         msg = (body.get("error") or {}).get("title") if isinstance(body, dict) else ""
         log.warning("jsoncargo %s -> %s %s", path, r.status_code, str(body)[:200])
+        _note(path, f"{r.status_code}: {msg or 'the tracking provider did not answer'}")
         # A rejected key, or a 400 complaining about the carrier we were meant to send: that is
         # this deployment's env file, not the tracking number.
         if r.status_code in (401, 403) or (
                 r.status_code == 400 and "shipping_line" in str(body)):
             raise ConfigError(msg or "the tracking provider rejected our configuration")
         raise RuntimeError(msg or "the tracking provider did not answer")
+    _last_error.update({"when": None, "message": "", "path": ""})
     return body.get("data") if isinstance(body, dict) else None
 
 

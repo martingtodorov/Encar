@@ -21,3 +21,15 @@ the value spelled out. When reading config that has a meaningful default, treat 
 it only fires on undefined; use `default(x, true)`.
 Also: never cache a failure caused by our own configuration. The moment it is corrected the
 answer changes, and a stale error row makes a working fix look broken.
+
+## The workspace is not the server (2026-06-08)
+A bug report about encareurope.com is a report about the LAST DEPLOYED commit, not about the
+code in /app. Fixing /app changes nothing in production until the owner pushes ("Save to
+GitHub") and runs the Ansible playbooks. State that explicitly in the same message as the fix,
+or the owner tests the old build, reports "still broken", and both sides start hunting a second
+bug that does not exist.
+
+## Never hide a health line behind "is it configured"
+`{quota?.configured && <line/>}` meant that the ONE case where the operator needed a message —
+no key at all — displayed nothing. A missing integration must announce itself louder than a
+working one, not more quietly.
