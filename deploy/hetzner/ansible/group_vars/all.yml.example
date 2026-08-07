@@ -34,6 +34,7 @@ frontend_private_ip: 10.0.0.2
 
 # The point-to-point tunnel that carries the backend's outbound traffic to front1. The port
 # is opened ONLY from backend_private_ip to frontend_private_ip, never on the public side.
+# ALL of the following are OPTIONAL — deploy_nat.yml falls back to exactly these values.
 wg_port: 51820
 wg_front_ip: 10.99.0.1
 wg_back_ip: 10.99.0.2

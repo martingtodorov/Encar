@@ -43,6 +43,23 @@
   tags: [gateway, client]
 
   tasks:
+    - name: Defaults for anything not set in group_vars
+      # Set as facts on the FIRST play so every later play on either host sees them, whether
+      # or not group_vars/all.yml has been updated. Anything already defined there wins.
+      ansible.builtin.set_fact:
+        wg_port: "{{ wg_port | default(51820) }}"
+        wg_front_ip: "{{ wg_front_ip | default('10.99.0.1') }}"
+        wg_back_ip: "{{ wg_back_ip | default('10.99.0.2') }}"
+        # Hetzner's private network is MTU 1450; WireGuard's own overhead is 80 bytes.
+        wg_mtu: "{{ wg_mtu | default(1370) }}"
+        # Must match User= in encar-backend.service.
+        backend_service_user: "{{ backend_service_user | default('www-data') }}"
+        nat_table: "{{ nat_table | default(100) }}"
+        nat_mark: "{{ nat_mark | default('0x1') }}"
+        nat_rule_priority: "{{ nat_rule_priority | default(1000) }}"
+      # `always`, so running with --tags verify still has the values.
+      tags: [always]
+
     - name: WireGuard present
       ansible.builtin.apt:
         name: [wireguard, wireguard-tools, iptables]
