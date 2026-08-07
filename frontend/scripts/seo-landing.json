@@ -1,0 +1,18 @@
+{
+  "_comment": "The landing title and description per language. Same copy as seoHomeTitle / seoHomeDesc in src/i18n_extra.js, kept here because a static HTML file and a build script cannot import the app's i18n. Change both if you change one.",
+  "bg": {
+    "lang": "bg",
+    "title": "Автомобили от Корея с крайна цена до България | Encar",
+    "description": "Разгледайте обявите от Encar на български с крайна цена, включваща мито, ДДС, морски транспорт и доставка."
+  },
+  "ro": {
+    "lang": "ro",
+    "title": "Mașini din Coreea cu preț final livrat | Encar",
+    "description": "Vedeți anunțurile Encar în română, cu prețul final care include taxe vamale, TVA, transport maritim și livrare."
+  },
+  "en": {
+    "lang": "en",
+    "title": "Korean cars with a final landed price | Encar Europe",
+    "description": "Browse every Encar listing in English with a final price that includes customs duty, VAT, sea freight and delivery."
+  }
+}

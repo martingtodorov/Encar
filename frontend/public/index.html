@@ -28,6 +28,12 @@
         <!-- The default title and description a crawler sees before React boots. Per-page SEO
              is set by lib/seo.js; this is the fallback and it must say what the site IS. -->
         <title>Korean cars with a final landed price | Encar Europe</title>
+        <!-- The title and description below are the ENGLISH defaults, and they are what a
+             deep route (/bg/car/123) is served. scripts/gen-lang-html.js (postbuild) injects a
+             tiny script after </title> that rewrites them from the URL's language, and writes
+             build/bg|ro|en/index.html with the translated tags baked in for the landing pages.
+             The copy lives in scripts/seo-landing.json. -->
+
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
         <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
     </head>

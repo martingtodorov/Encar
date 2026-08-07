@@ -11,13 +11,6 @@ export const SiteFooter = () => {
 
   // The owner's own details win; the built-ins are the fallback.
   const co = { ...COMPANY, ...(cms?.company || {}) };
-  const facts = [
-    `${co.name}`,
-    co.eik ? `${t("legalEik")} ${co.eik}` : "",
-    co.vat ? `${t("legalVat")} ${co.vat}` : "",
-    co.address,
-    co.phone,
-  ].filter(Boolean);
 
   return (
     <footer data-testid="site-footer" className="border-t border-border bg-card">
@@ -33,13 +26,10 @@ export const SiteFooter = () => {
             decoding="async"
             className="mb-4 block h-9 w-auto"
           />
-          <div className="text-[13.5px] font-semibold text-foreground">{facts[0]}</div>
+          {/* The company name, EIK, address and phone were REMOVED from the footer at the
+              owner's request. They still live in the legal pages (content/legal.js), which is
+              where the identification obligation is met. */}
           <div className="mt-1 flex flex-col gap-0.5">
-            {facts.slice(1).map((line) => (
-              <span key={line} className="text-[12.5px] text-muted-foreground">
-                {line}
-              </span>
-            ))}
             <a
               href={`mailto:${co.email}`}
               data-testid="footer-email"
@@ -87,8 +77,10 @@ export const SiteFooter = () => {
 
       <div className="border-t border-border">
         <div className="mx-auto flex max-w-[1280px] flex-wrap items-center justify-between gap-2 px-4 py-3.5 text-[12px] text-muted-foreground sm:px-6">
+          {/* The BRAND, not the legal entity: the owner asked for the company details to be
+              off the footer, and `co.name` printed "Auto&Bid LTD" here. */}
           <span>
-            © {new Date().getFullYear()} {co.name}. {t("footerRights")}
+            © {new Date().getFullYear()} Encar Europe. {t("footerRights")}
           </span>
           {/* Withdrawing consent has to be as easy as giving it, so it lives on every page. */}
           <button

@@ -1261,3 +1261,54 @@ Verified: 42482867 -> 410 with `contract: true` and 12 similar cars, listing fla
 `contracted: true`, checkout answers 409 `car_contracted`, a normal car still produces a Stripe
 session (happy path intact), the BG car page renders the sold screen with no reserve button, and
 237 backend tests pass. New suite: `tests/test_contract_status.py` (5 tests).
+
+## 2026-06 — Shop-window floor, footer identity removed, per-language meta in the static HTML
+
+### The landing view never shows a car under EUR 18 000
+Owner: "on the home page never show cars below 18 thousand euro", and the taste shelf too.
+`server.HOME_MIN_EUR` (env `HOME_MIN_EUR`, default 18000) with two helpers: `unfiltered(p)`
+(true only when NOTHING narrows the search - q, makes, models, badges, badge_details, fuels,
+regions, transmissions, year/mileage/price bounds, the three only_* flags) and
+`apply_home_floor(query)` which RAISES an existing `sale_eur.$gte` but never lowers it.
+Applied in `/search` when `unfiltered(p)`, in `_popular_shelf` and in the taste branch of
+`/recommendations` (the shelf only exists on the landing view). The floor is deliberately NOT
+a filter chip - it is our curation, not the visitor's choice - and it disappears the moment
+someone searches or filters. A cheap-car taste profile whose window sits entirely below the
+floor now falls back to the popular shelf, which is floored too; that is the owner's call.
+Verified: unfiltered + price_asc -> cheapest 18 099 (total 63 517); the same search with
+price_min 5000 -> cheapest 6 099 (total 146 253); shelf (popular) min 19 099; shelf (taste)
+min 48 999; zero items under 18 000 in any of them.
+
+### Company identity removed from the footer
+Owner pasted the block and said remove: `SiteFooter` no longer renders name / EIK / VAT /
+address / phone (the `facts` array is gone), and the copyright line now reads the BRAND
+("Encar Europe") instead of `co.name`, which printed "Auto&Bid LTD". The email link stays.
+`content/company.js` is UNCHANGED, so every legal document still carries the full
+identification - that is where the obligation is met. Verified in the browser: the footer
+contains none of "Auto&Bid", "208833206", "Бяла река", "671 7074", and still shows the email.
+
+### /bg and /ro now carry translated meta in the RAW HTML
+Owner: the meta title and description must be translated on /bg and /ro. Root cause: this is a
+CRA bundle, so every route is served the same `index.html` and `lib/seo.js` only rewrites the
+tags AFTER React boots - `curl https://…/bg` returned the English title and description.
+* `scripts/seo-landing.json` - one source for the per-language landing title/description
+  (same copy as `seoHomeTitle`/`seoHomeDesc` in `src/i18n_extra.js`).
+* `scripts/gen-lang-html.js`, wired as `postbuild` in package.json, does two things:
+  writes `build/{bg,ro,en}/index.html` with the translated `<title>`, `description` and
+  `<html lang>` baked in, and injects a tiny script after `</title>` in the root
+  `build/index.html` that patches those three from the URL's first segment before the bundle
+  loads (that is what covers DEEP routes like /bg/car/123).
+* nginx template: `try_files $uri $uri/index.html /index.html` - the `$uri/index.html` step is
+  what serves the per-language copies, with no redirect and no change to the canonical URL.
+* GOTCHA THAT COST A BUILD: CRA MINIFIES index.html and strips HTML comments, so a
+  `<!--LANG-SEO-->` placeholder never reaches build/. The script anchors on `</title>`
+  instead, and is idempotent (`/*gen-lang-html*/` marker).
+Verified: build/bg/index.html and build/ro/index.html carry the right lang/title/description;
+the root shell keeps the English default plus the patch script exactly once after two runs; the
+injected code was executed against a stub DOM for /bg, /bg/car/…, /ro/track, /en, / and /xx
+(the last two correctly leave the English default alone); and in the browser /bg, /ro and /en
+each report their own title, description, `<html lang>` and canonical.
+KNOWN LIMITS, deliberate: a CMS seo override (Admin -> Pages, per language - /ro and /en
+currently have one) wins at RUNTIME but is not baked into the static copies, and a deep route
+read WITHOUT JS still shows the English default. Both need SSR or a build-time API call; not
+worth it while Googlebot renders JS.

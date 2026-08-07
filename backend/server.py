@@ -245,6 +245,32 @@ def build_query(p):
     return q
 
 
+# The shop window has a floor: the landing view never shows a car under this price. Applied
+# only while NOTHING narrows the search — the moment a visitor searches or filters, they see
+# the whole catalogue, and the floor is never shown as a filter chip because it is our
+# curation choice, not theirs.
+HOME_MIN_EUR = float(os.environ.get("HOME_MIN_EUR") or 18000)
+
+_NARROWING = (
+    "q", "makes", "models", "badges", "badge_details", "fuels", "regions", "transmissions",
+    "year_min", "year_max", "mileage_min", "mileage_max", "price_min", "price_max",
+    "only_inspection", "only_record", "only_diagnosed",
+)
+
+
+def unfiltered(p):
+    """Is this the bare landing view, with nothing at all narrowing it?"""
+    return not any(p.get(k) for k in _NARROWING)
+
+
+def apply_home_floor(query):
+    """Raise the query's price floor to HOME_MIN_EUR without lowering an existing one."""
+    price = dict(query.get("sale_eur") or {})
+    price["$gte"] = max(float(price.get("$gte") or 0), HOME_MIN_EUR)
+    query["sale_eur"] = price
+    return query
+
+
 RELEVANT_POOL = 600
 
 SORTS = {
@@ -658,6 +684,8 @@ async def search(body: SearchBody, request: Request):
     p = body.model_dump()
     await curate.refresh(db)
     query = build_query(p)
+    if unfiltered(p):
+        apply_home_floor(query)
     sort = SORTS.get(body.sort, SORTS["newest"])
 
     page = max(1, int(body.page))
@@ -864,6 +892,7 @@ async def _popular_shelf(lang, exclude, limit):
     if not ids:
         return []
     query = build_query({})
+    apply_home_floor(query)
     query["_id"] = {"$in": ids[:limit * 3]}
     rows = [d async for d in db.listings.find(query).limit(limit * 3)]
     order = {car_id: n for n, car_id in enumerate(ids)}
@@ -909,6 +938,9 @@ async def recommendations(body: TasteBody, request: Request):
         query["sale_eur"] = {"$gte": price_low * 0.7, "$lte": price_high * 1.4}
     if mileage_low and mileage_high:
         query["mileage"] = {"$lte": max(mileage_high * 1.6, 30_000)}
+    # The shelf only exists on the landing view, so the same floor applies. It can never
+    # lower the taste window's own floor, only raise it.
+    apply_home_floor(query)
 
     rows = [d async for d in db.listings.find(query).sort(SORTS["newest"]).limit(300)]
     if len(rows) < limit and "mileage" in query:

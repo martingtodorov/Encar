@@ -161,6 +161,16 @@ outbound traffic is policy-routed into it (fwmark 0x1 -> table 100). Hetzner's o
 Details and the full list of what was measured: CHANGELOG.md, 2026-06. Cannot be tested from
 this pod — the owner runs the playbook.
 
+## Landing view floor + footer + per-language static meta (2026-06)
+* The home (unfiltered) view and the taste shelf never show a car under **EUR 18 000**
+  (`server.HOME_MIN_EUR`, env `HOME_MIN_EUR`). It is silent — never a filter chip — and it
+  disappears as soon as the visitor searches or filters.
+* The footer no longer prints the company name, EIK, address or phone (owner's request); the
+  legal pages still carry the full identification.
+* `/bg` and `/ro` now serve translated `<title>`/`description`/`<html lang>` in the RAW HTML via
+  `scripts/gen-lang-html.js` (postbuild) + `try_files $uri $uri/index.html /index.html`.
+  Details: CHANGELOG.md.
+
 ## Cars under contract on Encar (2026-06)
 Encar marks a pending sale as `SalesStatus` / `advertisement.salesStatus == "CONTRACT"`. Such a
 car is effectively sold: it must never appear in search and never be depositable. Enforced in
