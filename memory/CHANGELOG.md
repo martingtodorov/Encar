@@ -822,3 +822,60 @@ every Playwright test errored with "Executable doesn't exist". Fix, whenever tha
 New accounts now start UNVERIFIED and land on `/verify-email`. Read the code out of the
 `email_codes` collection (it is hashed - see `_code_of()` in the test for how) because the
 Resend key in this environment is still rejected and no letter arrives.
+
+## 2026-06-08 — Reservations locked behind a proved address, password reset built, privacy v1.3 in all three languages
+
+### 1. A reservation now needs a CONFIRMED email
+- `deposits.deposit_checkout` raises `403 {"code": "email_unverified"}` BEFORE it looks at the
+  Stripe key: it is a fact about the buyer, not about our configuration. A hold on a card and a
+  car off the market for seven days both need an address we can actually reach.
+- `components/ReserveCar.js` shows the button DEAD rather than hiding it (a buyer who cannot see
+  the price of reserving cannot decide to do it): disabled `detail-reserve-button` reading
+  "Потвърдете имейла си, за да резервирате", plus `detail-reserve-verify-link` to
+  `/{lang}/verify-email` and a one-line reason. The `pay()` catch also maps the machine-readable
+  detail to our own wording instead of throwing an object at a toast.
+- Accounts created before the verification rollout stay trusted (`auth._verified()` defaults to
+  True when the field is absent), per the owner's explicit choice.
+
+### 2. Password reset, built from scratch (there was none)
+- There was a `login-forgot-password-link` test id in the codebase and nothing behind it: no
+  endpoint, no letter, no page. Now:
+  * `POST /api/auth/forgot-password` — answers `200 {"sent": true}` ALWAYS, whether the address
+    is unknown, unconfirmed or fine, because a different reply is a free tool for working out who
+    has an account. A link is issued only for a PROVED address. 60s cooldown, 5 per day, and a
+    new request deletes any older link.
+  * `POST /api/auth/reset-password` — single use, 30-minute life, `MIN_PASSWORD` enforced, and it
+    deletes EVERY session the account had, the one that asked for it included.
+  * `GET /api/auth/reset-valid?token=` — so the page can say "this link is dead" before taking a
+    password it will then refuse.
+- Tokens are `secrets.token_urlsafe(32)`, stored as sha256 only, in `password_resets` with a TTL
+  index on `expires_at` and a unique index on `token_hash`. Deleted on use, not merely flagged.
+- `mailer.send_password_reset` — BG/RO/EN, a real button plus the bare URL as a fallback.
+- Frontend: `pages/ForgotPasswordPage.js` and `pages/ResetPasswordPage.js` at
+  `/{lang}/forgot-password` and `/{lang}/reset-password`, both noindex; the forgot page swallows
+  every error on purpose so the UI cannot leak what the API refuses to. LoginPage gained the link
+  (login mode only — there is nothing to reset while registering).
+- Link base: `PUBLIC_SITE_URL` when set, else the request's own origin, so it works on preview.
+
+### 3. Privacy policy v1.3 in Romanian and English
+- The RO and EN versions were still the older 14-section v1.1 text. Both are now translations of
+  the owner's own 18-section v1.3 Bulgarian document, and `PRIVACY_STAMP` reads 1.3 for all three
+  languages. `legal.js` is now ~720 lines; if it grows again, split it per language.
+
+### Tests
+- New `tests/test_password_reset.py` (8 tests): enumeration safety for unknown AND unconfirmed
+  addresses, the cooldown, a dead link refused, a short password refused WITHOUT burning the
+  link, single use, every session dropped, old password dead / new one working, and the 403 on
+  the reservation gate. The raw token cannot be recovered from the database (that is the point),
+  so the spending side runs against a row the test plants with a token it already knows.
+- Five suites registered throwaway buyers and then reserved, which the new gate broke. A shared
+  `conftest.mark_verified(email)` proves a test address directly; the gate itself is exercised
+  for real in the new suite. Touched: `test_deposit_refund_e2e`, `test_partial_refund_and_commission`,
+  `test_security_deposit`, `test_purchases`.
+- VERIFIED: full backend suite 211 passed / 2 skipped / 0 failed. Testing agent iteration_37:
+  10/10 frontend scenarios and 4/4 endpoint spot checks, no issues.
+
+### Not done
+- `sitemap.xml` and `robots.txt` needed no change: both already pointed at
+  `https://encareurope.com`. The only stale preview URL is in `backend/backend_test.py`, an old
+  standalone script that is not part of the pytest suite.

@@ -1456,3 +1456,25 @@ page, the owner's own headline in place.
 The Anthropic key is still invalid — everything above works because Gemini now picks it up.
 Replacing the key restores the preferred provider with no code change.
 
+
+## 2026-06-08 — Status update
+
+### Delivered this session
+- Reservations (`POST /api/deposit/checkout`) require a CONFIRMED email; the reserve button is
+  shown disabled with a link to `/{lang}/verify-email`. Pre-rollout accounts stay trusted.
+- Full password reset flow built from scratch (it did not exist): enumeration-safe request,
+  one-shot 30-minute hashed token, new password, all sessions dropped. Available only to
+  accounts with a confirmed email. Pages at `/{lang}/forgot-password` and `/{lang}/reset-password`.
+- Privacy policy v1.3 translated into Romanian and English (all three stamps now read 1.3).
+- Verified: backend suite 211 passed / 2 skipped; testing agent iteration_37 clean.
+
+### Backlog
+- P1: Custom 911-style SVG silhouette for the body-damage diagram — BLOCKED on the owner
+  supplying the file.
+- P1: Owner to review the RO/EN privacy v1.3 translations (machine-translated from their own
+  Bulgarian v1.3, same 18 sections, same stamp).
+- P2: Row comparison tool for the desktop list view — tick several rows, compare specs and
+  prices side by side.
+- P2: `server.py` is large and declares many routes; split by area when it next needs work.
+- P3: `backend/backend_test.py` still holds a preview URL. Stale standalone script, not part of
+  the pytest suite; delete or repoint it.
