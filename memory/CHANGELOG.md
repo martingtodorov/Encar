@@ -1181,3 +1181,22 @@ be an L2 next hop. DO NOT retry `onlink` or hardcode 10.0.0.2 as a gateway.
 NOT TESTABLE FROM THE EMERGENT POD (no Hetzner network): verified only by
 `ansible-playbook --syntax-check` and offline Jinja rendering of both wg0 templates. The real
 proof is the owner's own run.
+
+### Two real bugs found while the owner ran it (2026-06, both fixed, both CONFIRMED on the boxes)
+1. `wg-quick` runs each hook with `set -e`, so a PostUp line starting
+   `ip rule del ... 2>/dev/null;` ABORTED the whole hook on the first run (nothing to delete)
+   and wg-quick tore the interface down again (`ip link delete dev wg0`). It needs
+   `... || true;`. Proven on the box: the hook log stopped exactly on that line.
+2. For LOCALLY generated packets the route is chosen BEFORE mangle OUTPUT, so the fwmark
+   reroutes the packet onto wg0 but its source address stays the host's private one
+   (10.0.0.3). front1's cryptokey routing only accepts 10.99.0.2 from that peer, so the
+   packets were dropped SILENTLY — the symptom was `wg show` on back1 reading
+   "632 B received, 17.41 KiB sent" (handshake only) and curl failing on DNS first
+   ("Resolving timed out"), which looks like a resolver problem and is not one.
+   Fix: `iptables -t nat -A POSTROUTING -o wg0 -j SNAT --to-source 10.99.0.2` in PostUp.
+   Verified live: `runuser -u www-data -- curl ifconfig.me` -> 178.105.37.1.
+DIAGNOSTIC THAT SETTLED IT (keep for next time): on back1 `ip rule show`,
+`ip route get 1.1.1.1 mark 0x1` (must read `dev wg0 src 10.99.0.2`),
+`iptables -t mangle -S OUTPUT`, `iptables -t nat -S POSTROUTING`, `wg show` (compare
+received vs sent), and a DNS-free reachability test to an IP so a resolver failure cannot be
+mistaken for a routing failure.
