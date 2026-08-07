@@ -977,3 +977,55 @@ condition of the car on the page and read as if this car had that much damage.
 VERIFIED on car 42341529, which really carries both figures (third-party 2793.75 EUR, own
 4427.52 EUR): `insurance-other-claim-amount` renders 0 times, `insurance-own-claim-amount` once
 (4428 EUR), and the panel text no longer contains "Стойност на щетите на трети лица".
+
+## 2026-06-08 — "Add your Maersk keys": the message that sent the owner hunting for keys he does not need
+
+### The logic bug
+`tracking.is_configured()` returned `bool(MAERSK_CONSUMER_KEY)` and knew nothing about
+JSONCargo. This deployment tracks through JSONCargo and has no Maersk enterprise arrangement, so
+that check was permanently False. With `MAERSK_PUBLIC_TRACK=0` the tail of `track()` therefore
+returned `{"configured": False}` for EVERY reference JSONCargo had no data for — and the page
+rendered "Проследяването още не е свързано · Липсват ключовете за Maersk Track & Trace".
+
+Two unrelated facts had been collapsed into one flag: "we cannot track at all" and "we tracked
+and found nothing". A perfectly working JSONCargo still produced "not connected".
+
+### Fixed
+- `is_configured()` now means "can this deployment track with ANY provider" (Maersk key OR
+  JSONCargo). New `maersk_private_configured()` keeps the separate question the private REST API
+  actually needs, so `track()` still knows not to call it without a consumer key.
+- When JSONCargo is connected but has nothing (or refused us), `track()` returns
+  `configured: True, found: False, source: "jsoncargo"` — an answer about the lookup, not a
+  missing integration.
+- `_cargo()` takes a `problem` dict and records WHY it came back empty (`no_key` /
+  `provider_error` + the provider's wording). A bare `None` had made three different situations
+  indistinguishable.
+- `track(..., admin=True)` adds `provider_error` to the payload for ADMINS ONLY;
+  `GET /api/tracking` derives it from the session. Buyers never see provider internals; the
+  operator is no longer left with a log on the server as the only trace.
+- `trackNotReadyBody` in BG/RO/EN no longer names Maersk — it says a tracking provider key is
+  missing from the server, which is what that state now means.
+
+### Tests
+`tests/test_tracking_not_connected.py` (5, offline — the metered plan must not be charged by the
+suite): JSONCargo alone counts as configured, the private Maersk API is reported separately, a
+Maersk key alone also counts, "nothing configured" is the ONLY not-connected case, and `_cargo`
+reports `no_key` rather than a bare None.
+
+### VERIFIED against the owner's real bill of lading 271191199
+Preview: B/L → container MRSU5757040, INCHON → BERGEN OP ZOOM (HANJIN INCHON CONTAINER TERMINAL
+→ BTT MULTIMODAL BERGEN OP ZOOM), 5 milestones, vessel GENOVA EXPRESS (IMO 9943906) on the map,
+delivery 2026-08-12, status "Gate out for delivery". Full page renders, `track-not-connected`
+count 0. An unknown reference now shows "Няма намерена пратка с този номер" instead of the Maersk
+message, and `provider_error` is absent for an anonymous visitor.
+Suites: 21 passed / 1 skipped on the tracking suites, 5 passed on the new one.
+
+### Production is still on the OLD code, and its key never reached the process
+`https://encareurope.com/api/tracking?ref=271191199&by=bol` → `{"configured": false}` for the
+same B/L that renders fully on preview. Decisive: the JSONCargo counter sat at 21 requests, ALL
+of them made from this pod, while the owner was loading the production tracking page — so the
+deployed backend has never called the provider once. That means `JSONCARGO_API_KEY` is empty in
+the running `/etc/encar/backend.env`, not merely that the carrier was blank. The owner's own
+`curl` from back1 succeeded because he supplied the key by hand, which proves the network and
+the key but says nothing about what the application reads.
+Still outstanding from the owner: `grep JSONCARGO /etc/encar/backend.env`.

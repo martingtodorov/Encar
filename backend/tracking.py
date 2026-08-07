@@ -56,8 +56,19 @@ def config():
 
 
 def is_configured():
-    c = config()
-    return bool(c["key"])
+    """Can this deployment track ANYTHING at all?
+
+    This used to ask only "is there a Maersk consumer key", which is how the page came to tell
+    an owner who tracks through JSONCargo that his Maersk keys were missing - keys he does not
+    have and does not need. A reference JSONCargo simply has no data for was reported as a
+    missing integration.
+    """
+    return bool(config()["key"]) or jsoncargo.configured()
+
+
+def maersk_private_configured():
+    """The private Maersk REST API specifically, which is a separate, enterprise arrangement."""
+    return bool(config()["key"])
 
 
 async def _access_token(c):
@@ -314,9 +325,16 @@ async def _public(db, ref, refresh=False):
     return await _public_read(db, ref)
 
 
-async def _cargo(db, ref, by, refresh=False):
-    """Milestones + route from JSONCargo. A B/L is resolved to its container first."""
+async def _cargo(db, ref, by, refresh=False, problem=None):
+    """Milestones + route from JSONCargo. A B/L is resolved to its container first.
+
+    `problem` collects WHY this came back empty. Without it "no key", "the provider refused us"
+    and "no data for this reference" are three very different situations that all arrive at the
+    caller as a bare None.
+    """
     if not jsoncargo.configured():
+        if problem is not None:
+            problem["reason"] = "no_key"
         return None
     number = ref
     try:
@@ -328,6 +346,9 @@ async def _cargo(db, ref, by, refresh=False):
         snap = await jsoncargo.container(db, number, refresh)
     except RuntimeError as e:
         log.warning("jsoncargo lookup for %s failed: %s", ref, str(e)[:160])
+        if problem is not None:
+            problem["reason"] = "provider_error"
+            problem["message"] = str(e)[:300]
         return None
     if not snap:
         return None
@@ -383,7 +404,7 @@ async def _last_leg(db, stones, owner_id):
     ]
 
 
-async def track(db, ref, by="container", refresh=False):
+async def track(db, ref, by="container", refresh=False, admin=False):
     """Normalised tracking view for one container or bill of lading.
 
     Sources, in order of authority: the EDI feed Maersk pushes to us, then Maersk's own
@@ -403,8 +424,9 @@ async def track(db, ref, by="container", refresh=False):
     stones = await edi.events_for(db, ref, by)
     source = "edi"
     asked_carrier, checking, cargo = False, False, None
+    problem = {}
     if not stones:
-        cargo = await _cargo(db, ref, by, refresh)
+        cargo = await _cargo(db, ref, by, refresh, problem)
         if cargo and cargo["events"]:
             stones, source = cargo["events"], "jsoncargo"
     if not stones:
@@ -466,13 +488,24 @@ async def track(db, ref, by="container", refresh=False):
             view["note"] = manual.get("note") or ""
         return view
 
-    if not is_configured():
+    if not maersk_private_configured():
         # The carrier answered "nothing public for this reference" — that is an answer, not
         # a missing integration, so the page says "not found" rather than "not connected".
         if asked_carrier or checking:
             return {"configured": True, "reference": ref, "by": by, "found": False,
                     "source": "public", "cached": False, "checking": checking,
                     "milestones": []}
+        if jsoncargo.configured():
+            # JSONCargo IS our provider and it IS connected. Either it holds nothing for this
+            # reference, or it refused us — both are answers about this lookup, not a missing
+            # integration, and the old code reported them as "add your Maersk keys".
+            out = {"configured": True, "reference": ref, "by": by, "found": False,
+                   "source": "jsoncargo", "cached": False, "milestones": []}
+            if admin and problem.get("reason") == "provider_error":
+                # Operators only: a buyer has no use for the provider's own wording, and the
+                # operator was previously left with nothing but a log on the server.
+                out["provider_error"] = problem.get("message", "")
+            return out
         return {"configured": False, "reference": ref, "by": by}
 
     field = "equipmentReference" if by == "container" else "transportDocumentReference"

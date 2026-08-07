@@ -33,3 +33,15 @@ bug that does not exist.
 `{quota?.configured && <line/>}` meant that the ONE case where the operator needed a message —
 no key at all — displayed nothing. A missing integration must announce itself louder than a
 working one, not more quietly.
+
+## One flag must not carry two facts (2026-06-08)
+`configured: false` meant both "no integration" and "found nothing", so a working provider
+reported itself as unconfigured and the UI told the owner to add credentials for a service he
+does not use. When a check is named `is_configured()`, it must cover every provider that can
+satisfy the feature — not the one that happened to be written first. And when a helper returns
+None for three different reasons, give it somewhere to say which.
+
+## The quota counter as a diagnostic
+A metered third-party API is a witness: if the counter does not move while the user is loading
+the page, their server never called it. That single number separated "the key is wrong" from
+"the key never reached the process" faster than any log would have.

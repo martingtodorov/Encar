@@ -2204,11 +2204,15 @@ class TrackBody(BaseModel):
 
 
 @api.get("/tracking")
-async def tracking_lookup(ref: str, by: str = "container"):
+async def tracking_lookup(request: Request, ref: str, by: str = "container"):
     if by not in ("container", "bol"):
         raise HTTPException(400, "by must be container or bol")
+    # An admin looking at the buyer-facing page gets the provider's own reason for a failure;
+    # a buyer never does.
+    viewer = await auth.optional_user(request)
     try:
-        return await tracking.track(db, ref, by)
+        return await tracking.track(db, ref, by,
+                                    admin=bool(viewer and viewer.get("is_admin")))
     except ValueError as e:
         raise HTTPException(400, str(e))
     except RuntimeError as e:
@@ -2494,7 +2498,7 @@ async def admin_shipment_refresh(ref: str, request: Request, by: str = "containe
     await _require_admin(request, x_admin_token)
     try:
         return await tracking.track(db, ref, by if by in ("container", "bol") else "container",
-                                    refresh=True)
+                                    refresh=True, admin=True)
     except ValueError as e:
         raise HTTPException(400, str(e))
     except RuntimeError as e:

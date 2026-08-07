@@ -389,6 +389,18 @@ export default function TrackPage() {
           </p>
         )}
 
+        {/* Admins only — the backend sends this field to nobody else. A buyer has no use for
+            the provider's own wording, but without it the operator was left with a log on the
+            server as the only trace of why a lookup failed. */}
+        {data?.provider_error && (
+          <p
+            data-testid="track-provider-error"
+            className="mt-2 text-[12px] font-medium text-destructive"
+          >
+            Tracking provider said: {data.provider_error}
+          </p>
+        )}
+
         {data?.found && (
           <div className="mt-8 space-y-4">
             <div className="rounded-[14px] border border-border bg-card p-5" data-testid="track-summary">
