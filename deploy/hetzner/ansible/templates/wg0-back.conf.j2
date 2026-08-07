@@ -1,0 +1,40 @@
+# Written by Ansible. back1 side of the tunnel to front1.
+#
+# Table = off is the whole point: Hetzner's own default route (via 10.0.0.1) stays in the
+# MAIN table, so SSH, Ansible, apt and the private network are untouched and a dead tunnel
+# cannot lock anyone out of this box. Only the application's own outbound traffic is marked
+# and sent to the {{ nat_table }} table, which is where the tunnel default lives.
+#
+# The private key is generated on this host and applied by PostUp, so this file holds
+# nothing secret.
+[Interface]
+Address = {{ wg_back_ip }}/32
+MTU = {{ wg_mtu }}
+Table = off
+PostUp = wg set %i private-key /etc/wireguard/%i.key
+# Loose reverse-path filtering on the tunnel: replies arrive on %i while the route to their
+# source (the internet) is the main table's default, which strict rp_filter would drop.
+PostUp = sysctl -q -w net.ipv4.conf.%i.rp_filter=2
+# front1's tunnel address is a /32 on a point-to-point link, so it needs its own link route
+# before it can be a next hop.
+PostUp = ip route replace {{ wg_front_ip }}/32 dev %i scope link
+# Everything that must NOT take the tunnel: `throw` ends the lookup in this table and lets
+# the kernel fall through to the main table, so no gateway or interface is hardcoded here.
+PostUp = ip route replace throw {{ private_cidr }} table {{ nat_table }}
+PostUp = ip route replace throw 169.254.0.0/16 table {{ nat_table }}
+PostUp = ip route replace throw 172.16.0.0/12 table {{ nat_table }}
+PostUp = ip route replace throw 192.168.0.0/16 table {{ nat_table }}
+PostUp = ip route replace default via {{ wg_front_ip }} dev %i table {{ nat_table }}
+PostUp = ip rule del fwmark {{ nat_mark }} lookup {{ nat_table }} 2>/dev/null; ip rule add fwmark {{ nat_mark }} lookup {{ nat_table }} priority {{ nat_rule_priority }}
+PostUp = iptables -t mangle -C OUTPUT -m owner --uid-owner {{ backend_service_user }} -j MARK --set-mark {{ nat_mark }} 2>/dev/null || iptables -t mangle -A OUTPUT -m owner --uid-owner {{ backend_service_user }} -j MARK --set-mark {{ nat_mark }}
+PostDown = iptables -t mangle -D OUTPUT -m owner --uid-owner {{ backend_service_user }} -j MARK --set-mark {{ nat_mark }} 2>/dev/null || true
+PostDown = ip rule del fwmark {{ nat_mark }} lookup {{ nat_table }} 2>/dev/null || true
+PostDown = ip route flush table {{ nat_table }} 2>/dev/null || true
+
+[Peer]
+# front1, reached over the Hetzner private network (the transport works; what does not work
+# is using 10.0.0.2 as a directly connected default gateway from a /32 interface).
+PublicKey = {{ hostvars[groups['frontend'][0]].wg_pubkey }}
+Endpoint = {{ frontend_private_ip }}:{{ wg_port }}
+AllowedIPs = 0.0.0.0/0
+PersistentKeepalive = 25

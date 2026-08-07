@@ -1,0 +1,14 @@
+# Written by Ansible. front1 side of the point-to-point tunnel that gives back1 a way out.
+# The private key is NEVER written by Ansible: it is generated on this host and applied by
+# PostUp, so this file holds nothing secret.
+[Interface]
+Address = {{ wg_front_ip }}/32
+ListenPort = {{ wg_port }}
+MTU = {{ wg_mtu }}
+PostUp = wg set %i private-key /etc/wireguard/%i.key
+PostUp = sysctl -q -w net.ipv4.conf.%i.forwarding=1
+
+[Peer]
+# back1
+PublicKey = {{ hostvars[groups['backend'][0]].wg_pubkey }}
+AllowedIPs = {{ wg_back_ip }}/32

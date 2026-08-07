@@ -1,18 +1,75 @@
 ---
-# NAT gateway: back1 has no public IPv4, so every outbound connection it makes (Encar,
-# Claude, Stripe, Resend, web push) leaves through front1.
+# The way out for back1, which has no public IPv4: the backend's own outbound connections
+# (Encar, Claude, Stripe, Resend, web push) leave through front1 and the world sees front1's
+# address.
 #
 #   ansible-playbook -i inventory.ini playbooks/deploy_nat.yml
 #
-# Run this BEFORE deploy_backend.yml on a fresh box — apt and pip need the way out.
+# ── WHY A TUNNEL AND NOT A DEFAULT ROUTE VIA 10.0.0.2 ────────────────────────────────────
+# Hetzner's private network hands each server a /32 address, so on back1 the ONLY directly
+# connected neighbour is Hetzner's router 10.0.0.1. front1's 10.0.0.2 is therefore not a
+# valid L2 next hop:
+#     ip route replace default via 10.0.0.2       -> "Nexthop has invalid gateway"
+#     ...same with `onlink`                       -> accepted, but `ip neigh` shows
+#                                                    "10.0.0.2 ... FAILED" and nothing flows.
+# Forcing `onlink` or hardcoding 10.0.0.2 cannot work — measured, do not retry.
 #
-# Why the rule lives in /etc/ufw/before.rules and not in iptables-persistent: ufw rewrites
-# the filter AND nat tables from its own files on every `ufw reload`, so a rule added with
-# plain iptables (or restored by netfilter-persistent) disappears the next time anything
-# touches the firewall. before.rules is ufw's own hook, so it survives.
+# Instead a WireGuard point-to-point link runs OVER the private network (which works fine as
+# transport): front1 10.99.0.1, back1 10.99.0.2. Inside the tunnel front1 really is directly
+# connected, so it can be a gateway.
+#
+# ── WHAT TAKES THE TUNNEL, AND WHAT DOES NOT ─────────────────────────────────────────────
+# Policy routing, never the main default route. `Table = off` on back1 keeps Hetzner's
+# `default via 10.0.0.1` exactly as it is, so SSH, Ansible, apt and the private network are
+# untouched and a dead tunnel cannot lock anyone out. Only packets owned by the backend
+# service user are marked (mangle OUTPUT, --uid-owner) and looked up in table 100, whose
+# default points into the tunnel. `throw` routes for the private network, link-local
+# (169.254.169.254 metadata) and RFC1918/docker ranges make even marked traffic fall back to
+# the main table.
+#
+# front1 forwards and MASQUERADEs 10.99.0.2/32 only. The rule lives in
+# /etc/ufw/before.rules because ufw rewrites the filter AND nat tables from its own files on
+# every reload, so a rule added with plain iptables disappears the next time anything
+# touches the firewall. 51820/udp is opened ONLY from back1's private address to front1's
+# private address — never on the public interface.
+#
+# Run this BEFORE deploy_backend.yml on a fresh box.
 #
 # Tags: gateway, client, verify.
-- name: front1 becomes the way out
+
+- name: Tunnel keys on both hosts
+  hosts: frontend:backend
+  become: true
+  tags: [gateway, client]
+
+  tasks:
+    - name: WireGuard present
+      ansible.builtin.apt:
+        name: [wireguard, wireguard-tools, iptables]
+        update_cache: true
+
+    - name: Key directory
+      ansible.builtin.file:
+        path: /etc/wireguard
+        state: directory
+        mode: "0700"
+
+    - name: A private key, generated on the host and never seen by Ansible
+      ansible.builtin.shell:
+        cmd: umask 077 && wg genkey > /etc/wireguard/wg0.key
+        creates: /etc/wireguard/wg0.key
+
+    - name: Its public half
+      ansible.builtin.shell:
+        cmd: wg pubkey < /etc/wireguard/wg0.key
+      register: wg_pub
+      changed_when: false
+
+    - name: Remember it for the other host
+      ansible.builtin.set_fact:
+        wg_pubkey: "{{ wg_pub.stdout | trim }}"
+
+- name: front1 becomes the gateway
   hosts: frontend
   become: true
 
@@ -52,7 +109,9 @@
       notify: Reload ufw
       tags: [gateway]
 
-    - name: Masquerade the private network
+    - name: Masquerade the tunnel, and nothing else
+      # Narrower than the old 10.0.0.0/16 rule (removed with it, same marker): back1 is the
+      # only peer, so only its tunnel address is translated.
       ansible.builtin.blockinfile:
         path: /etc/ufw/before.rules
         insertbefore: BOF
@@ -60,13 +119,38 @@
         block: |
           *nat
           :POSTROUTING ACCEPT [0:0]
-          -A POSTROUTING -s {{ private_cidr }} -o {{ public_iface }} -j MASQUERADE
+          -A POSTROUTING -s {{ wg_back_ip }}/32 -o {{ public_iface }} -j MASQUERADE
           COMMIT
       notify: Reload ufw
       tags: [gateway]
 
+    - name: Tunnel config
+      ansible.builtin.template:
+        src: ../templates/wg0-front.conf.j2
+        dest: /etc/wireguard/wg0.conf
+        mode: "0600"
+      notify: Restart wg0 on front1
+      tags: [gateway]
+
     - name: Apply it before the client half runs
       ansible.builtin.meta: flush_handlers
+      tags: [gateway]
+
+    - name: Tunnel up, and up after a reboot
+      ansible.builtin.systemd:
+        name: wg-quick@wg0
+        enabled: true
+        state: started
+      tags: [gateway]
+
+    - name: WireGuard reachable from back1 over the private network only
+      community.general.ufw:
+        rule: allow
+        proto: udp
+        from_ip: "{{ backend_private_ip }}"
+        to_ip: "{{ frontend_private_ip }}"
+        to_port: "{{ wg_port }}"
+        comment: "{{ app_name }} wireguard from back1"
       tags: [gateway]
 
     - name: Firewall on (it must be, or none of the above is loaded)
@@ -79,14 +163,19 @@
       ansible.builtin.command: ufw reload
       changed_when: true
 
-- name: back1 routes through front1
+    - name: Restart wg0 on front1
+      ansible.builtin.systemd:
+        name: wg-quick@wg0
+        state: restarted
+        enabled: true
+      failed_when: false
+
+- name: back1 reaches the internet through the tunnel
   hosts: backend
   become: true
 
   tasks:
     - name: Which interface carries the private address
-      # `ip route get` cannot help here: on a private-only box there is no default route yet,
-      # which is the whole point of this play.
       ansible.builtin.shell: >-
         ip -o -4 addr show | awk -v ip={{ backend_private_ip }}
         '$4 ~ "^"ip"/" {print $2; exit}'
@@ -102,33 +191,56 @@
           the inventory (it must be the address of the private network interface).
       tags: [client]
 
-    - name: Default route via front1, now
-      ansible.builtin.command: "ip route replace default via {{ frontend_private_ip }}"
-      register: route
-      changed_when: true
+    - name: The old design is gone
+      # /etc/netplan/99-<app>-nat.yaml used to put `default via 10.0.0.2` back on every
+      # reboot. On Hetzner's /32 private network that route is invalid and would leave this
+      # box with no way out at all.
+      ansible.builtin.file:
+        path: /etc/netplan/99-{{ app_name }}-nat.yaml
+        state: absent
       tags: [client]
 
-    - name: Default route via front1, after a reboot
-      # A netplan drop-in, merged by interface name with whatever Hetzner's cloud-init wrote.
-      # Deliberately NOT followed by `netplan apply`: the live route is already in place and
-      # re-applying netplan bounces the interface Ansible is talking over.
+    - name: Loose reverse-path filtering survives a reboot
       ansible.builtin.copy:
-        dest: /etc/netplan/99-{{ app_name }}-nat.yaml
-        mode: "0600"
+        dest: /etc/sysctl.d/99-{{ app_name }}-nat.conf
+        mode: "0644"
         content: |
-          # Written by Ansible. back1 has no public IPv4; front1 is its way out.
-          network:
-            version: 2
-            ethernets:
-              {{ iface.stdout }}:
-                routes:
-                  - to: default
-                    via: {{ frontend_private_ip }}
+          # Written by Ansible. Replies to tunnelled traffic arrive on wg0 while the route to
+          # their source is the main table's default, which strict rp_filter would drop.
+          net.ipv4.conf.all.rp_filter = 2
+          net.ipv4.conf.default.rp_filter = 2
+      notify: Reload sysctl
+      tags: [client]
+
+    - name: A named routing table, so `ip route show table {{ app_name }}` reads plainly
+      ansible.builtin.lineinfile:
+        path: /etc/iproute2/rt_tables
+        line: "{{ nat_table }}\t{{ app_name }}"
+        regexp: '^{{ nat_table }}\s'
+        create: true
+        mode: "0644"
+      tags: [client]
+
+    - name: Tunnel config (policy routing only — the main default route is left alone)
+      ansible.builtin.template:
+        src: ../templates/wg0-back.conf.j2
+        dest: /etc/wireguard/wg0.conf
+        mode: "0600"
+      notify: Restart wg0 on back1
+      tags: [client]
+
+    - name: Tunnel up, and up after a reboot
+      ansible.builtin.systemd:
+        name: wg-quick@wg0
+        enabled: true
+        state: started
+      tags: [client]
+
+    - name: Apply any config change now
+      ansible.builtin.meta: flush_handlers
       tags: [client]
 
     - name: A resolver that answers
-      # With no public address the box may have inherited nothing usable; systemd-resolved
-      # keeps its own list, so this is only a fallback for hosts without it.
       ansible.builtin.lineinfile:
         path: /etc/resolv.conf
         line: "nameserver {{ item }}"
@@ -138,31 +250,106 @@
       failed_when: false
       tags: [client]
 
-    - name: Prove the way out works
-      ansible.builtin.command: curl -sS --max-time 20 https://ifconfig.me
-      register: egress
+    - name: Hetzner's own default route is still there, untouched
+      ansible.builtin.command: ip -4 route show default
+      register: main_default
+      changed_when: false
+      tags: [client, verify]
+
+    - name: And it does NOT point at front1
+      ansible.builtin.assert:
+        that:
+          - main_default.stdout | length > 0
+          - wg_front_ip not in main_default.stdout
+          - frontend_private_ip not in main_default.stdout
+        fail_msg: >-
+          The main default route reads "{{ main_default.stdout }}". It must stay on Hetzner's
+          gateway — replacing it is exactly the failure this playbook was rewritten to avoid.
+      tags: [client, verify]
+
+    - name: The tunnel has a handshake
+      ansible.builtin.shell: wg show wg0 latest-handshakes
+      register: handshake
+      changed_when: false
+      retries: 5
+      delay: 3
+      until: handshake.stdout is search('\t[1-9][0-9]+$')
+      tags: [verify]
+
+    - name: Policy rule and table
+      ansible.builtin.shell: |
+        ip rule show | grep -F 'fwmark {{ nat_mark }}'
+        ip route show table {{ nat_table }}
+      register: policy
+      changed_when: false
+      tags: [verify]
+
+    - name: Show them
+      ansible.builtin.debug:
+        var: policy.stdout_lines
+      tags: [verify]
+
+    - name: The application's traffic leaves through front1
+      ansible.builtin.command: >-
+        runuser -u {{ backend_service_user }} --
+        curl -sS --max-time 20 https://ifconfig.me
+      register: app_egress
       changed_when: false
       retries: 3
       delay: 3
-      until: egress is succeeded
+      until: app_egress is succeeded
       tags: [verify]
 
-    - name: Say which address the world sees
+    - name: It must be front1's public address
+      ansible.builtin.assert:
+        that: app_egress.stdout | trim == hostvars[groups['frontend'][0]].ansible_host
+        fail_msg: >-
+          The backend leaves as {{ app_egress.stdout }}, not front1
+          ({{ hostvars[groups['frontend'][0]].ansible_host }}). Check the mangle mark, the
+          fwmark rule and MASQUERADE on front1.
+        success_msg: >-
+          back1 reaches the internet as {{ app_egress.stdout }} — Stripe, Claude, Resend and
+          the Encar crawl all leave through front1.
+      tags: [verify]
+
+    - name: Everything else still uses Hetzner's own route
+      # Not marked, so it must NOT come out of the tunnel. If this equals front1's public
+      # address the policy routing is too wide.
+      ansible.builtin.command: curl -sS --max-time 20 https://ifconfig.me
+      register: root_egress
+      changed_when: false
+      failed_when: false
+      tags: [verify]
+
+    - name: Say which path management traffic takes
       ansible.builtin.debug:
         msg: >-
-          back1 reaches the internet as {{ egress.stdout }} — that should be front1's public
-          address. Stripe, Claude, Resend and the Encar crawl all leave through it.
+          Unmarked (management) traffic leaves as
+          {{ root_egress.stdout | default('no answer', true) }};
+          the application leaves as {{ app_egress.stdout }}.
       tags: [verify]
 
-    - name: TLS to the services this app actually calls
-      ansible.builtin.uri:
-        url: "{{ item }}"
-        method: HEAD
-        status_code: [200, 301, 302, 400, 401, 403, 404, 405]
-        timeout: 20
+    - name: TLS to the services this app actually calls, through the tunnel
+      ansible.builtin.command: >-
+        runuser -u {{ backend_service_user }} --
+        curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -I {{ item }}
+      register: tls
+      changed_when: false
+      failed_when: tls.rc != 0
       loop:
         - https://api.stripe.com/
         - https://api.anthropic.com/
         - https://api.resend.com/
         - https://api.encar.com/
       tags: [verify]
+
+  handlers:
+    - name: Reload sysctl
+      ansible.builtin.command: sysctl --system
+      changed_when: true
+
+    - name: Restart wg0 on back1
+      ansible.builtin.systemd:
+        name: wg-quick@wg0
+        state: restarted
+        enabled: true

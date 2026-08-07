@@ -1147,3 +1147,37 @@ Seeded 923 views over 30 days with two deliberately quiet days, then read the pa
 14/29 (24h), 83/218 (7d), 366/923 (30d), and "най-силен ден 1.08 с 57". Live reads 0 because the
 only visitor was the admin, who is deliberately not counted. Seed data removed afterwards.
 Suites: 38 passed / 1 skipped across traffic, tracking, jsoncargo and password-reset.
+
+## 2026-06 — Hetzner NAT redesigned: WireGuard tunnel instead of a default route via front1
+Owner report: `ip route replace default via 10.0.0.2` on back1 fails with "Nexthop has invalid
+gateway", and with `onlink` it is accepted but `ip neigh` shows `10.0.0.2 ... FAILED` and no
+traffic flows. ROOT CAUSE: Hetzner's private network hands out /32 addresses, so back1's only
+directly connected neighbour is Hetzner's router 10.0.0.1. front1's private address can never
+be an L2 next hop. DO NOT retry `onlink` or hardcode 10.0.0.2 as a gateway.
+`deploy/hetzner/ansible/playbooks/deploy_nat.yml` was refactored (nothing unrelated touched):
+* WireGuard point-to-point over the private network (which works fine as transport):
+  front1 wg0 10.99.0.1, back1 wg0 10.99.0.2, endpoint {frontend_private_ip}:51820. The port is
+  opened ONLY from backend_private_ip to frontend_private_ip — never publicly.
+* back1 uses POLICY ROUTING, never the main default route (`Table = off`): mangle OUTPUT marks
+  packets owned by `backend_service_user` (www-data, matches the unit file) 0x1, `ip rule fwmark
+  0x1 lookup 100`, and table 100's default is `via 10.99.0.1 dev wg0`. `throw` routes in table
+  100 for private_cidr, 169.254.0.0/16 (metadata), 172.16.0.0/12 and 192.168.0.0/16 fall back to
+  the main table. So SSH/Ansible/apt/private traffic keep Hetzner's own route and a dead tunnel
+  cannot lock anyone out.
+* rp_filter must be 2 (loose) — replies arrive on wg0 while the route to their source is the main
+  default. Written to /etc/sysctl.d/99-<app>-nat.conf and applied per-interface in PostUp.
+* front1 MASQUERADEs 10.99.0.2/32 ONLY (the old 10.0.0.0/16 rule is gone, same blockinfile
+  marker), still in /etc/ufw/before.rules because ufw rewrites the nat table on reload.
+* The obsolete /etc/netplan/99-<app>-nat.yaml is DELETED by the playbook — it restored the
+  invalid `via 10.0.0.2` route on every reboot.
+* Private keys are generated on each host (`wg genkey`) and applied by
+  `PostUp = wg set %i private-key /etc/wireguard/wg0.key`; only public halves pass through
+  Ansible, so wg0.conf carries no secret.
+* Built-in verification: handshake present, main default route asserted NOT to point at front1,
+  `curl ifconfig.me` as www-data asserted to equal front1's public IP, the unmarked path printed
+  for comparison, and HEAD to Stripe/Anthropic/Resend/Encar through the tunnel.
+* New group_vars: wg_port, wg_front_ip, wg_back_ip, wg_mtu (1370 — private network is MTU 1450),
+  backend_service_user, nat_table (100), nat_mark, nat_rule_priority.
+NOT TESTABLE FROM THE EMERGENT POD (no Hetzner network): verified only by
+`ansible-playbook --syntax-check` and offline Jinja rendering of both wg0 templates. The real
+proof is the owner's own run.

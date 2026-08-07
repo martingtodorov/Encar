@@ -151,6 +151,16 @@ with JS only, pointer nowhere near the card, produced exactly ONE `/api/car/{id}
   code 410" to the visitor. Prefetch errors are swallowed now; the car PAGE still shows the
   friendly sold screen with similar cars (verified on 42439184: no page errors).
 
+## Hetzner NAT: /32 private network, so back1's egress goes through a WireGuard tunnel
+`deploy/hetzner/ansible/playbooks/deploy_nat.yml` no longer points back1's default route at
+front1 — on Hetzner's /32 private network that is an invalid next hop ("Nexthop has invalid
+gateway"; with `onlink` the neighbour resolves FAILED). WireGuard point-to-point over the
+private network instead (front1 10.99.0.1 / back1 10.99.0.2), and only the backend user's
+outbound traffic is policy-routed into it (fwmark 0x1 -> table 100). Hetzner's own
+`default via 10.0.0.1` stays in the main table, so SSH/apt/private traffic is untouched.
+Details and the full list of what was measured: CHANGELOG.md, 2026-06. Cannot be tested from
+this pod — the owner runs the playbook.
+
 ## Self-hosting on Hetzner — checklist (asked 2026-06)
 Static scan passed: no hardcoded secrets or URLs in code, env usage correct, `yarn build`
 succeeds (294 kB gzip), backend imports clean. What the owner must still do on their own box:

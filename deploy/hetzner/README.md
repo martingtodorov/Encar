@@ -39,22 +39,58 @@ Tags: `base`, `mongo`, `code`, `build`, `config`, `service`, `publish`, `firewal
 
 ## The way out (deploy_nat.yml)
 
-back1 has no public IPv4, so front1 is its route to the internet: the catalogue crawl, Claude,
-Stripe, Resend and web push all leave through it and the world sees front1's address.
+back1 has no public IPv4, so the backend's own outbound connections — the catalogue crawl,
+Claude, Stripe, Resend, web push — leave through front1 and the world sees front1's address.
 
-- front1: `net.ipv4.ip_forward=1`, `DEFAULT_FORWARD_POLICY="ACCEPT"`, and a `MASQUERADE` rule
-  for `10.0.0.0/16`. The rule lives in **`/etc/ufw/before.rules`**, not in
-  iptables-persistent — ufw rewrites the nat table on every `ufw reload`, so a hand-added
-  iptables rule silently vanishes the next time anything touches the firewall.
-- back1: default route via `frontend_private_ip`, applied live with `ip route replace` and
-  written to `/etc/netplan/99-encar-nat.yaml` for reboots. `netplan apply` is deliberately NOT
-  run — the live route is already there and re-applying bounces the interface Ansible is on.
-- Then it proves it: `curl https://ifconfig.me` from back1 (should print front1's public
-  address) and a HEAD request to Stripe, Anthropic, Resend and Encar.
+**Do NOT point back1's default route at `10.0.0.2`.** Hetzner's private network gives each
+server a **/32** address, so the only directly connected neighbour is Hetzner's router
+`10.0.0.1`. Measured on these boxes:
 
-Run it **before** `deploy_backend.yml` on a fresh box, or apt and pip have nowhere to go.
-If you ever give back1 its own public IPv4, this playbook simply becomes unnecessary — drop
-the netplan file and the route.
+```
+ip route replace default via 10.0.0.2            # Error: Nexthop has invalid gateway.
+ip route replace default via 10.0.0.2 ... onlink # accepted, but:
+ip neigh show                                    # 10.0.0.2 dev enp7s0 FAILED  -> nothing flows
+```
+
+So the private network is fine as **transport** but useless as an L2 next hop. The playbook
+therefore runs a WireGuard point-to-point link over it:
+
+```
+back1 10.0.0.3 ──(WireGuard over the Hetzner private network)── front1 10.0.0.2 / 178.105.37.1
+   wg0 10.99.0.2 ─────────────────────────────────────────────► wg0 10.99.0.1 ──► internet
+                                                     MASQUERADE only for 10.99.0.2/32
+```
+
+- **front1**: `net.ipv4.ip_forward=1`, `DEFAULT_FORWARD_POLICY="ACCEPT"`, `wg-quick@wg0`
+  listening on `51820/udp` — opened **only** from `backend_private_ip` to
+  `frontend_private_ip`, never on the public interface — and a `MASQUERADE` rule for
+  `10.99.0.2/32` (the old `10.0.0.0/16` rule is removed by the same blockinfile marker). The
+  rule lives in **`/etc/ufw/before.rules`**: ufw rewrites the nat table on every `ufw reload`,
+  so a hand-added iptables rule silently vanishes.
+- **back1**: `Table = off` in `wg0.conf`, so Hetzner's `default via 10.0.0.1` stays in the
+  main table. Policy routing instead: `iptables -t mangle OUTPUT --uid-owner www-data` marks
+  the backend's packets `0x1`, `ip rule fwmark 0x1 lookup 100` sends them to table 100, whose
+  default is `via 10.99.0.1 dev wg0`. `throw` routes in table 100 for `10.0.0.0/16`,
+  `169.254.0.0/16` (metadata), `172.16.0.0/12` and `192.168.0.0/16` make even marked traffic
+  fall back to the main table. `rp_filter=2` (loose) is required — replies arrive on `wg0`
+  while the route to their source is the main default.
+  **SSH, Ansible, apt and private-network traffic never touch the tunnel**, so a dead tunnel
+  cannot lock you out of back1.
+- The obsolete `/etc/netplan/99-encar-nat.yaml` (which put the invalid `via 10.0.0.2` route
+  back on every reboot) is deleted by the playbook.
+- Private keys are generated **on each host** with `wg genkey` and applied by `PostUp`
+  (`wg set wg0 private-key /etc/wireguard/wg0.key`); only the public halves pass through
+  Ansible, so `wg0.conf` holds no secret.
+- Then it proves it: `wg show` must have a handshake, the main default route must NOT point at
+  front1, `curl ifconfig.me` **as www-data** must print front1's public address (asserted),
+  the same call unmarked shows the management path, and HEAD requests to Stripe, Anthropic,
+  Resend and Encar go through the tunnel.
+
+Run it **before** `deploy_backend.yml` on a fresh box. If you ever give back1 its own public
+IPv4, drop the tunnel and the policy rule and nothing else changes.
+
+Handy on back1: `wg show`, `ip rule show`, `ip route show table encar`,
+`runuser -u www-data -- curl -sS https://ifconfig.me`.
 
 ## Layout on the hosts
 

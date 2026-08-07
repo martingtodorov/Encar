@@ -25,11 +25,27 @@ ref: main
 ssh_port: 22
 private_cidr: 10.0.0.0/16
 # back1 has no public IPv4, so it leaves through front1 (deploy_nat.yml). This is front1's
-# address ON THE PRIVATE NETWORK — back1's default route points at it.
+# address ON THE PRIVATE NETWORK — it is the WireGuard endpoint back1 dials, NOT a default
+# gateway: Hetzner hands out /32 private addresses, so 10.0.0.2 is not a valid L2 next hop.
 frontend_private_ip: 10.0.0.2
 # The interface on front1 that faces the internet. Left unset it is taken from facts, which
 # is right on a standard Hetzner box (eth0 / enp1s0).
 # nat_public_iface: eth0
+
+# The point-to-point tunnel that carries the backend's outbound traffic to front1. The port
+# is opened ONLY from backend_private_ip to frontend_private_ip, never on the public side.
+wg_port: 51820
+wg_front_ip: 10.99.0.1
+wg_back_ip: 10.99.0.2
+# Hetzner's private network is MTU 1450; WireGuard's own overhead is 80 bytes.
+wg_mtu: 1370
+# Policy routing on back1: traffic owned by this user is marked and looked up in nat_table,
+# whose default points into the tunnel. Everything else keeps Hetzner's own route, so a dead
+# tunnel cannot cut off SSH, apt or the private network. Must match User= in the unit file.
+backend_service_user: www-data
+nat_table: 100
+nat_mark: "0x1"
+nat_rule_priority: 1000
 
 # ── backend secrets ───────────────────────────────────────────────────────────
 db_name: encar
