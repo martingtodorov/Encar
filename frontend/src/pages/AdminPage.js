@@ -19,9 +19,11 @@ import { AdminAudit } from "@/components/admin/AdminAudit";
 import { AdminContract } from "@/components/admin/AdminContract";
 import { AdminPages } from "@/components/admin/AdminPages";
 import { AdminConsent } from "@/components/admin/AdminConsent";
+import { AdminTraffic } from "@/components/admin/AdminTraffic";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
+  { id: "traffic", label: "Traffic", icon: Users },
   { id: "coverage", label: "Brand coverage", icon: PieChart },
   { id: "enquiries", label: "Enquiries", icon: Inbox },
   { id: "sync", label: "Catalogue sync", icon: RefreshCcw },
@@ -106,6 +108,7 @@ export default function AdminPage() {
 
         <div className="mt-6">
           {tab === "overview" && <AdminOverview />}
+          {tab === "traffic" && <AdminTraffic />}
           {tab === "coverage" && <AdminCoverage />}
           {tab === "enquiries" && <AdminEnquiries />}
           {tab === "sync" && <AdminCatalogueSync />}

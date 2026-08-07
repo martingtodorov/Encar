@@ -1117,3 +1117,33 @@ Now reads: `1× Начало · 1× Hyundai Santa Fe DM (2013-2016) · 1× Пр�
 
 Lesson recorded in agent_learnings.md: a fire-and-forget call that swallows its errors has to be
 watched from the browser's network, not inferred from the endpoint working.
+
+## 2026-06-08 — Traffic history: a Traffic tab in the admin panel
+
+New `Traffic` tab (second, right after Overview) at `/{lang}/admin?tab=traffic`.
+- `GET /api/admin/traffic/history?days=` in `traffic.py` — visitors and views PER DAY, oldest
+  first, with quiet days filled in as zeros: a chart that silently skips empty days makes a flat
+  week look like a busy one. `days` arrives from a query string so it is clamped to 1..40 rather
+  than trusted.
+- Unique visitors per day are counted by grouping on (day, visitor) then counting the groups —
+  never `$addToSet` — so a busy month cannot approach the 16MB document limit.
+- `components/admin/AdminTraffic.js` — four stat cards (live / 24h / 7d / 30d as
+  visitors / views), a day-by-day bar chart with a hover tooltip per day, a 7-vs-30-day switch,
+  and "being viewed right now". The solid part of each bar is the unique visitors, the pale part
+  the total views.
+- The chart is hand-drawn rather than charted with recharts. Recharts IS in package.json but was
+  unused anywhere, so importing it would have added a few hundred KB to every visitor's bundle
+  for one panel only an administrator opens.
+
+### Tests
+`tests/test_traffic.py` grew to 12: the history endpoint is admin-only (401), a fixed window
+always returns exactly that many days with none missing or repeated and oldest first, quiet days
+come back as zeros, visitors never exceed views on any day, and `days` is clamped (0 → 1,
+-5 → 1, 9999 → 40).
+
+### VERIFIED
+Seeded 923 views over 30 days with two deliberately quiet days, then read the panel as an admin:
+30 bars drawn, the quiet days render as zeros, the 7-day switch redraws 7 bars, cards read
+14/29 (24h), 83/218 (7d), 366/923 (30d), and "най-силен ден 1.08 с 57". Live reads 0 because the
+only visitor was the admin, who is deliberately not counted. Seed data removed afterwards.
+Suites: 38 passed / 1 skipped across traffic, tracking, jsoncargo and password-reset.

@@ -149,6 +149,32 @@ async def snapshot():
     return data
 
 
+async def history(days=30):
+    """Visitors and views per day, oldest first, with empty days filled in.
+
+    A day with no traffic must appear as a zero, not be missing: a chart that silently skips
+    quiet days makes a flat week look like a busy one.
+    """
+    days = max(1, min(int(days), KEEP_DAYS))
+    start = (_now() - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0,
+                                                        microsecond=0)
+    pipe = [{"$match": {"at": {"$gte": start}}},
+            {"$group": {"_id": {"d": {"$dateToString": {"format": "%Y-%m-%d", "date": "$at"}},
+                                "v": "$v"},
+                        "n": {"$sum": 1}}},
+            {"$group": {"_id": "$_id.d", "visitors": {"$sum": 1}, "views": {"$sum": "$n"}}}]
+    rows = {r["_id"]: r async for r in _db.traffic_hits.aggregate(pipe)}
+
+    out = []
+    for step in range(days):
+        day = (start + timedelta(days=step)).strftime("%Y-%m-%d")
+        row = rows.get(day)
+        out.append({"day": day,
+                    "visitors": row["visitors"] if row else 0,
+                    "views": row["views"] if row else 0})
+    return out
+
+
 class PingBody(BaseModel):
     path: str = Field(default="/", max_length=300)
     label: str = Field(default="", max_length=200)
@@ -170,6 +196,16 @@ async def traffic_ping(body: PingBody, request: Request):
         log.warning("traffic ping dropped: %s", str(e)[:160])
         return {"counted": False}
     return {"counted": counted}
+
+
+@router.get("/admin/traffic/history")
+async def admin_traffic_history(request: Request, days: int = 30,
+                                x_admin_token: str = Header(default="")):
+    if not (x_admin_token and os.environ.get("ADMIN_TOKEN") == x_admin_token):
+        viewer = await auth.optional_user(request)
+        if not (viewer and viewer.get("is_admin")):
+            raise HTTPException(401, "administrator sign-in required")
+    return {"items": await history(days), "days": days}
 
 
 @router.get("/admin/traffic")

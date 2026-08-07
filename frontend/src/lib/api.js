@@ -410,6 +410,12 @@ export async function apiResendCode(lang = "") {
 }
 
 /** Ask for a reset link. The answer never says whether the address exists. */
+/** Visitors and views per day, oldest first. Admin only. */
+export async function getTrafficHistory(days = 30) {
+  const { data } = await http.get("/admin/traffic/history", { params: { days } });
+  return data.items || [];
+}
+
 /** Live/day/week/month traffic. Admin only — the endpoint refuses anyone else. */
 export async function getTraffic() {
   const { data } = await http.get("/admin/traffic");

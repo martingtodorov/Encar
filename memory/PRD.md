@@ -1503,3 +1503,11 @@ Owner challenged the verification and was right: only the server side had been p
 end to end with an anonymous browser session (5 loads → 5 counted pings → 5 rows → 1 visitor,
 5 views). The check exposed a wrong label separator on non-car pages, now fixed with fixed short
 route names in `lib/traffic.js::labelFor`.
+
+### 2026-06-08 — Traffic tab
+Admin panel gained a Traffic tab: live/24h/7d/30d cards, a day-by-day visitors-vs-views bar
+chart with a 7/30-day switch, and what is being viewed right now. Backed by
+`GET /api/admin/traffic/history`. Chart hand-drawn on purpose (recharts unused elsewhere; not
+worth the bundle for one admin panel).
+Remaining backlog unchanged: lawyer review of privacy 2.10 (P1), most-viewed-cars report (P2),
+integrations health screen (P2), row comparison tool (P2), custom body SVG (blocked on owner).

@@ -139,6 +139,57 @@ def test_a_fresh_view_shows_up_as_live():
     _run(lambda db: db.traffic_hits.delete_many({"p": path}))
 
 
+def test_history_is_admin_only():
+    r = requests.get(f"{BASE}/admin/traffic/history", timeout=30)
+    assert r.status_code == 401, r.text[:200]
+
+
+@pytest.mark.skipif(not ADMIN_TOKEN, reason="no ADMIN_TOKEN in this environment")
+def test_history_fills_quiet_days_with_zeros():
+    """A chart that silently skips quiet days makes a flat week look like a busy one."""
+    marker = f"/test-{uuid.uuid4().hex[:10]}"
+    today = datetime.now(timezone.utc)
+
+    async def seed(db):
+        await db.traffic_hits.insert_many([
+            # two people on the same day, one of them twice
+            {"v": "d" * 20, "p": marker, "l": "x", "at": today - timedelta(days=2, hours=1)},
+            {"v": "d" * 20, "p": marker, "l": "x", "at": today - timedelta(days=2, hours=2)},
+            {"v": "e" * 20, "p": marker, "l": "x", "at": today - timedelta(days=2, hours=3)},
+        ])
+
+    _run(seed)
+    try:
+        r = requests.get(f"{BASE}/admin/traffic/history", params={"days": 7},
+                         headers={"x-admin-token": ADMIN_TOKEN}, timeout=30)
+        assert r.status_code == 200, r.text[:300]
+        rows = r.json()["items"]
+
+        assert len(rows) == 7, "a fixed window must always return the same number of days"
+        days = [x["day"] for x in rows]
+        assert days == sorted(days), "oldest first"
+        assert len(set(days)) == 7, "no day repeated, none missing"
+
+        for row in rows:
+            assert row["visitors"] <= row["views"], row
+
+        seeded = [x for x in rows
+                  if x["day"] == (today - timedelta(days=2)).strftime("%Y-%m-%d")][0]
+        assert seeded["visitors"] >= 2 and seeded["views"] >= 3, seeded
+    finally:
+        _run(lambda db: db.traffic_hits.delete_many({"p": marker}))
+
+
+@pytest.mark.skipif(not ADMIN_TOKEN, reason="no ADMIN_TOKEN in this environment")
+def test_history_window_is_bounded():
+    """`days` comes from a query string, so it has to be clamped rather than trusted."""
+    for asked, expected in ((0, 1), (-5, 1), (9999, 40)):
+        r = requests.get(f"{BASE}/admin/traffic/history", params={"days": asked},
+                         headers={"x-admin-token": ADMIN_TOKEN}, timeout=30)
+        assert r.status_code == 200, r.text[:200]
+        assert len(r.json()["items"]) == expected, (asked, len(r.json()["items"]))
+
+
 def test_windows_widen_rather_than_shrink():
     """A day cannot hold more views than the week that contains it."""
     marker = f"/test-{uuid.uuid4().hex[:10]}"
