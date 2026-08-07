@@ -1224,3 +1224,40 @@ cannot work without (24 of them). Tuning knobs with in-code defaults are deliber
 listed. Run it before a deploy, like test_requirements_portable.py.
 Checked at the same time: the only other keys in the pod's .env missing from the template are
 EMERGENT_LLM_KEY and PLAYWRIGHT_BROWSERS_PATH, both platform-only and correctly absent.
+
+## 2026-06 — Cars under contract on Encar are neither shown nor depositable
+Owner's report: fem.encar.com/cars/detail/42482867 was still in our catalogue and reservable
+even though Encar has a pending sale on it. The fact lives in TWO places and both are now used:
+`SalesStatus` on the search row and `advertisement.salesStatus` on the per-car detail
+(verified live on that car: "CONTRACT").
+* `encar.under_contract(detail)` / `encar.sales_status(detail)` read the detail payload; None
+  and a missing `advertisement` block answer False rather than raising.
+* `sync.contracted(row)` + `sync.retire_contracted(db, ids)`: `skip_row` already refused to
+  IMPORT them, but a car indexed while it was on sale used to stay visible until the
+  end-of-sweep retire pass — hours away on a full crawl and never on a partial one. Both import
+  paths now retire the ids they skip for contract straight away.
+* `car_detail`: a live fetch that comes back CONTRACT goes to `_gone(..., contract=True)`, which
+  sets `active: False, sold: True, under_contract: True` (what `build_query` already filters on)
+  and answers 410 with the sold screen plus 12 similar cars.
+* Details are cached forever because they are immutable — the STATUS is not, so
+  `_recheck_contract` re-asks Encar in the BACKGROUND when the cached snapshot is older than
+  CONTRACT_RECHECK_HOURS (6). One upstream request per car per 6h, never in the visitor's path.
+* `deposits`: `_under_contract(car_id)` asks Encar LIVE before a checkout session is created
+  (money path, no cache), falling back to the cached snapshot if upstream is unreachable so an
+  outage cannot block every reservation. Refused with 409 `{"code": "car_contracted"}`, and the
+  car is retired on the spot. `deposit_quote` carries `contracted` from what we already know, so
+  the button is dead before anyone clicks it.
+* Frontend: `ReserveCar` shows "Продаден по договор в Корея" / "Vândut prin contract în Coreea" /
+  "Sold under contract in Korea" (new key `depositContracted`) instead of the reserve button, and
+  handles the `car_contracted` code on checkout.
+MISTAKE TO LEARN FROM (cost a 500 on EVERY cached car page): Mongo hands datetimes back NAIVE,
+so `datetime.now(timezone.utc) - cached["status_at"]` raised
+"can't subtract offset-naive and offset-aware datetimes". Always coerce with
+`.replace(tzinfo=timezone.utc)` when a stored datetime is compared. Also: `server.py` imports
+`encar` as the CLIENT INSTANCE (`from encar import encar, ...`), so module-level helpers must be
+imported by name — `encar.under_contract(...)` is an AttributeError there.
+Verified: 42482867 -> 410 with `contract: true` and 12 similar cars, listing flagged
+`active:false, under_contract:true`, 0 contracted rows left active in the index, quote reports
+`contracted: true`, checkout answers 409 `car_contracted`, a normal car still produces a Stripe
+session (happy path intact), the BG car page renders the sold screen with no reserve button, and
+237 backend tests pass. New suite: `tests/test_contract_status.py` (5 tests).

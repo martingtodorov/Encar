@@ -55,7 +55,11 @@ export const ReserveCar = ({ car }) => {
       // belongs in our own dictionary, and a raw object thrown at a toast renders as junk.
       if (typeof d === "object" && d?.code === "email_unverified")
         toast.error(t("depositVerifyFirst"));
-      else toast.error(typeof d === "string" ? d : "could not start the payment");
+      else if (typeof d === "object" && d?.code === "car_contracted") {
+        // Encar took the car under contract while this page was open.
+        toast.error(t("depositContracted"));
+        setQuote((q) => ({ ...q, contracted: true }));
+      } else toast.error(typeof d === "string" ? d : "could not start the payment");
       setBusy(false);
     }
   };
@@ -64,7 +68,7 @@ export const ReserveCar = ({ car }) => {
 
   const money = (v) => formatMoney(v, currency, lang, rates);
 
-  if (quote.reserved) {
+  if (quote.reserved || quote.contracted) {
     return (
       <div
         data-testid="detail-reserve"
@@ -72,7 +76,11 @@ export const ReserveCar = ({ car }) => {
       >
         <ShieldCheck className="h-[18px] w-[18px]" aria-hidden="true" />
         <span data-testid="detail-reserve-taken">
-          {quote.mine ? t("depositMine") : t("depositReserved")}
+          {quote.contracted
+            ? t("depositContracted")
+            : quote.mine
+              ? t("depositMine")
+              : t("depositReserved")}
         </span>
       </div>
     );

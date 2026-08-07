@@ -161,6 +161,13 @@ outbound traffic is policy-routed into it (fwmark 0x1 -> table 100). Hetzner's o
 Details and the full list of what was measured: CHANGELOG.md, 2026-06. Cannot be tested from
 this pod — the owner runs the playbook.
 
+## Cars under contract on Encar (2026-06)
+Encar marks a pending sale as `SalesStatus` / `advertisement.salesStatus == "CONTRACT"`. Such a
+car is effectively sold: it must never appear in search and never be depositable. Enforced in
+four places — the crawl (retired the moment a row is skipped for contract), the car page (live
+detail check -> 410 sold screen), a background re-check every 6h for cars whose detail is already
+cached, and a LIVE check inside `deposit_checkout` (409 `car_contracted`). Details: CHANGELOG.md.
+
 ## Self-hosting on Hetzner — checklist (asked 2026-06)
 Static scan passed: no hardcoded secrets or URLs in code, env usage correct, `yarn build`
 succeeds (294 kB gzip), backend imports clean. What the owner must still do on their own box:

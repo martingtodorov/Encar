@@ -208,6 +208,19 @@ def photo_paths(row, limit=6):
     return out
 
 
+def under_contract(detail):
+    """Encar has a pending sale on this ad: `advertisement.salesStatus == "CONTRACT"`.
+
+    The same fact the search feed carries as `SalesStatus`, but read from the per-car detail,
+    which is the only live source once a car is already in our index.
+    """
+    return sales_status(detail).upper() == "CONTRACT"
+
+
+def sales_status(detail):
+    return ((detail or {}).get("advertisement") or {}).get("salesStatus") or ""
+
+
 def detail_photo_paths(detail):
     """The gallery of one ad, in the ad's own order and without repeats.
 

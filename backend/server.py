@@ -73,7 +73,7 @@ import maersk_public        # noqa: E402
 import tracking             # noqa: E402
 import curate               # noqa: E402
 import sync as sync_mod      # noqa: E402
-from encar import encar, image_url, detail_photo_paths  # noqa: E402
+from encar import encar, image_url, detail_photo_paths, under_contract, sales_status  # noqa: E402
 from translate import (LANGS, breaker_status, cached_label_set,  # noqa: E402
                        schedule_translation,
                        stream_description, translate_cached_only,
@@ -1252,8 +1252,58 @@ async def admin_taxonomy(x_admin_token: str = Header(default="")):
     return await sync_mod.post_crawl(db)
 
 
-async def _gone(listing, listing_id, lang):
-    """Encar has nothing for this ad any more — it sold, or the dealer pulled it.
+_CONTRACT_RECHECK_HOURS = float(os.environ.get("CONTRACT_RECHECK_HOURS") or 6)
+_rechecking = set()
+
+
+def _recheck_contract(listing_id, cached):
+    """Ask Encar again, in the background, whether a car is still on sale.
+
+    A car's detail documents are immutable, so they are fetched once and cached forever — but
+    its SALES STATUS is not: an ad that was on sale when we cached it can go under contract
+    an hour later. The check costs one upstream request per car per
+    CONTRACT_RECHECK_HOURS and never delays the page: the visitor reading it now sees the ad,
+    and by the time anyone else opens it, it is already out of the catalogue.
+    """
+    at = cached.get("status_at")
+    if at is not None:
+        # Mongo hands datetimes back NAIVE, and subtracting one of those from a tz-aware
+        # `now()` raises — which would 500 every cached car page.
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=timezone.utc)
+        if (datetime.now(timezone.utc) - at).total_seconds() < _CONTRACT_RECHECK_HOURS * 3600:
+            return
+    if listing_id in _rechecking:
+        return
+    _rechecking.add(listing_id)
+
+    async def run():
+        try:
+            fresh = await encar.detail(listing_id)
+            if not fresh:
+                return
+            status = sales_status(fresh)
+            await db.car_details.update_one(
+                {"_id": listing_id},
+                {"$set": {"sales_status": status,
+                          "status_at": datetime.now(timezone.utc)}})
+            if under_contract(fresh):
+                await db.listings.update_one(
+                    {"_id": listing_id},
+                    {"$set": {"active": False, "sold": True, "under_contract": True,
+                              "sales_status": "CONTRACT",
+                              "sold_at": datetime.now(timezone.utc)}})
+                log.info("car %s is under contract on Encar - retired", listing_id)
+        except Exception as e:                      # noqa: BLE001 - never break a page view
+            log.warning("contract re-check failed for %s: %s", listing_id, str(e)[:140])
+        finally:
+            _rechecking.discard(listing_id)
+
+    asyncio.get_running_loop().create_task(run())
+
+
+async def _gone(listing, listing_id, lang, contract=False):
+    """Encar has nothing for this ad any more — it sold, was pulled, or is under contract.
 
     A bare "not found" is a dead end for a buyer who followed a link, so the ad is retired
     from our index and the same make and model are offered in its place. 410 Gone rather
@@ -1261,10 +1311,12 @@ async def _gone(listing, listing_id, lang):
     """
     if not listing:
         raise HTTPException(status_code=404, detail="listing not found upstream")
-    await db.listings.update_one(
-        {"_id": listing_id},
-        {"$set": {"active": False, "sold": True,
-                  "sold_at": datetime.now(timezone.utc)}})
+    retire = {"active": False, "sold": True, "sold_at": datetime.now(timezone.utc)}
+    if contract:
+        # Also what search filters on, so it disappears from the grid immediately.
+        retire["under_contract"] = True
+        retire["sales_status"] = "CONTRACT"
+    await db.listings.update_one({"_id": listing_id}, {"$set": retire})
 
     query = build_query({})
     query["_id"] = {"$ne": listing_id}
@@ -1284,6 +1336,7 @@ async def _gone(listing, listing_id, lang):
         it.pop("landed_eur", None)
     return JSONResponse(status_code=410, content=jsonable({
         "sold": True,
+        "contract": bool(contract),
         "id": listing_id,
         "lang": lang,
         "make": listing.get("manufacturer_t") or listing.get("manufacturer") or "",
@@ -1406,6 +1459,10 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
         detail = await encar.detail(listing_id)
         if not detail:
             return await _gone(listing, listing_id, lang)
+        if under_contract(detail):
+            # A pending sale on Encar. Nobody may reserve it and nobody should waste time
+            # reading it, so it leaves the catalogue the moment we learn about it.
+            return await _gone(listing, listing_id, lang, contract=True)
         vid = detail.get("vehicleId") or listing_id
         vno = detail.get("vehicleNo") or ""
         # all four documents in parallel - previously sequential, which cost
@@ -1427,11 +1484,16 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
             "inspection": clean(inspection_raw),
             "diagnosis": clean(diagnosis_raw),
             "choice_options": clean(choice) or [],
+            "sales_status": sales_status(detail),
+            "status_at": datetime.now(timezone.utc),
             "fetched_at": datetime.now(timezone.utc),
         }
         await db.car_details.update_one({"_id": listing_id}, {"$set": cached}, upsert=True)
 
     detail = cached.get("detail") or {}
+    if cached.get("sales_status", "").upper() == "CONTRACT":
+        return await _gone(listing, listing_id, lang, contract=True)
+    _recheck_contract(listing_id, cached)
     cat = detail.get("category") or {}
     spec = detail.get("spec") or {}
     adv = detail.get("advertisement") or {}

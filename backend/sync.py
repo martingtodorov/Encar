@@ -101,9 +101,12 @@ async def run_full_sync(db, max_pages=None, page_size=PAGE):
                         break
 
                     ops = []
+                    gone = set()
                     now = datetime.now(timezone.utc)
                     for i, row in enumerate(rows):
                         if skip_row(row):
+                            if contracted(row):
+                                gone.add(str(row.get("Id")))
                             continue
                         doc = normalise_row(row, recency=offset + i)
                         if not doc["_id"] or not doc["price_krw"]:
@@ -122,6 +125,7 @@ async def run_full_sync(db, max_pages=None, page_size=PAGE):
                     if ops:
                         res = await db.listings.bulk_write(ops, ordered=False)
                         upserted += (res.upserted_count or 0) + (res.modified_count or 0)
+                    await retire_contracted(db, gone)
 
                     await _set(db, pages_done=p + 1, upserted=upserted,
                                listings=await db.listings.count_documents({}))
@@ -188,6 +192,28 @@ EXCLUDED_SELL_TYPES = {"\ub9ac\uc2a4", "\ub80c\ud2b8"}
 # They priced out at EUR 667,499 / EUR 6.6m in the grid, so they are dropped at import.
 PLACEHOLDER_PRICE_MANWON = 99_999      # KRW 999,990,000
 PLACEHOLDER_MILEAGE = 999_999
+
+
+def contracted(row):
+    """Encar has a pending sale on this ad (SalesStatus=CONTRACT)."""
+    return (row.get("SalesStatus") or "").upper() == "CONTRACT"
+
+
+async def retire_contracted(db, ids):
+    """Take cars Encar has put under contract out of the catalogue at once.
+
+    `skip_row` already refuses to import them, but a car we indexed while it was still on
+    sale would otherwise stay visible until the end-of-sweep retire pass — hours away on a
+    full crawl, and never on a partial one.
+    """
+    if not ids:
+        return 0
+    res = await db.listings.update_many(
+        {"_id": {"$in": list(ids)}, "active": True},
+        {"$set": {"active": False, "sold": True, "under_contract": True,
+                  "sales_status": "CONTRACT",
+                  "sold_at": datetime.now(timezone.utc)}})
+    return res.modified_count or 0
 
 
 def skip_row(row):
@@ -394,10 +420,13 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
 
     async def sink(rows):
         ops = []
+        gone = set()
         now = datetime.now(timezone.utc)
         for row in rows:
             if skip_row(row):
                 st["excluded_skipped"] += 1
+                if contracted(row):
+                    gone.add(str(row.get("Id")))
                 continue
             doc = normalise_row(row)
             if not doc["_id"] or not doc["price_krw"]:
@@ -419,6 +448,7 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
         if ops:
             await db.listings.bulk_write(ops, ordered=False)
             st["written"] += len(ops)
+        await retire_contracted(db, gone)
         await publish("crawl")
 
     async def flush_resume(force=False):

@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 import archive
 import auth
+import encar as encar_mod
 import translate
 import mailer
 import notify
@@ -110,6 +111,24 @@ async def _english_title(car):
     return _title(car)
 
 
+async def _under_contract(car_id):
+    """Is Encar holding a pending sale on this car right now?
+
+    Asked live, because a deposit is a hold on someone's card: our cached snapshot can be
+    hours old. If Encar cannot be reached the cached status is used instead — an upstream
+    hiccup must not block every reservation, but a car we already know is contracted stays
+    blocked.
+    """
+    try:
+        detail = await encar_mod.encar.detail(car_id)
+        if detail:
+            return encar_mod.under_contract(detail)
+    except Exception as e:                          # noqa: BLE001 - fall back to what we know
+        log.warning("could not re-check %s before a deposit: %s", car_id, str(e)[:140])
+    doc = await _db.car_details.find_one({"_id": car_id}, {"sales_status": 1})
+    return (doc or {}).get("sales_status", "").upper() == "CONTRACT"
+
+
 @router.get("/deposit/car/{car_id}")
 async def deposit_quote(car_id: str, request: Request):
     """What a deposit on this car costs, and whether somebody already holds it."""
@@ -127,6 +146,8 @@ async def deposit_quote(car_id: str, request: Request):
         "commission_eur": COMMISSION_EUR,
         "hold_days": AUTH_DAYS,
         "reserved": bool(paid),
+        # Read from what we already know: the live check is paid once, at checkout.
+        "contracted": bool(car.get("under_contract")),
         "mine": bool(paid and user and paid.get("user_id") == user["_id"]),
     }
 
@@ -146,6 +167,13 @@ async def deposit_checkout(body: CheckoutBody, user=Depends(auth.current_user)):
                                         "payment_status": {"$in": list(HELD_STATES)}})
     if held and held.get("user_id") != user["_id"]:
         raise HTTPException(409, "another buyer already holds this car")
+    # Encar's own status decides: a car with a pending sale there cannot be reserved here.
+    if await _under_contract(car["_id"]):
+        await _db.listings.update_one(
+            {"_id": car["_id"]},
+            {"$set": {"active": False, "sold": True, "under_contract": True,
+                      "sales_status": "CONTRACT", "sold_at": _now()}})
+        raise HTTPException(409, {"code": "car_contracted"})
 
     amount = amount_for(car.get("sale_eur"))
     title = await _english_title(car)
