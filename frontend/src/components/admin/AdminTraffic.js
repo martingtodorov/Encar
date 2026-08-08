@@ -92,13 +92,13 @@ export const AdminTraffic = () => {
       <div className="grid gap-3 sm:grid-cols-4">
         <Stat testId="traffic-stat-live" label={`Онлайн сега (${now?.live_minutes ?? 5} мин)`}
               value={now ? fmt(now.live) : "—"} accent />
-        <Stat testId="traffic-stat-day" label="Последните 24 часа"
+        <Stat testId="traffic-stat-day" label="Днес (от 00:00)"
               value={now ? `${fmt(now.day.visitors)} / ${fmt(now.day.views)}` : "—"}
               hint="посетители / показвания" />
-        <Stat testId="traffic-stat-week" label="Последните 7 дни"
+        <Stat testId="traffic-stat-week" label="Последните 7 дни (с днешния)"
               value={now ? `${fmt(now.week.visitors)} / ${fmt(now.week.views)}` : "—"}
               hint="посетители / показвания" />
-        <Stat testId="traffic-stat-month" label="Последните 30 дни"
+        <Stat testId="traffic-stat-month" label="Последните 30 дни (с днешния)"
               value={now ? `${fmt(now.month.visitors)} / ${fmt(now.month.views)}` : "—"}
               hint="посетители / показвания" />
       </div>

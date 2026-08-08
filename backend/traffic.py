@@ -17,6 +17,7 @@ import os
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -36,6 +37,8 @@ BOTS = re.compile(
     r"bot|crawl|spider|slurp|curl|wget|python-requests|httpx|headless|lighthouse|"
     r"pingdom|uptime|monitor|preview|facebookexternalhit|whatsapp|telegrambot",
     re.I)
+
+TZ = ZoneInfo(os.environ.get("ADMIN_TZ", "Europe/Sofia"))
 
 _cache = {"at": None, "data": None}
 
@@ -108,6 +111,17 @@ async def record(request: Request, path, label=""):
     return True
 
 
+def _day_start(days_back=0):
+    """Midnight in Sofia, `days_back` calendar days ago, as UTC.
+
+    The counters used to be rolling windows, so "24h" at 07:10 still carried half of
+    yesterday evening and the number the owner read never matched "today". A period now starts
+    at 00:00 Sofia time: today, the last 7 calendar days (today included) and the last 30.
+    """
+    local = datetime.now(TZ) - timedelta(days=days_back)
+    return local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+
+
 async def _window(since):
     """Unique people and total views in one window, without ever holding a set in memory."""
     pipe = [{"$match": {"at": {"$gte": since}}},
@@ -142,9 +156,9 @@ async def snapshot():
     data = {"live": live["visitors"],
             "live_minutes": LIVE_MINUTES,
             "pages": await _live_pages(live_since),
-            "day": await _window(now - timedelta(days=1)),
-            "week": await _window(now - timedelta(days=7)),
-            "month": await _window(now - timedelta(days=30))}
+            "day": await _window(_day_start()),
+            "week": await _window(_day_start(6)),
+            "month": await _window(_day_start(29))}
     _cache.update({"at": now, "data": data})
     return data
 
@@ -156,18 +170,19 @@ async def history(days=30):
     quiet days makes a flat week look like a busy one.
     """
     days = max(1, min(int(days), KEEP_DAYS))
-    start = (_now() - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0,
-                                                        microsecond=0)
+    start = _day_start(days - 1)
     pipe = [{"$match": {"at": {"$gte": start}}},
-            {"$group": {"_id": {"d": {"$dateToString": {"format": "%Y-%m-%d", "date": "$at"}},
+            {"$group": {"_id": {"d": {"$dateToString": {"format": "%Y-%m-%d", "date": "$at",
+                                                        "timezone": str(TZ)}},
                                 "v": "$v"},
                         "n": {"$sum": 1}}},
             {"$group": {"_id": "$_id.d", "visitors": {"$sum": 1}, "views": {"$sum": "$n"}}}]
     rows = {r["_id"]: r async for r in _db.traffic_hits.aggregate(pipe)}
 
     out = []
+    first = datetime.now(TZ).date() - timedelta(days=days - 1)
     for step in range(days):
-        day = (start + timedelta(days=step)).strftime("%Y-%m-%d")
+        day = (first + timedelta(days=step)).strftime("%Y-%m-%d")
         row = rows.get(day)
         out.append({"day": day,
                     "visitors": row["visitors"] if row else 0,

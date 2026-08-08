@@ -1,5 +1,15 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-08: TRAFFIC COUNTERS ARE CALENDAR PERIODS, NOT ROLLING WINDOWS. `traffic._day_start`
+returns midnight in `ADMIN_TZ` (Europe/Sofia) N calendar days ago, converted to UTC, and
+`snapshot()` uses it for all three cards: today from 00:00, the last 7 calendar days (today
+included, so `_day_start(6)`) and the last 30 (`_day_start(29)`). `history()` starts on the same
+boundary and groups with `$dateToString(..., timezone="Europe/Sofia")`, so a hit at 01:00 Sofia is
+counted on the day the owner would call it. Before this, "24h" at 07:10 still carried half of
+yesterday evening. Labels updated: "Днес (от 00:00)", "Последните 7/30 дни (с днешния)".
+Verified: today 7 visitors / 194 views since 2026-08-07T21:00Z (= 00:00 Sofia), 7 days 207 views,
+history grouped per Sofia day. -->
+
 <!-- 2026-08-08: PICKED-FOR-YOU RANKING BUG — the shelf was being won by a deposit that no
 longer existed. `_reco_deposits` counted EVERY document in `deposits`, so an abandoned checkout
 (`pending`), a timed-out one (`expired`) and a refunded one (`released`) all scored as retention
