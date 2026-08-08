@@ -9,7 +9,7 @@ import requests
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from tracking import CUSTOMS_DAYS, DELIVERY_DAYS  # noqa: E402
+from tracking import DELIVERY_DAYS  # noqa: E402
 
 BASE = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
 API = f"{BASE}/api"
@@ -107,40 +107,36 @@ class TestRecommendationsSpread:
 
 # --- Customs + delivery estimates ---
 class TestTrackingEstimates:
-    def test_customs_and_delivery_offsets(self):
+    def test_delivery_offset(self):
         r = requests.get(f"{API}/tracking", params={"ref": "271191199", "by": "bol"})
         assert r.status_code == 200
         data = r.json()
         if not data.get("found"):
             pytest.skip(f"271191199 is not tracked at the moment: {data}")
-        assert data.get("customs"), "customs missing"
         assert data.get("delivery"), "delivery missing"
-        # Both steps hang off the PORT ARRIVAL and the offsets live in tracking.py. Fixed
+        # The step hangs off the PORT ARRIVAL and the offset lives in tracking.py. Fixed
         # dates were asserted here once and broke the moment the real shipment moved on.
+        # Our own "customs cleared" forecast was dropped by the owner: the lorry is dated
+        # straight off the official arrival.
         stones = data.get("milestones") or []
-        carrier = [s for s in stones if s.get("code") not in ("CU", "DLV")]
+        carrier = [s for s in stones if s.get("code") != "DLV"]
         assert carrier, "no carrier milestones"
         arrival = (next((s for s in reversed(carrier) if s.get("code") == "UV"), None)
                    or next((s for s in reversed(carrier)
                             if s.get("code") in ("AV", "VA", "ARRI")), carrier[-1]))
         base = datetime.fromisoformat(arrival["when"])
-        cu = datetime.fromisoformat(data["customs"]["when"])
         dl = datetime.fromisoformat(data["delivery"]["when"])
-        assert cu - base == timedelta(days=CUSTOMS_DAYS), (arrival["when"], data["customs"])
-        assert dl - base == timedelta(days=CUSTOMS_DAYS + DELIVERY_DAYS), data["delivery"]
-        # customs row must include port location
-        assert data["customs"].get("location"), "customs port missing"
+        assert dl - base == timedelta(days=DELIVERY_DAYS), data["delivery"]
         # A step still in the future must be flagged as our forecast; once a later carrier
         # event proves it happened, the flag is cleared on purpose (see tracking._view).
-        for step in ("customs", "delivery"):
-            when = datetime.fromisoformat(data[step]["when"])
-            confirmed = [datetime.fromisoformat(s["when"]) for s in stones
-                         if not s.get("estimated") and s.get("code") not in ("CU", "DLV")]
-            if confirmed and when > max(confirmed):
-                assert data[step].get("estimated") is True, data[step]
+        confirmed = [datetime.fromisoformat(s["when"]) for s in stones
+                     if not s.get("estimated") and s.get("code") != "DLV"]
+        if confirmed and dl > max(confirmed):
+            assert data["delivery"].get("estimated") is True, data["delivery"]
         # Delivery is always the very last row: nothing comes after the buyer's door.
         assert stones[-1]["code"] == "DLV"
-        assert any(s["code"] == "CU" for s in stones)
+        assert not [s for s in stones if s.get("code") == "CU" and s.get("estimated")], \
+            "a customs forecast is back in the timeline"
 
 
 # --- Provider metering: two consecutive lookups don't change quota ---

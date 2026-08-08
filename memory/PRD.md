@@ -9,14 +9,20 @@ ETA line, "last event" and the map popups (`VesselMap` now passes `e.estimated` 
 `labelFor`). Verified on B/L 271191199 in BG and EN: "Отплава / Пристигна / Ще бъде доставен",
 "Vessel departed / Vessel arrived / To be delivered". The +4d customs / +7d delivery tail from
 `tracking._last_leg` is confirmed working.
-LAST LEG, final rule (owner, 2026-08-08): the tail is ALWAYS both steps — customs = arrival + 4
-days, delivery = customs + 7 days — anchored on a real discharge (`UV`) or on the arrival at the
-destination JSONCargo names (`route.to`). The old "already at the final port, so only the lorry"
-branch is GONE: customs still has to run at Bergen op Zoom. The delivery step carries the buyer's
+LAST LEG, final rule (owner, 2026-08-08, THIRD and current revision): ONE step only — delivery =
+official arrival + 7 days (`DELIVERY_LEAD_DAYS`). Our invented "Customs cleared" forecast was
+REMOVED at the owner's request (`CUSTOMS_LEAD_DAYS` and `view["customs"]` are gone; a CU event the
+CARRIER reports is still shown). EVERY bill of lading must carry the step, so the anchor falls
+back in this order: real discharge `UV` -> actual arrival at the destination JSONCargo names
+(`route.to`) -> the FORECAST arrival there -> the last forecast arrival of any kind. A booking
+still at sea therefore has a delivery date too (272520178: ETA Rotterdam 10.09 -> delivery 17.09).
+The delivery step carries the buyer's
 billing COUNTRY CODE only (never the street); with no buyer attached it falls back to
 `DEFAULT_DELIVERY_COUNTRY` (BG). `TrackPage.COUNTRIES` + `countryName()`/`place()` print it in the
-page language, so BG reads "България" and EN "Bulgaria". Verified on B/L 271191199: arrival 06.08
-Bergen Op Zoom -> "Ще бъде освободен от митницата" 10.08 -> "Ще бъде доставен" 17.08, България. -->
+page language, so BG reads "България" and EN "Bulgaria". Verified on B/L 271191199 (arrival 06.08
+Bergen Op Zoom -> "Ще бъде доставен" 13.08, България) and 272520178 (forecast arrival Rotterdam
+10.09 -> delivery 17.09). Tests updated to the new rule: test_iter24, test_iter25,
+test_review_iter23, test_tracking_destination. -->
 
 <!-- 2026-06 (later): Outside working hours a buyer can LEAVE A NUMBER AND A TIME and we
 ring them back (admin list under Enquiries; the slot is re-checked server-side against the

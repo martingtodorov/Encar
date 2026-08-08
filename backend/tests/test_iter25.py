@@ -6,7 +6,7 @@ import requests
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from tracking import CUSTOMS_DAYS, DELIVERY_DAYS  # noqa: E402
+from tracking import DELIVERY_DAYS  # noqa: E402
 
 BASE = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/")
 if not BASE:
@@ -118,7 +118,7 @@ def test_relevant_sort_pagination_deep():
 
 # --- tracking tail ----------------------------------------------------------
 
-def test_tracking_customs_plus_3_delivery_plus_7_country_only():
+def test_tracking_delivery_plus_7_country_only():
     # 271191199 is the previously cached BoL reference used in prior iterations
     r = requests.get(f"{API}/tracking", params={"ref": "271191199", "by": "bol"}, timeout=40)
     if r.status_code != 200:
@@ -127,11 +127,12 @@ def test_tracking_customs_plus_3_delivery_plus_7_country_only():
     if not d.get("found"):
         pytest.skip(f"271191199 not found: {d}")
     stones = d.get("milestones") or []
-    # Find CU and DLV
-    cu = next((s for s in stones if s.get("code") == "CU"), None)
     dlv = next((s for s in stones if s.get("code") == "DLV"), None)
-    assert cu is not None, "no CU (Customs) milestone appended"
     assert dlv is not None, "no DLV (Delivery) milestone appended"
+    # The owner dropped our invented customs forecast: delivery is dated straight off the
+    # official arrival, so nothing of ours may sit in between.
+    assert not [s for s in stones if s.get("code") == "CU" and s.get("estimated")], \
+        "a customs forecast is back in the timeline"
     # Delivery MUST NOT show a street/city — location should be only country (2 chars) or empty
     dlv_loc = (dlv.get("location") or "").strip()
     dlv_country = (dlv.get("country") or "").strip()
@@ -141,23 +142,21 @@ def test_tracking_customs_plus_3_delivery_plus_7_country_only():
     # Container ID should not be echoed as reference when queried by=bol
     assert d.get("by") == "bol"
     assert d.get("reference") == "271191199"
-    # +3 / +7 offsets from the arrival stone
+    # +7 offset from the arrival stone
     from datetime import datetime, timedelta
-    # find arrival (UV, else AV/VA/ARRI); if none, use last carrier stone before CU
-    carrier = [s for s in stones if s.get("code") not in ("CU", "DLV")]
+    # find arrival (UV, else AV/VA/ARRI); if none, use the last carrier stone
+    carrier = [s for s in stones if s.get("code") != "DLV"]
     arrival = (next((s for s in reversed(carrier) if s.get("code") == "UV"), None)
                or next((s for s in reversed(carrier)
                         if s.get("code") in ("AV", "VA", "ARRI")),
                        carrier[-1] if carrier else None))
     if arrival:
         base = datetime.fromisoformat(arrival["when"])
-        cu_when = datetime.fromisoformat(cu["when"])
         dlv_when = datetime.fromisoformat(dlv["when"])
-        # The offsets are configuration (tracking.CUSTOMS_DAYS / DELIVERY_DAYS), never copied
-        # in here: the owner has changed them once already.
-        assert (cu_when - base) == timedelta(days=CUSTOMS_DAYS), f"CU offset {(cu_when-base)}"
-        assert (dlv_when - cu_when) == timedelta(days=DELIVERY_DAYS), \
-            f"DLV-CU offset {(dlv_when-cu_when)}"
+        # The offset is configuration (tracking.DELIVERY_DAYS), never copied in here: the
+        # owner has changed it once already.
+        assert (dlv_when - base) == timedelta(days=DELIVERY_DAYS), \
+            f"DLV offset {(dlv_when - base)}"
 
 
 # --- jsoncargo cache: no upstream call within TTL --------------------------

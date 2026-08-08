@@ -92,14 +92,18 @@ class TestDeliveryStep:
         delivery = data.get("delivery")
         assert delivery, "delivery missing"
         assert delivery["code"] == "DLV"
-        # Delivery sits DELIVERY_DAYS after the customs step, which itself hangs off the port
-        # arrival - not off whatever event happens to be last (a barge leg comes after).
+        # Delivery sits DELIVERY_DAYS after the OFFICIAL ARRIVAL - not off whatever event
+        # happens to be last (a barge leg comes after), and no longer via a customs forecast
+        # of our own, which the owner dropped.
         from datetime import datetime, timedelta
-        customs = data.get("customs")
-        assert customs and customs["code"] == "CU", customs
-        cu = datetime.fromisoformat(customs["when"])
+        carrier = [s for s in stones if s.get("code") != "DLV"]
+        assert carrier, "no carrier milestones"
+        arrival = (next((s for s in reversed(carrier) if s.get("code") == "UV"), None)
+                   or next((s for s in reversed(carrier)
+                            if s.get("code") in ("AV", "VA", "ARRI")), carrier[-1]))
+        base = datetime.fromisoformat(arrival["when"])
         dlv = datetime.fromisoformat(delivery["when"])
-        assert (dlv - cu) == timedelta(days=DELIVERY_DAYS), (cu, dlv)
+        assert (dlv - base) == timedelta(days=DELIVERY_DAYS), (base, dlv)
 
 
 class TestProviderCaching:

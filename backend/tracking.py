@@ -357,7 +357,6 @@ async def _cargo(db, ref, by, refresh=False, problem=None):
 
 
 DELIVERY_DAYS = int(os.environ.get("DELIVERY_LEAD_DAYS", "7"))
-CUSTOMS_DAYS = int(os.environ.get("CUSTOMS_LEAD_DAYS", "4"))
 
 
 def _same_place(name):
@@ -372,35 +371,37 @@ def _stone(code, text, when, place="", country=""):
 
 
 async def _last_leg(db, stones, owner_id, destination=""):
-    """The steps the carrier never reports: clearing customs, then the buyer's door.
+    """The step the carrier never reports: the lorry to the buyer's own address.
 
-    Ocean tracking ends at a terminal, but nobody is waiting at a terminal. Customs runs about
-    four days after the box comes OFF THE SHIP and the lorry arrives about a week after that.
+    Ocean tracking ends at a terminal, but nobody is waiting at a terminal, so the delivery is
+    forecast DELIVERY_DAYS after the official arrival. EVERY reference gets one — a booking
+    still at sea is dated off its forecast arrival, not left without a last step.
 
     The anchor is the ONLY thing that matters here, and it has been wrong twice:
-      * off "whatever happened last" — a barge leg to Bergen op Zoom pushed customs a week past
+      * off "whatever happened last" — a barge leg to Bergen op Zoom pushed the date a week past
         the day the box already stood on the quay in Rotterdam;
       * off any arrival-ish event — JSONCargo reports "last movement" as a VA snapshot of
         wherever the box was last seen, which mid-voyage is a TRANSSHIPMENT port, so a
-        Korea->Rotterdam booking routed via Shanghai announced "Customs cleared Shanghai".
+        Korea->Rotterdam booking announced its arrival in Shanghai.
     So: a real discharge, or an arrival at the destination we actually KNOW. Nothing else.
     """
     if not stones:
         return []
     landed = next((s for s in reversed(stones) if s.get("code") == "UV"), None)
-    at_final = None
+    at_final, eta_final = None, None
     if destination:
         wanted = _same_place(destination)
-        at_final = next((s for s in reversed(stones)
-                         if not s.get("estimated") and _same_place(s.get("location")) == wanted),
-                        None)
-    # A real discharge wins; otherwise the arrival at the destination we know. Both then get
-    # the SAME tail — customs runs after the box is on the quay wherever that quay is, so an
-    # arrival at the final port is not "already cleared".
-    arrival = landed or at_final
+        same = [s for s in stones if _same_place(s.get("location")) == wanted]
+        at_final = next((s for s in reversed(same) if not s.get("estimated")), None)
+        eta_final = next((s for s in reversed(same) if s.get("estimated")), None)
+    # A real discharge wins, then an actual arrival at the destination we know, and finally the
+    # FORECAST arrival there — every bill of lading must carry a delivery date, so a booking
+    # still at sea is dated off its ETA rather than left without a last step.
+    arrival = landed or at_final or eta_final or next(
+        (s for s in reversed(stones) if s.get("estimated")
+         and s.get("code") in ("VA", "ARRI", "AV", "UV")), None)
     if not arrival:
         return []
-    port = arrival.get("location") or ""
     try:
         base = datetime.fromisoformat(arrival["when"])
     except (ValueError, KeyError, TypeError):
@@ -414,15 +415,15 @@ async def _last_leg(db, stones, owner_id, destination=""):
     # overrides it with their own country.
     country = country or os.environ.get("DEFAULT_DELIVERY_COUNTRY", "BG")
     fmt = "%Y-%m-%dT%H:%M:00"
+    # One step only, by the owner's rule: the lorry, seven days after the OFFICIAL arrival.
+    # A separate "customs cleared" forecast was removed - it is our own guesswork about a step
+    # the carrier never reports, and it only pushed the date the buyer actually cares about.
     return [
-        _stone("CU", "Customs cleared",
-               (base + timedelta(days=CUSTOMS_DAYS)).strftime(fmt), port),
         # Country only — the buyer's street address is not something to print on a page
         # that a shared link can open. The code travels (BG/RO/DE...) and the page prints it
         # in the visitor's own language.
         _stone("DLV", "Delivery",
-               (base + timedelta(days=CUSTOMS_DAYS + DELIVERY_DAYS)).strftime(fmt),
-               "", country),
+               (base + timedelta(days=DELIVERY_DAYS)).strftime(fmt), "", country),
     ]
 
 
@@ -505,7 +506,6 @@ async def track(db, ref, by="container", refresh=False, admin=False):
         # By CODE, never by position: the inland case returns only a delivery step, and reading
         # tail[0] as "customs" would have labelled the lorry as a customs clearance.
         view["delivery"] = next((s for s in reversed(tail) if s["code"] == "DLV"), None)
-        view["customs"] = next((s for s in tail if s["code"] == "CU"), None)
         if cargo:
             view["route"] = cargo["route"]
             view["container"] = cargo["container"]

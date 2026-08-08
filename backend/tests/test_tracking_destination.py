@@ -68,9 +68,12 @@ async def test_customs_is_never_invented_at_a_port_in_passing():
     landed = sailing + [{"code": "UV", "text": "Discharged", "when": "2026-09-10T19:00:00",
                          "location": "Rotterdam", "estimated": False}]
     tail = await tracking._last_leg(None, landed, None)
-    assert tail, "a real discharge must still produce the customs and delivery steps"
+    assert tail, "a real discharge must still produce the delivery step"
     assert all("shanghai" not in (s.get("location") or "").lower() for s in tail), tail
-    assert "rotterdam" in (tail[0].get("location") or "").lower()
+    # One step only now: the lorry, seven days after the discharge. The customs forecast was
+    # dropped by the owner, so the tail carries the buyer's COUNTRY, never a port.
+    assert [s["code"] for s in tail] == ["DLV"], tail
+    assert tail[0]["when"].startswith("2026-09-17"), tail
 
 
 def test_a_snapshot_holding_only_the_port_pair_is_not_thrown_away():
