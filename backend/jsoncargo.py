@@ -133,10 +133,32 @@ async def _get(path, params=None):
     return body.get("data") if isinstance(body, dict) else None
 
 
-async def _cached(db, key, ttl, loader, refresh=False):
+# How long a snapshot may stand in for a missing answer. Past this we would rather admit we do
+# not know than show a fortnight-old position as current.
+STALE_MAX = 7 * 24 * 3600
+
+
+def _hollow(snap):
+    """A snapshot carrying an id and nothing else.
+
+    JSONCargo intermittently answers 200 with every meaningful field blank — for BL 272520178
+    it returned Inchon and Shanghai at 19:11 and a hollow shell ten minutes later. Caching that
+    as success made the whole page flip to "not found", so it is treated as "no answer yet".
+    """
+    if not isinstance(snap, dict):
+        return False
+    return not any(snap.get(k) for k in
+                   ("shipped_from", "shipped_to", "last_location", "next_location",
+                    "atd_origin", "eta_final_destination", "container_status",
+                    # The port pair alone is worth keeping: it is how we know the box is bound
+                    # for Rotterdam even while every dated field is still null.
+                    "loading_port", "discharging_port"))
+
+
+async def _cached(db, key, ttl, loader, refresh=False, hollow=None):
     """One document per fact. Errors are cached too, or a bad reference costs a call a view."""
-    doc = None if refresh else await db.cargo_cache.find_one({"_id": key})
-    if doc:
+    doc = await db.cargo_cache.find_one({"_id": key})
+    if doc and not refresh:
         age = (_now() - doc["stored_at"].replace(tzinfo=timezone.utc)).total_seconds()
         if age < (doc.get("error_ttl") or ttl):
             if doc.get("error"):
@@ -155,9 +177,27 @@ async def _cached(db, key, ttl, loader, refresh=False):
             {"_id": key}, {"_id": key, "stored_at": _now(), "payload": None,
                            "error": str(e), "error_ttl": ERROR_TTL[429]}, upsert=True)
         raise
+
+    # "No answer" comes in three shapes from this provider: nothing at all, a hollow shell, or
+    # an outright error. None of them may be allowed to replace ports and dates we already
+    # hold — BL 272520178 answered with real INCHON->ROTTERDAM data one minute and None the
+    # next, which is what made tracking flip to "not found".
+    if payload is None or (hollow and hollow(payload)):
+        kept = (doc or {}).get("payload") if not (doc or {}).get("error") else None
+        fresh_enough = doc and (_now() - doc["stored_at"].replace(
+            tzinfo=timezone.utc)).total_seconds() < STALE_MAX
+        if kept and fresh_enough and not (hollow and hollow(kept)):
+            _note(key, "provider had no answer; serving the last real snapshot")
+            log.info("jsoncargo %s: empty answer ignored, keeping the cached snapshot", key)
+            return kept
+        await db.cargo_cache.replace_one(
+            {"_id": key}, {"_id": key, "stored_at": _now(), "payload": payload,
+                           "error_ttl": ERROR_TTL[404]}, upsert=True)
+        return payload
+
     await db.cargo_cache.replace_one(
         {"_id": key}, {"_id": key, "stored_at": _now(), "payload": payload,
-                       "error_ttl": ERROR_TTL[404] if payload is None else None},
+                       "error_ttl": None},
         upsert=True)
     return payload
 
@@ -174,7 +214,7 @@ async def container(db, number, refresh=False):
     line = config()["line"]
     return await _cached(db, f"cargo:box:{line}:{number}", TTL_CONTAINER,
                          lambda: _get(f"/containers/{number}/", {"shipping_line": line}),
-                         refresh)
+                         refresh, hollow=_hollow)
 
 
 async def stats(db, refresh=False):
@@ -290,8 +330,14 @@ def route(snap):
     return {
         "container": snap.get("container_id") or "",
         "type": snap.get("container_type") or "",
-        "from": snap.get("shipped_from") or "", "from_terminal": snap.get("shipped_from_terminal") or "",
-        "to": snap.get("shipped_to") or "", "to_terminal": snap.get("shipped_to_terminal") or "",
+        "from": snap.get("shipped_from") or snap.get("loading_port") or "",
+        "from_terminal": snap.get("shipped_from_terminal") or "",
+        # `shipped_to` is null on plenty of live bookings while `discharging_port` holds the
+        # answer: BL 272520178 read {"shipped_to": "", "discharging_port": "ROTTERDAM"}, so the
+        # destination came back empty and the page fell back to the last place the box was
+        # seen — Shanghai, a transshipment port. The port pair is the fallback, not a guess.
+        "to": snap.get("shipped_to") or snap.get("discharging_port") or "",
+        "to_terminal": snap.get("shipped_to_terminal") or "",
         "status": snap.get("container_status") or "",
         "updated": snap.get("last_updated") or "",
     }

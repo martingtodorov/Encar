@@ -360,29 +360,45 @@ DELIVERY_DAYS = int(os.environ.get("DELIVERY_LEAD_DAYS", "7"))
 CUSTOMS_DAYS = int(os.environ.get("CUSTOMS_LEAD_DAYS", "4"))
 
 
+def _same_place(name):
+    """"Bergen Op Zoom" and "BERGEN OP ZOOM" are one terminal, not two."""
+    return " ".join((name or "").split()).casefold()
+
+
 def _stone(code, text, when, place="", country=""):
     return {"code": code, "text": text, "when": when, "estimated": True,
             "location": place, "country": country, "unloc": "", "mode": "road",
             "vessel_name": "", "vessel_imo": "", "voyage": ""}
 
 
-async def _last_leg(db, stones, owner_id):
-    """The two steps the carrier never reports: clearing customs, then the buyer's door.
+async def _last_leg(db, stones, owner_id, destination=""):
+    """The steps the carrier never reports: clearing customs, then the buyer's door.
 
-    Ocean tracking ends at the destination terminal, but nobody is waiting at a terminal.
-    Customs clearance runs about four days after the box comes OFF THE SHIP and the lorry
-    arrives about a week after that, so both are appended as CLEARLY ESTIMATED steps — the
-    delivery one named with the country from the buyer's billing address when we have it.
+    Ocean tracking ends at a terminal, but nobody is waiting at a terminal. Customs runs about
+    four days after the box comes OFF THE SHIP and the lorry arrives about a week after that.
+
+    The anchor is the ONLY thing that matters here, and it has been wrong twice:
+      * off "whatever happened last" — a barge leg to Bergen op Zoom pushed customs a week past
+        the day the box already stood on the quay in Rotterdam;
+      * off any arrival-ish event — JSONCargo reports "last movement" as a VA snapshot of
+        wherever the box was last seen, which mid-voyage is a TRANSSHIPMENT port, so a
+        Korea->Rotterdam booking routed via Shanghai announced "Customs cleared Shanghai".
+    So: a real discharge, or an arrival at the destination we actually KNOW. Nothing else.
     """
     if not stones:
         return []
-    # Both dates hang off the box being DISCHARGED, not off whatever event happens to be
-    # last: a barge leg onward to Bergen op Zoom pushed customs a week past the day the
-    # container was already standing on the quay in Rotterdam.
-    arrival = next((s for s in reversed(stones) if s.get("code") == "UV"), None)
+    landed = next((s for s in reversed(stones) if s.get("code") == "UV"), None)
+    at_final = None
+    if destination:
+        wanted = _same_place(destination)
+        at_final = next((s for s in reversed(stones)
+                         if not s.get("estimated") and _same_place(s.get("location")) == wanted),
+                        None)
+    # Already at its final stop: customs happened upstream at the sea port, so the only thing
+    # left to promise is the lorry.
+    arrival, road_only = (at_final, True) if at_final else (landed, False)
     if not arrival:
-        arrival = next((s for s in reversed(stones)
-                        if s.get("code") in ("AV", "VA", "ARRI")), stones[-1])
+        return []
     port = arrival.get("location") or ""
     try:
         base = datetime.fromisoformat(arrival["when"])
@@ -393,6 +409,9 @@ async def _last_leg(db, stones, owner_id):
         owner = await db.users.find_one({"_id": owner_id}, {"billing": 1})
         country = ((owner or {}).get("billing") or {}).get("country") or ""
     fmt = "%Y-%m-%dT%H:%M:00"
+    if road_only:
+        return [_stone("DLV", "Delivery",
+                       (base + timedelta(days=DELIVERY_DAYS)).strftime(fmt), country or "")]
     return [
         _stone("CU", "Customs cleared",
                (base + timedelta(days=CUSTOMS_DAYS)).strftime(fmt), port),
@@ -475,12 +494,15 @@ async def track(db, ref, by="container", refresh=False, admin=False):
                 vessel["position"] = await vessel_position(db, vessel["imo"],
                                                            vessel.get("mmsi", ""))
         # Customs and the buyer's own doorstep, which no carrier reports, as estimates.
-        tail = await _last_leg(db, stones, owner_id)
+        tail = await _last_leg(db, stones, owner_id,
+                               destination=((cargo or {}).get("route") or {}).get("to", ""))
         if tail:
             stones = stones + tail
         view = _view(ref, by, stones, source, vessel=vessel)
-        view["delivery"] = tail[-1] if tail else None
-        view["customs"] = tail[0] if tail else None
+        # By CODE, never by position: the inland case returns only a delivery step, and reading
+        # tail[0] as "customs" would have labelled the lorry as a customs clearance.
+        view["delivery"] = next((s for s in reversed(tail) if s["code"] == "DLV"), None)
+        view["customs"] = next((s for s in tail if s["code"] == "CU"), None)
         if cargo:
             view["route"] = cargo["route"]
             view["container"] = cargo["container"]
