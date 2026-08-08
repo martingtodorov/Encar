@@ -140,11 +140,14 @@ export const ReserveCar = ({ car }) => {
           print, and this is money on a card: the dialog puts the whole thing in front of the
           buyer and the single button IS the acknowledgement. */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent data-testid="deposit-terms-dialog" className="max-w-[460px] bg-card">
+        <DialogContent
+          data-testid="deposit-terms-dialog"
+          className="max-h-[88svh] w-[calc(100vw-2rem)] max-w-[460px] overflow-y-auto bg-card"
+        >
           <DialogHeader>
-            <DialogTitle className="text-[17px]">
-              {t("depositTitle")}
-              <span data-testid="deposit-dialog-amount" className="tnum ml-1.5">
+            <DialogTitle className="flex flex-wrap items-baseline gap-1.5 text-[17px]">
+              <span>{t("depositTitle")}</span>
+              <span data-testid="deposit-dialog-amount" className="tnum">
                 · {money(quote.amount_eur)}
               </span>
             </DialogTitle>
@@ -164,7 +167,9 @@ export const ReserveCar = ({ car }) => {
             data-testid="deposit-agree-continue"
             onClick={pay}
             disabled={busy}
-            className="h-12 w-full justify-center gap-2 rounded-[12px] bg-[hsl(var(--primary))] text-[14px] font-semibold text-primary-foreground hover:brightness-110"
+            // The label is a whole sentence: `whitespace-nowrap` from the button base made it
+            // wider than a phone and dragged the whole dialog off the screen with it.
+            className="h-auto min-h-12 w-full justify-center gap-2 whitespace-normal rounded-[12px] bg-[hsl(var(--primary))] px-4 py-3 text-center text-[14px] font-semibold leading-tight text-primary-foreground hover:brightness-110"
           >
             {busy ? (
               <Loader2 className="h-[18px] w-[18px] animate-spin" aria-hidden="true" />

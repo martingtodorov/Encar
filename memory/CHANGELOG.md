@@ -1495,3 +1495,55 @@ falling back to popular, and the share page carrying og:image + summary_large_im
 
 NOTE seen while testing: the translation provider is answering 429 (quota) in this
 environment, so newly seen Korean model names stay Korean until the key has balance again.
+
+## 2026-06 — Saving needs an account, a call button with opening hours, "Капарирай"
+
+### Saving a car or a search now requires an account
+Both used to be written straight into `localStorage` for anybody, which is a promise we cannot
+keep: it is gone on the next device and the price-drop / new-match emails have nowhere to go.
+`components/SignInGate.js` is a provider mounted INSIDE `AuthProvider` (so it can see the
+session) that exposes `requireAccount("car" | "search")`. It returns `true` when signed in,
+`false` and opens a dialog offering Вход / Регистрация otherwise — the owner explicitly chose
+a DIALOG over a redirect so the buyer does not lose the car or the filters they were on.
+Gated at all five call sites: `CarCard`, `CarRow`, `QuickViewDialog`, `CarDetailPage` (both the
+sticky-bar heart and the desktop one) and `SearchPage`'s save-search.
+`LoginPage` now honours `location.state.from` (stored WITHOUT the language prefix, because
+`go()` puts it back) so sign-in returns to the car. `logout()` clears the local favourites and
+searches — otherwise one person's hearts stayed on a shared machine. `/saved` and `/searches`
+show `SignInPrompt` instead of an empty list when nobody is signed in. The backend already
+required auth on `/auth/favourites` and `/auth/saved-searches`; nothing changed there.
+
+### "Обади се" beside the enquiry button, gated by the owner's opening hours
+`GET /api/call-button` decides everything ON THE SERVER (`Europe/Sofia`, `CALL_TZ`): a phone's
+clock and time zone cannot be trusted. Config in `site_settings._id = "call_button"`
+`{enabled, phone, phone_label, hours{mon..sun:{open,close,closed}}}`; no document means the
+built-in default (+359886717074, Mon–Fri 09–18, Sat 10–15, Sun closed). `_hhmm()` returns ""
+for anything it cannot parse, and a window with no times in it is CLOSED whatever the flag
+says. Admin card `AdminCallButton.js` at the top of the Enquiries tab (`GET/PUT
+/api/admin/call-button`). Outside the hours the button still dials, but `CallButton.js` first
+shows the week's hours and asks whether to continue.
+LAYOUT, per the owner: the call button makes the enquiry button HALF AS WIDE — the row on the
+car page is `sm:grid-cols-2` with a nested `grid-cols-2` holding EnquiryDialog + CallButton,
+and the reserve button takes the other half.
+
+### "Блокирай сумата" → "Капарирай", with the terms in a dialog
+The checkbox + small print under the button are gone. The button opens
+`deposit-terms-dialog`, which carries `depositTerms` and `depositBlurb`, and the single
+`deposit-agree-continue` button ("Съгласен съм с условията, продължи към преавторизация") IS
+the acknowledgement. `dark:text-white` on the button — the red-on-dark label was unreadable.
+
+### Two mobile bugs found and fixed
+1. CarDetailPage's container had `pt-[calc(var(--admin-bar-h,0px) + 72px)]`. The admin traffic
+   bar sits in NORMAL FLOW, so the container already starts below it — counting it twice left
+   an admin on a phone with ~78px of nothing between the car bar and the first photo. Now a
+   flat `pt-[72px]`, which is exactly the fixed car bar (65px) plus a gap. Measured at 390px:
+   bar bottom 130, photo top 154.
+2. The deposit dialog ran off the side of a phone. Cause was NOT the height: `Button`'s base
+   class carries `whitespace-nowrap`, and the whole-sentence label forced a min-content width
+   wider than 390px, dragging the grid (and the dialog) with it. Fixed with
+   `whitespace-normal h-auto min-h-12 py-3` on that button, plus
+   `w-[calc(100vw-2rem)] max-h-[88svh] overflow-y-auto` on this dialog, the call dialog and the
+   sign-in gate. Measured at 390x844: 16–374 wide, 197–647 tall.
+
+Tests: `backend/tests/test_call_button.py` (6) + `test_default_shelf.py` (9) pass. Testing
+agent iteration_38.json: 13/13 frontend scenarios passed, 0 defects.

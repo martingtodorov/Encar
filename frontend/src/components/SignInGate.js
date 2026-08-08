@@ -57,7 +57,10 @@ export function SignInGate({ children }) {
     <GateContext.Provider value={value}>
       {children}
       <Dialog open={!!asking} onOpenChange={(open) => !open && setAsking("")}>
-        <DialogContent data-testid="signin-gate-dialog" className="max-w-[400px] bg-card">
+        <DialogContent
+          data-testid="signin-gate-dialog"
+          className="max-h-[88svh] w-[calc(100vw-2rem)] max-w-[400px] overflow-y-auto bg-card"
+        >
           <DialogHeader>
             <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-[12px] bg-secondary">
               <Icon className="h-[21px] w-[21px] text-[hsl(var(--primary))]" aria-hidden="true" />

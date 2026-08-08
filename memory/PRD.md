@@ -1,5 +1,11 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-06: SAVING NOW REQUIRES AN ACCOUNT — the heart and "save this search" open a
+Вход/Регистрация dialog (components/SignInGate.js) for a signed-out visitor, and logging out
+clears the local lists. A red "Обади се" button sits beside "Прати запитване" (half its old
+width each); its number and opening hours live in the admin Enquiries tab and outside those
+hours the visitor is warned before dialling. The reserve button reads "Капарирай" and puts the
+terms in a dialog. See CHANGELOG.md. -->
 <!-- 2026-06: a brand-new visitor now meets the OWNER'S hand-picked shelf ("Picked for you",
 source "curated") instead of the crowd's most-opened ads; the list, its stock counts and its
 impressions/opens/CTR/deposits live in the admin tab "Picked for you". A car link pasted into a

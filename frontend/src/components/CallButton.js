@@ -60,7 +60,10 @@ export const CallButton = () => {
       {button}
 
       <Dialog open={warn} onOpenChange={setWarn}>
-        <DialogContent data-testid="call-closed-dialog" className="max-w-[400px] bg-card">
+        <DialogContent
+          data-testid="call-closed-dialog"
+          className="max-h-[88svh] w-[calc(100vw-2rem)] max-w-[400px] overflow-y-auto bg-card"
+        >
           <DialogHeader>
             <div className="mb-1 flex h-11 w-11 items-center justify-center rounded-[12px] bg-secondary">
               <PhoneOff

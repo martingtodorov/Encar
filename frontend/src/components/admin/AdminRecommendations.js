@@ -57,7 +57,7 @@ const Row = ({ pick, onChange, onRemove, lang }) => {
             .filter((m) => m.value !== pick.model)
             .map((m) => (
               <option key={m.value} value={m.value}>
-                {m.label} ({m.count})
+                {`${m.label} (${m.count})`}
               </option>
             ))}
         </select>
@@ -145,7 +145,7 @@ const AddPick = ({ lang, onAdd }) => {
           <option value="">Pick a make…</option>
           {makes.map((m) => (
             <option key={m.value} value={m.value}>
-              {m.label} ({m.count})
+              {`${m.label} (${m.count})`}
             </option>
           ))}
         </select>
@@ -162,7 +162,7 @@ const AddPick = ({ lang, onAdd }) => {
           <option value="">Pick a model…</option>
           {models.map((m) => (
             <option key={m.value} value={m.value}>
-              {m.label} ({m.count})
+              {`${m.label} (${m.count})`}
             </option>
           ))}
         </select>
