@@ -112,17 +112,64 @@ code {
     background-color: hsl(var(--surface-2));
 }
 
+/* The landing shop window. No photograph: a car image behind the headline would fight the 24
+   car photos that start one scroll below. A blueprint grid plus one soft brand glow reads as
+   technical rather than promotional, costs nothing to load and works in both themes. */
 .hero-bg {
-    background-image: linear-gradient(135deg, #ffffff 0%, #fdf0f1 55%, #ffffff 100%);
+    background-color: hsl(var(--background));
+    background-image: radial-gradient(
+        ellipse 90% 70% at 50% -20%,
+        hsl(var(--primary) / 0.09),
+        transparent 70%
+    );
 }
 .dark .hero-bg {
-    background-image: linear-gradient(135deg, #111318 0%, #241419 55%, #111318 100%);
+    background-image: radial-gradient(
+        ellipse 90% 70% at 50% -20%,
+        hsl(var(--primary) / 0.22),
+        transparent 70%
+    );
 }
 
-.hero-grain {
-    background-image: radial-gradient(currentColor 1px, transparent 1px);
-    background-size: 3px 3px;
-    opacity: 0.035;
+/* 1px grid, faded out towards the results so there is no hard seam. */
+.hero-grid {
+    background-image:
+        linear-gradient(to right, hsl(var(--border)) 1px, transparent 1px),
+        linear-gradient(to bottom, hsl(var(--border)) 1px, transparent 1px);
+    background-size: 56px 56px;
+    opacity: 0.55;
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 85%);
+    mask-image: linear-gradient(to bottom, #000 0%, transparent 85%);
+}
+
+/* Staggered entrance for the hero, applied with an inline animation-delay. */
+@keyframes rise {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+.animate-rise {
+    animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .animate-rise {
+        animation: none;
+    }
+}
+
+/* The chip row scrolls sideways on a narrow screen instead of orphaning the third pill. */
+.no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
 }
 
 .shimmer {
