@@ -1149,9 +1149,16 @@ async def reco_click(body: RecoClickBody):
 
 
 async def _reco_deposits(picks):
-    """How many deposits each pick has earned — the only number that is really retention."""
+    """How many deposits each pick has earned — the only number that is really retention.
+
+    Only money that is actually HELD counts (authorised / captured / paid). A checkout the
+    visitor opened and abandoned (`pending`), one that timed out (`expired`) and one we gave
+    back (`released`) are not retention, and counting them made a pick with a single refunded
+    deposit the winner of the whole shelf.
+    """
     counts = {}
-    async for d in db.deposits.find({}, {"car_id": 1}):
+    async for d in db.deposits.find(
+            {"payment_status": {"$in": list(deposits.HELD_STATES)}}, {"car_id": 1}):
         if d.get("car_id"):
             counts[d["car_id"]] = counts.get(d["car_id"], 0) + 1
     if not counts:
@@ -1188,7 +1195,10 @@ async def admin_reco_defaults(request: Request, x_admin_token: str = Header(defa
     stats = {d["_id"]: d async for d in db.reco_stats.find({})}
     earned = await _reco_deposits(picks)
     scores = await _pick_scores(picks, conf["min_impressions"])
-    order = await _ranked_picks(picks, conf["min_impressions"]) if conf["auto_rank"] else picks
+    # fresh=True on purpose: the admin screen prints the scores NEXT TO the order, and a
+    # minute-old order beside freshly counted scores contradicts itself on the page.
+    order = (await _ranked_picks(picks, conf["min_impressions"], fresh=True)
+             if conf["auto_rank"] else picks)
     place = {_pick_key(p): n + 1 for n, p in enumerate(order)}
     names = await _labels([v for p in picks for v in (p.get("make"), p.get("model")) if v], "en")
     items = []

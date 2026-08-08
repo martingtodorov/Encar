@@ -1,5 +1,16 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-08: PICKED-FOR-YOU RANKING BUG — the shelf was being won by a deposit that no
+longer existed. `_reco_deposits` counted EVERY document in `deposits`, so an abandoned checkout
+(`pending`), a timed-out one (`expired`) and a refunded one (`released`) all scored as retention
+(x10 in `_pick_score`). It now counts only money actually held:
+`payment_status in deposits.HELD_STATES` (authorised / captured / paid). Measured before and
+after on the real data: the C63 pick showed 1 deposit from a RELEASED authorisation and ranked
+first at score 13.4; it now shows 0 and ranks first on CTR alone at 3.4, M2 (G87) second at 1.52
+(both had dep 0 for the M2 all along - the number the owner saw was this stale count).
+`/admin/reco-defaults` also now ranks with `fresh=True`, as its own docstring always intended,
+so the order can no longer be up to a minute behind the scores printed beside it. -->
+
 <!-- 2026-08-08: TRACKING TENSE — a milestone that has not happened is no longer worded in the
 past ("Пристигна" under a date a week away). `TrackPage.FUTURE` holds future-tense copy per
 event code in BG/RO/EN and `label(lang, code, estimated)` prefers it; a milestone counts as
