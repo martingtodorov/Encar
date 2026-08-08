@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { CarCard } from "@/components/CarCard";
 import { useApp } from "@/context/AppContext";
-import { getRecommendations } from "@/lib/api";
+import { countRecoClick, getRecommendations } from "@/lib/api";
 import { getTaste } from "@/lib/taste";
 
 /**
@@ -15,16 +15,28 @@ import { getTaste } from "@/lib/taste";
 export const Recommended = ({ onOpen }) => {
   const { t, lang } = useApp();
   const [items, setItems] = useState([]);
+  // Only the owner's hand-picked shelf is measured: a click on the popular list says nothing
+  // about a choice the owner made.
+  const [curated, setCurated] = useState(false);
 
   useEffect(() => {
     let alive = true;
     getRecommendations({ ...getTaste(), lang, limit: 12 })
-      .then((d) => alive && setItems(d.items || []))
+      .then((d) => {
+        if (!alive) return;
+        setItems(d.items || []);
+        setCurated(d.source === "curated");
+      })
       .catch(() => alive && setItems([]));
     return () => {
       alive = false;
     };
   }, [lang]);
+
+  const open = (car) => {
+    if (curated) countRecoClick(car.id);
+    onOpen?.(car);
+  };
 
   if (!items.length) return null;
 
@@ -51,7 +63,7 @@ export const Recommended = ({ onOpen }) => {
               data-testid={`recommended-card-${car.id}`}
               className="w-[280px] shrink-0 sm:w-[300px]"
             >
-              <CarCard car={car} onOpen={onOpen} showRegion={false} />
+              <CarCard car={car} onOpen={open} showRegion={false} />
             </div>
           ))}
         </div>

@@ -164,6 +164,11 @@ const CAR_CACHE_MAX = 60;
 
 const carKey = (id, lang) => `${lang}:${id}`;
 
+/** A car opened from the hand-picked landing shelf. Fire and forget, like countView. */
+export function countRecoClick(id) {
+  http.post("/reco/click", { id: String(id) }).catch(() => {});
+}
+
 export function countView(id) {
   // Fire and forget: a failed count must never interrupt reading the ad.
   http.post(`/car/${encodeURIComponent(id)}/view`).catch(() => {});
@@ -651,6 +656,21 @@ export async function adminTranslateCmsPage(slug, source = "bg") {
   const { data } = await http.post(`/admin/cms/page/${slug}/translate`, null, {
     params: { source },
   });
+  return data;
+}
+
+export async function adminRecoDefaults() {
+  const { data } = await http.get("/admin/reco-defaults");
+  return data;
+}
+
+export async function adminSaveRecoDefaults(body) {
+  const { data } = await http.put("/admin/reco-defaults", body);
+  return data;
+}
+
+export async function adminResetRecoDefaults(stats = false) {
+  const { data } = await http.post("/admin/reco-defaults/reset", null, { params: { stats } });
   return data;
 }
 

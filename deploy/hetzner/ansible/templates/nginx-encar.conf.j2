@@ -27,6 +27,15 @@ set_real_ip_from 2a06:98c0::/29;
 set_real_ip_from 2c0f:f248::/32;
 real_ip_header CF-Connecting-IP;
 
+# Chat apps and social networks never run our JavaScript, so the og:* tags the car page
+# writes at runtime are invisible to them and a pasted link previews as nothing. These
+# clients are sent to /api/share/car/{id}, which carries the ad's OWN first photo at
+# 1200x630 in the HTML. A human is never touched by this.
+map $http_user_agent $encar_crawler {
+    default 0;
+    "~*(facebookexternalhit|facebookcatalog|Facebot|Twitterbot|Slackbot|WhatsApp|Viber|TelegramBot|LinkedInBot|Discordbot|Pinterest|SkypeUriPreview|redditbot|vkShare|Applebot|Iframely|embedly|Snapchat|Instagram|Mastodon|Bluesky|Google-InspectionTool)" 1;
+}
+
 upstream {{ app_name }}_backend {
     server encar-back1:8001 max_fails=0;
     keepalive 32;
@@ -129,6 +138,19 @@ server {
 
     location = /sitemap.xml { try_files $uri =404; }
     location = /robots.txt  { try_files $uri =404; }
+
+    # A car link pasted into Viber/Messenger/WhatsApp/Facebook: the crawler gets the share
+    # page (og:image = the ad's first photo), a person gets the app exactly as before.
+    location ~ ^/(bg|ro|en)/car/([^/]+)/?$ {
+        # The captures are copied out FIRST: nginx clears $1/$2 inside an `if`, which sent the
+        # crawler to /api/share/car/?lang= and answered 404.
+        set $share_lang $1;
+        set $share_id $2;
+        if ($encar_crawler) {
+            proxy_pass http://{{ app_name }}_backend/api/share/car/$share_id?lang=$share_lang;
+        }
+        try_files $uri $uri/index.html /index.html;
+    }
 
     # Every route is client side: /bg, /ro, /en and everything under them.
     location / {

@@ -1452,3 +1452,46 @@ cars under contract in Korea being unreservable. If those env values change, the
 CAUTION WHEN VERIFYING: the preview DB has a CMS stub page for how-it-works in BG and RO
 ("Стъпка едно / Стъпка две") which REPLACES the whole built-in page, so the new sections only
 appear on /en there. Production has no such stub.
+
+## 2026-06 — The first impression: a hand-picked shelf, and previews for pasted car links
+
+### "Picked for you" for somebody we know nothing about
+A visitor with no taste profile used to get `_popular_shelf` — whatever the crowd clicked.
+Now `POST /api/recommendations` answers `source: "curated"` from the owner's own list first,
+and only falls back to `"popular"` when the list is off or nothing in it is in stock. The
+moment a visitor looks at anything, their own taste takes over exactly as before.
+
+Picks are stored as ENCAR'S OWN values (Korean marque, Encar model code) plus an optional
+`badge` SUBSTRING, so a pick can be one specific version of a model. The seven the app ships
+with (`DEFAULT_PICKS` in server.py) are BMW M2 (G87), Ferrari 458, Hyundai Santa Fe (MX5),
+Mercedes C-Class W205 + "C63", Hyundai Palisade, Mercedes GLE-Class W167 + "GLE400d",
+BMW X3 (G01) + "M40i". Never store translated labels here — a pick that stopped matching
+would fail silently.
+
+Owner's list lives in `site_settings._id = "default_taste"` `{enabled, picks[]}`; no document
+means the built-in seven. Admin tab "Picked for you" (`AdminRecommendations.js`,
+`/api/admin/reco-defaults` GET/PUT + `/reset?stats=`) edits it and shows, per pick: cars in
+stock, impressions, opens, CTR and DEPOSITS EARNED. Impressions are written when the shelf is
+built (`_reco_seen`), opens by `POST /api/reco/click` which the shelf fires ONLY when
+`source === "curated"`, and deposits are computed live by matching `deposits.car_id` against
+the picks. Counters live in `reco_stats`, keyed `make|model|badge`.
+
+### A car link pasted into Viber/Messenger/WhatsApp now previews as the car
+`GET /api/share/car/{id}` already carried og:image = the ad's first photo at 1200x630, but
+nothing linked to it, so a pasted `/{lang}/car/{id}` previewed as nothing (chat apps never
+run our JS). nginx now sends SOCIAL CRAWLERS ONLY to that endpoint: a `map` on the
+user-agent (`$encar_crawler`) plus a regex location for `^/(bg|ro|en)/car/([^/]+)/?$`.
+A human still gets the app through `try_files`.
+TRAP, cost an hour: nginx CLEARS the location's `$1`/`$2` inside an `if`, so the first version
+proxied to `/api/share/car/?lang=` and answered 404. The captures are copied into
+`$share_lang` / `$share_id` BEFORE the `if`. Verified end to end with a real nginx on the pod:
+`facebookexternalhit` gets the share HTML with the car's photo, `Mozilla/5.0` gets the shell.
+The owner wants nothing on the card but the car's own first photo — no branded overlay.
+
+Tests: `backend/tests/test_default_shelf.py` (9 passing) — curated source for an anonymous
+visitor, every car belongs to a pick, a real taste profile still wins, admin 401 without an
+admin, a click counted against its pick, an unknown car ignored, switching the shelf off
+falling back to popular, and the share page carrying og:image + summary_large_image.
+
+NOTE seen while testing: the translation provider is answering 429 (quota) in this
+environment, so newly seen Korean model names stay Korean until the key has balance again.

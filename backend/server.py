@@ -29,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import UpdateOne
 from pymongo.errors import DuplicateKeyError
 from pydantic import BaseModel, Field
 
@@ -962,6 +963,219 @@ async def _popular_shelf(lang, exclude, limit):
     return items
 
 
+# ── the shelf a brand-new visitor sees ────────────────────────────────────────────────
+# Somebody arriving for the first time has no profile at all, and "the most opened ads of
+# the fortnight" is an honest answer but a dull one — it is whatever the crowd clicked. The
+# owner would rather the first impression be the cars the shop wants to be known for, so a
+# hand-picked shelf comes first and the popular list stays as the fallback.
+#
+# The values are Encar's OWN (Korean makes, Encar model codes), never translations: a pick
+# has to be an exact catalogue match or it would quietly stop matching the day a label
+# changed. `badge` is an optional substring of the trim, which is how a pick can be one
+# specific version of a model ("C63" inside "C63 S AMG 쿠페").
+DEFAULT_PICKS = [
+    {"make": "BMW", "model": "M2 (G87)", "badge": ""},
+    {"make": "페라리", "model": "458", "badge": ""},
+    {"make": "현대", "model": "싼타페 (MX5)", "badge": ""},
+    {"make": "벤츠", "model": "C-클래스 W205", "badge": "C63"},
+    {"make": "현대", "model": "팰리세이드", "badge": ""},
+    {"make": "벤츠", "model": "GLE-클래스 W167", "badge": "GLE400d"},
+    {"make": "BMW", "model": "X3 (G01)", "badge": "M40i"},
+]
+
+
+def _pick_key(p):
+    return f"{p.get('make') or ''}|{p.get('model') or ''}|{p.get('badge') or ''}"
+
+
+def _pick_matches(p, doc):
+    if (doc.get("manufacturer") or "") != (p.get("make") or ""):
+        return False
+    if (doc.get("model") or "") != (p.get("model") or ""):
+        return False
+    return not p.get("badge") or p["badge"] in (doc.get("badge") or "")
+
+
+def _pick_query(p):
+    """Every car in the catalogue that is this pick, with the landing floor applied."""
+    query = build_query({})
+    apply_home_floor(query)
+    query["manufacturer"] = p.get("make") or ""
+    query["model"] = p.get("model") or ""
+    if p.get("badge"):
+        query["badge"] = {"$regex": re.escape(p["badge"])}
+    return query
+
+
+async def default_picks():
+    """The owner's list, or the one this file ships with until they change it."""
+    doc = await db.site_settings.find_one({"_id": "default_taste"}) or {}
+    picks = doc.get("picks")
+    return bool(doc.get("enabled", True)), list(picks if picks is not None else DEFAULT_PICKS)[:24]
+
+
+async def _curated_shelf(lang, exclude, limit):
+    """The hand-picked shelf. Empty if the owner has switched it off or nothing is in stock."""
+    enabled, picks = await default_picks()
+    if not enabled or not picks:
+        return []
+    seen = {str(x) for x in (exclude or [])}
+    per = max(1, -(-limit // len(picks)))
+    chosen = []
+    for p in picks:
+        taken = 0
+        cursor = db.listings.find(_pick_query(p)).sort(SORTS["newest"]).limit(per * 4)
+        async for doc in cursor:
+            if doc["_id"] in seen:
+                continue
+            seen.add(doc["_id"])
+            chosen.append((0.0, "model", doc, _pick_key(p)))
+            taken += 1
+            if taken >= per:
+                break
+    if not chosen:
+        return []
+    # Same rule as everywhere else: never two of one marque side by side.
+    rows = _space(chosen)[:limit]
+    docs = [r[2] for r in rows]
+    await translate_listings(db, docs, lang)
+    items = []
+    for doc in docs:
+        out = listing_out(doc)
+        out.pop("landed_eur", None)
+        out["why_label"] = out.get("model_t") or out.get("model") or ""
+        items.append(out)
+    await publish_prices(items)
+    await _reco_seen([r[3] for r in rows])
+    return items
+
+
+async def _reco_seen(keys):
+    """One impression per pick per shelf served, so the click-through rate means something."""
+    if not keys:
+        return
+    ops = [UpdateOne({"_id": k}, {"$inc": {"impressions": 1}}, upsert=True) for k in keys]
+    try:
+        await db.reco_stats.bulk_write(ops, ordered=False)
+    except Exception as e:
+        log.warning("reco impressions failed: %s", str(e)[:120])
+
+
+class RecoClickBody(BaseModel):
+    id: str = ""
+
+
+@api.post("/reco/click")
+async def reco_click(body: RecoClickBody):
+    """A car from the shelf was opened. Counted against the pick it came from, which is the
+    only way to see which of the default cars actually earns attention."""
+    doc = await db.listings.find_one({"_id": str(body.id)[:64]},
+                                     {"manufacturer": 1, "model": 1, "badge": 1})
+    if not doc:
+        return {"ok": False}
+    _, picks = await default_picks()
+    key = next((_pick_key(p) for p in picks if _pick_matches(p, doc)), "")
+    if key:
+        await db.reco_stats.update_one({"_id": key}, {"$inc": {"clicks": 1}}, upsert=True)
+    return {"ok": bool(key)}
+
+
+async def _reco_deposits(picks):
+    """How many deposits each pick has earned — the only number that is really retention."""
+    counts = {}
+    async for d in db.deposits.find({}, {"car_id": 1}):
+        if d.get("car_id"):
+            counts[d["car_id"]] = counts.get(d["car_id"], 0) + 1
+    if not counts:
+        return {}
+    out = {}
+    async for doc in db.listings.find({"_id": {"$in": list(counts)}},
+                                      {"manufacturer": 1, "model": 1, "badge": 1}):
+        for p in picks:
+            if _pick_matches(p, doc):
+                key = _pick_key(p)
+                out[key] = out.get(key, 0) + counts[doc["_id"]]
+                break
+    return out
+
+
+class RecoPickBody(BaseModel):
+    make: str = ""
+    model: str = ""
+    badge: str = ""
+
+
+class RecoDefaultsBody(BaseModel):
+    enabled: bool = True
+    picks: list[RecoPickBody] = Field(default_factory=list)
+
+
+@api.get("/admin/reco-defaults")
+async def admin_reco_defaults(request: Request, x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
+    enabled, picks = await default_picks()
+    stats = {d["_id"]: d async for d in db.reco_stats.find({})}
+    earned = await _reco_deposits(picks)
+    names = await _labels([v for p in picks for v in (p.get("make"), p.get("model")) if v], "en")
+    items = []
+    for p in picks:
+        key = _pick_key(p)
+        row = stats.get(key) or {}
+        shown, clicks = int(row.get("impressions") or 0), int(row.get("clicks") or 0)
+        items.append({
+            "key": key,
+            "make": p.get("make") or "",
+            "model": p.get("model") or "",
+            "badge": p.get("badge") or "",
+            "make_label": names.get(p.get("make") or "", p.get("make") or ""),
+            "model_label": names.get(p.get("model") or "", p.get("model") or ""),
+            "available": await db.listings.count_documents(_pick_query(p)),
+            "impressions": shown,
+            "clicks": clicks,
+            "ctr": round(clicks * 100.0 / shown, 1) if shown else 0.0,
+            "deposits": earned.get(key, 0),
+        })
+    return {"enabled": enabled, "picks": items, "custom": bool(
+        await db.site_settings.count_documents({"_id": "default_taste"}))}
+
+
+@api.put("/admin/reco-defaults")
+async def admin_save_reco_defaults(body: RecoDefaultsBody, request: Request,
+                                   x_admin_token: str = Header(default="")):
+    admin = await _require_admin(request, x_admin_token)
+    picks, seen = [], set()
+    for raw in body.picks[:24]:
+        p = {"make": raw.make.strip()[:60], "model": raw.model.strip()[:80],
+             "badge": raw.badge.strip()[:80]}
+        if not p["make"] or not p["model"] or _pick_key(p) in seen:
+            continue
+        seen.add(_pick_key(p))
+        picks.append(p)
+    await db.site_settings.update_one(
+        {"_id": "default_taste"},
+        {"$set": {"enabled": bool(body.enabled), "picks": picks,
+                  "updated_at": datetime.now(timezone.utc).isoformat(),
+                  "updated_by": _actor(admin)}}, upsert=True)
+    await _audit(request, _actor(admin), "reco.defaults", "default_taste",
+                 f"{len(picks)} picks, {'on' if body.enabled else 'off'}")
+    return {"ok": True, "picks": picks}
+
+
+@api.post("/admin/reco-defaults/reset")
+async def admin_reset_reco_defaults(request: Request, stats: bool = False,
+                                    x_admin_token: str = Header(default="")):
+    """`stats=1` clears the counters; otherwise the list goes back to the built-in seven."""
+    admin = await _require_admin(request, x_admin_token)
+    if stats:
+        await db.reco_stats.delete_many({})
+        await _audit(request, _actor(admin), "reco.stats.reset", "reco_stats")
+    else:
+        await db.site_settings.delete_one({"_id": "default_taste"})
+        await _audit(request, _actor(admin), "reco.defaults.reset", "default_taste")
+    return {"ok": True}
+
+
+
 @api.post("/recommendations")
 async def recommendations(body: TasteBody, request: Request):
     """Cars this visitor is most likely to want next."""
@@ -971,6 +1185,10 @@ async def recommendations(body: TasteBody, request: Request):
     fuels = _weights(body.fuels, 4)
     limit = max(1, min(body.limit, 24))
     if not makes and not models:
+        # Nothing known about them yet: the owner's own shelf, then the crowd's.
+        curated = await _curated_shelf(lang, body.exclude, limit)
+        if curated:
+            return {"items": curated, "lang": lang, "source": "curated"}
         return {"items": await _popular_shelf(lang, body.exclude, limit),
                 "lang": lang, "source": "popular"}
 

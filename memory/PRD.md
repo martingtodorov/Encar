@@ -1,5 +1,10 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-06: a brand-new visitor now meets the OWNER'S hand-picked shelf ("Picked for you",
+source "curated") instead of the crowd's most-opened ads; the list, its stock counts and its
+impressions/opens/CTR/deposits live in the admin tab "Picked for you". A car link pasted into a
+chat app previews with the ad's own first photo, because nginx routes social crawlers to
+/api/share/car/{id}. See CHANGELOG.md. -->
 <!-- 2026-06-04: "подходящи" (relevant) is now the DEFAULT SORT on every search — the old
 auto-switch rules (make -> newest, model -> cheapest) were removed; a sort the visitor
 picks themselves is respected for the session. Catalogue sync is checkpointed per slice
