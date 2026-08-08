@@ -199,8 +199,12 @@ export default function CarDetailPage() {
 
   useSeo({
     lang,
-    title: car?.title ? `${car.title} \u00b7 Encar` : "Encar",
-    description: car?.title ? `${car.title} \u2014 ${t("seoCarDesc")}` : t("seoHomeDesc"),
+    // The generation years belong on the page, not in a link preview: "(2018-2023)" reads as
+    // clutter in a chat bubble and pushes the trim out of a truncated title.
+    title: car?.title ? `${stripGenerationYears(car.title)} \u00b7 Encar` : "Encar",
+    description: car?.title
+      ? `${stripGenerationYears(car.title)} \u2014 ${t("seoCarDesc")}`
+      : t("seoHomeDesc"),
     image: photos[0]?.full,
   });
 

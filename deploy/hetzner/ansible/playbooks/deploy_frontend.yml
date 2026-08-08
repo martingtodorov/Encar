@@ -90,6 +90,10 @@
       environment:
         CI: "false"
         REACT_APP_BACKEND_URL: ""
+        # Absolute site URL. og:image must NOT be relative, and public/index.html carries
+        # %REACT_APP_SITE_URL% (CRA substitutes it at build time); the postbuild
+        # gen-lang-html.js reads the same variable for the Track page's map preview.
+        REACT_APP_SITE_URL: "https://{{ site_domains[0] }}"
         NODE_OPTIONS: "--max-old-space-size=2048"
       tags: [build]
 

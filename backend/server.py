@@ -1902,6 +1902,38 @@ def _attr(s):
             .replace("<", "&lt;").replace(">", "&gt;"))
 
 
+_HANGUL = re.compile(r"[\uac00-\ud7a3]")
+_YEAR_SPAN = re.compile(r"[(（]\s*\d{4}\s*[-–~]\s*\d{0,4}\s*[)）]")
+
+
+def _share_title(doc):
+    """Make, model, trim and sub-trim, as a link preview should read them.
+
+    Three rules learned from real ads:
+      * the generation YEARS are stripped — "(2018-2023)" is clutter in a chat bubble and
+        pushes the trim out of a title the app truncates anyway;
+      * anything still in Hangul is dropped rather than shown: Encar's sub-trim is often
+        untranslatable filler ("(세부등급 없음)" literally means "no sub-grade");
+      * a sub-trim that merely repeats the trim is not printed twice.
+    """
+    if not doc:
+        return ""
+    parts = []
+    for field in ("manufacturer", "model", "badge", "badge_detail"):
+        value = _YEAR_SPAN.sub("", str(doc.get(f"{field}_t") or doc.get(field) or "")).strip()
+        value = " ".join(value.split())
+        if not value or _HANGUL.search(value):
+            continue
+        # A sub-trim that is nothing but a parenthetical is Encar's own filler, translated or
+        # not: "(세부등급 없음)" comes back as "(No detailed trim)" and belongs in no title.
+        if value.startswith("(") and value.endswith(")"):
+            continue
+        if any(value.casefold() in p.casefold() for p in parts):
+            continue
+        parts.append(value)
+    return " ".join(parts)
+
+
 @api.get("/share/car/{listing_id}", response_class=HTMLResponse)
 async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     """A shareable link whose preview picture is the ad's own lead photo.
@@ -1916,18 +1948,12 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
         {"photos": 1, "manufacturer": 1, "model": 1, "manufacturer_t": 1, "model_t": 1,
          "badge": 1, "badge_detail": 1, "year_month": 1, "mileage": 1, "sale_eur": 1})
     photos = (doc or {}).get("photos") or []
-    # Makes and models are proper nouns: translate_listings resolves them from the ENGLISH
-    # cache, so a shared link never shows the Korean model name.
+    # Makes, models and trims are all resolved from the ENGLISH cache (they are proper nouns),
+    # so a shared link never shows a Korean name.
     if doc:
-        await translate_listings(db, [doc], lang, fields=("manufacturer", "model"))
-    title = " ".join(filter(None, [
-        (doc or {}).get("manufacturer_t") or (doc or {}).get("manufacturer"),
-        (doc or {}).get("model_t") or (doc or {}).get("model"),
-        # The trim belongs in the title: "BMW 5 Series (F10)" tells a buyer far less than
-        # "BMW 5 Series (F10) 520d". Trims are Latin everywhere, so no translation is needed,
-        # and `badge_detail` is empty on plenty of ads, where `badge` carries it.
-        (doc or {}).get("badge_detail") or (doc or {}).get("badge") or "",
-    ])) or "Europe Encar"
+        await translate_listings(db, [doc], lang,
+                                 fields=("manufacturer", "model", "badge", "badge_detail"))
+    title = _share_title(doc) or "Europe Encar"
     ym = str((doc or {}).get("year_month") or "")
     facts = [f"{ym[4:6]}/{ym[:4]}" if len(ym) >= 6 else "",
              f"{(doc or {}).get('mileage'):,} km".replace(",", " ")

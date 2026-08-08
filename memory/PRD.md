@@ -23,10 +23,23 @@ all. Fixed:
 * nginx template gained the same crawler route for `^/(bg|ro|en)/track/?$` (passes `$args`).
 * `share_car` title now carries the TRIM (`badge_detail` or `badge`): "BMW 5 Series (F10) 520d",
   "Mercedes-Benz S-Class W223 S580L 4MATIC". It was make + model only.
-STILL TRUE AND WORTH REMEMBERING: a per-CAR photo preview needs the request to reach our nginx
-(their Hetzner box) or the `/api/share/car/{id}` link pasted by hand. On the emergent preview URL
-the logo plate is the best that is technically possible, because no per-path server rule exists
-there. `PUBLIC_SITE_URL` and `REACT_APP_SITE_URL` must both be changed at go-live. -->
+STILL TRUE AND WORTH REMEMBERING: a per-CAR photo preview needs the request to reach a server
+rule. On the preview host that is now `frontend/src/setupProxy.js` — the CRA dev server sends a
+crawler UA on `/{lang}/car/{id}` and `/{lang}/track` to the matching `/api/share/...` page with a
+302, and a human falls through to the app untouched. Production uses the nginx `$encar_crawler`
+rule instead (car was already there, track added). Verified on the preview host with a
+`facebookexternalhit` UA: car link -> the ad's own photo + "BMW 5 Series (F10) 520d", track link
+-> the OSM route map, home -> the logo plate, human UA -> the normal app.
+SHARE TITLES: `_share_title` builds make + model + trim + sub-trim from the ENGLISH cache and
+(a) strips generation years — the owner does not want "(2018-2023)" in a preview, and
+`CarDetailPage` now passes `stripGenerationYears(car.title)` to `useSeo` for the same reason,
+(b) drops anything still in Hangul, (c) drops a purely parenthetical sub-trim, because Encar's
+"(세부등급 없음)" translates to "(No detailed trim)" and is filler, (d) never repeats a part.
+`PUBLIC_SITE_URL` and `REACT_APP_SITE_URL` must both be changed at go-live. The DOMAIN IS
+**encareurope.com** and the deploy config already carries it (`group_vars/all.yml.example`
+`site_domains`, `backend.env.j2` -> `PUBLIC_SITE_URL`); `deploy_frontend.yml` was missing
+`REACT_APP_SITE_URL` in the `yarn build` environment, which would have made every og:image
+RELATIVE in production — it is passed now. -->
 
 <!-- 2026-08-08: TRAFFIC COUNTERS ARE CALENDAR PERIODS, NOT ROLLING WINDOWS. `traffic._day_start`
 returns midnight in `ADMIN_TZ` (Europe/Sofia) N calendar days ago, converted to UTC, and
