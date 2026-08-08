@@ -659,6 +659,21 @@ export async function adminTranslateCmsPage(slug, source = "bg") {
   return data;
 }
 
+export async function getCallButton() {
+  const { data } = await http.get("/call-button");
+  return data;
+}
+
+export async function adminCallButton() {
+  const { data } = await http.get("/admin/call-button");
+  return data;
+}
+
+export async function adminSaveCallButton(body) {
+  const { data } = await http.put("/admin/call-button", body);
+  return data;
+}
+
 export async function adminRecoDefaults() {
   const { data } = await http.get("/admin/reco-defaults");
   return data;

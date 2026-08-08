@@ -174,7 +174,11 @@ export function AuthProvider({ children }) {
   const logout = useCallback(async () => {
     await apiLogout().catch(() => {});
     setUser(null);
-  }, []);
+    // Saving requires an account, so nothing that belonged to one may be left behind on
+    // what could well be a shared machine.
+    replaceFavourites([]);
+    replaceSearches([]);
+  }, [replaceFavourites, replaceSearches]);
 
   /** One tap, no email typed: the authenticator picks the passkey for this site. */
   const passkeyLogin = useCallback(async () => {

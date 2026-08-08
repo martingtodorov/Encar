@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PhotoSwiper } from "@/components/PhotoSwiper";
 import { useApp } from "@/context/AppContext";
+import { useGate } from "@/components/SignInGate";
 import { useCarWarm } from "@/hooks/useCarWarm";
 import {
   carSubtitle,
@@ -16,6 +17,7 @@ import {
 // decide. `showRegion` is kept as a no-op prop so the callers need no change.
 export const CarCard = ({ car, onOpen, showRegion = true }) => {
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
+  const { requireAccount } = useGate();
   const saved = isFavourite(car.id);
   const [warm, warmNow] = useCarWarm(car.id);
 
@@ -91,6 +93,7 @@ export const CarCard = ({ car, onOpen, showRegion = true }) => {
           data-testid="car-card-save-button"
           onClick={(e) => {
             e.stopPropagation();
+            if (!requireAccount("car")) return;
             toggleFavourite(car.id, car);
           }}
           aria-label={saved ? t("saved") : t("save")}

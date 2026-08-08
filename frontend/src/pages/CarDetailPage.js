@@ -26,7 +26,9 @@ import { PhotoSwiper } from "@/components/PhotoSwiper";
 import { CarGrid } from "@/components/CarGrid";
 import { ReserveCar } from "@/components/ReserveCar";
 import { useApp } from "@/context/AppContext";
+import { useGate } from "@/components/SignInGate";
 import { EnquiryDialog } from "@/components/EnquiryDialog";
+import { CallButton } from "@/components/CallButton";
 import { DescriptionPanelBody } from "@/components/DescriptionPanelBody";
 import { ClampBlock } from "@/components/ClampBlock";
 import { PriceNote } from "@/components/PriceNote";
@@ -108,6 +110,7 @@ export default function CarDetailPage() {
   const location = useLocation();
   const { path } = useLangNav();
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
+  const { requireAccount } = useGate();
 
   const [car, setCar] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -267,12 +270,14 @@ export default function CarDetailPage() {
         car={car}
         price={money(q?.suggested_sale ?? 0)}
         saved={saved}
-        onToggleSave={() => toggleFavourite(id, car)}
+        onToggleSave={() => requireAccount("car") && toggleFavourite(id, car)}
       />
 
-      {/* Mobile clears the always-visible car bar; desktop only needs the normal gap. The car
-          bar itself sits below the header, which the admin traffic bar pushes down. */}
-      <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-[calc(var(--admin-bar-h,0px)_+_72px)] sm:px-6 lg:pt-2">
+      {/* Mobile clears the always-visible car bar; desktop only needs the normal gap. The
+          admin traffic bar must NOT be added here: it sits in normal flow, so this container
+          already starts below it, and counting it twice left a phone with ~78px of nothing
+          between the car bar and the first photo. */}
+      <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-[72px] sm:px-6 lg:pt-2">
         <Button
           data-testid="back-to-results-button"
           variant="ghost"
@@ -403,7 +408,7 @@ export default function CarDetailPage() {
                 <Button
                   data-testid="detail-save-button"
                   variant="outline"
-                  onClick={() => toggleFavourite(id, car)}
+                  onClick={() => requireAccount("car") && toggleFavourite(id, car)}
                   aria-label={saved ? t("saved") : t("save")}
                   title={saved ? t("saved") : t("save")}
                   className="h-11 w-11 border-border bg-card p-0 hover:bg-muted"
@@ -476,7 +481,12 @@ export default function CarDetailPage() {
             {/* Both actions sit directly under the photos: by then the buyer has seen the
                 car and the price, and enquiring or holding it must be one glance away. */}
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <EnquiryDialog car={car} title={car.title} />
+              {/* Enquire and call share what used to be the enquiry button's width, so the
+                  buyer can pick the channel they actually want without hunting for a number. */}
+              <div className="grid grid-cols-2 gap-3">
+                <EnquiryDialog car={car} title={car.title} />
+                <CallButton />
+              </div>
               <ReserveCar car={car} />
             </div>
 

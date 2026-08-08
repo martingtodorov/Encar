@@ -20,6 +20,7 @@ import { SortControl, DEFAULT_SORT_BROWSE } from "@/components/SortControl";
 import { CarGrid } from "@/components/CarGrid";
 import { ResultsPagination } from "@/components/ResultsPagination";
 import { useApp } from "@/context/AppContext";
+import { useGate } from "@/components/SignInGate";
 import { useLangNav } from "@/hooks/useLangNav";
 import { cachedSearch, getCatalogueSize, getFilters, prefetchSearch, resolveSlugs, searchCars } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
@@ -83,6 +84,7 @@ function tasteFor(key) {
 
 export default function SearchPage() {
   const { t, lang, currency, rates, cms, saveSearch, isSearchSaved } = useApp();
+  const { requireAccount } = useGate();
   const { go } = useLangNav();
   const [searchParams, setSearchParams] = useSearchParams();
   // Read the URL ONCE on mount; after that this component owns the state and writes
@@ -477,9 +479,10 @@ export default function SearchPage() {
   );
 
   const saveThis = useCallback(() => {
+    if (!requireAccount("search")) return;
     saveSearch({ name: searchName, query, total: result.total });
     toast.success(t("searchSavedToast"), { description: searchName });
-  }, [searchName, query, result.total, saveSearch, t]);
+  }, [searchName, query, result.total, saveSearch, t, requireAccount]);
 
   // Any narrowing at all earns the red dot on the floating bar - and hides the hero.
   const anyFilterActive = !!query;

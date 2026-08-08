@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { HeaderBar } from "@/components/HeaderBar";
 import { CarGrid } from "@/components/CarGrid";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
+import { SignInPrompt } from "@/components/SignInPrompt";
 import { useLangNav } from "@/hooks/useLangNav";
 import { useSeo } from "@/lib/seo";
 import { getListingsByIds } from "@/lib/api";
@@ -12,6 +14,7 @@ import { getListingsByIds } from "@/lib/api";
 /** Saved cars, resolved from the locally stored favourite ids. */
 export default function SavedCarsPage() {
   const { t, lang, favourites } = useApp();
+  const { user, loading: authLoading } = useAuth();
   const { path, go } = useLangNav();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -45,7 +48,14 @@ export default function SavedCarsPage() {
       <main className="mx-auto max-w-[1280px] px-4 py-6 sm:px-6">
         <h1 className="mb-5 text-2xl font-semibold text-foreground">{t("savedCars")}</h1>
 
-        {!loading && !items.length ? (
+        {!user && !authLoading ? (
+          <SignInPrompt
+            testId="saved-signin-prompt"
+            icon={HeartOff}
+            title={t("gateCarTitle")}
+            body={t("gateCarBody")}
+          />
+        ) : !loading && !items.length ? (
           <div
             data-testid="saved-empty-state"
             className="rounded-[16px] border border-border bg-card p-10 text-center"

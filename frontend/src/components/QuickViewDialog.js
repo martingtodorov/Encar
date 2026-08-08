@@ -13,6 +13,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ImageWithFallback } from "@/components/ImageWithFallback";
 import { useApp } from "@/context/AppContext";
+import { useGate } from "@/components/SignInGate";
 import { getQuote } from "@/lib/api";
 import {
   carSubtitle,
@@ -39,6 +40,7 @@ const Row = ({ label, value, strong, muted, testId }) => (
 
 export const QuickViewDialog = ({ car, open, onOpenChange }) => {
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
+  const { requireAccount } = useGate();
   const [quote, setQuote] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -178,7 +180,7 @@ export const QuickViewDialog = ({ car, open, onOpenChange }) => {
             <Button
               data-testid="quick-view-save"
               variant="outline"
-              onClick={() => toggleFavourite(car.id, car)}
+              onClick={() => requireAccount("car") && toggleFavourite(car.id, car)}
               className="h-11 gap-2 border-border bg-card px-4 text-sm hover:bg-muted"
             >
               <Heart

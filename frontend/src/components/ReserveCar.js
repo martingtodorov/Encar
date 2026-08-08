@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import { Loader2, Lock, MailWarning, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
@@ -22,7 +28,7 @@ export const ReserveCar = ({ car }) => {
   const { user } = useAuth();
   const { path } = useLangNav();
   const [quote, setQuote] = useState(null);
-  const [agreed, setAgreed] = useState(false);
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -120,36 +126,55 @@ export const ReserveCar = ({ car }) => {
       <Button
         data-testid="detail-reserve-button"
         variant="outline"
-        onClick={pay}
-        disabled={busy || !agreed}
-        className="h-12 w-full justify-center gap-2 rounded-[12px] border-2 border-[hsl(var(--primary))] bg-card text-[15px] font-semibold text-[hsl(var(--primary))] hover:bg-secondary disabled:border-border disabled:text-muted-foreground"
+        onClick={() => setOpen(true)}
+        className="h-12 w-full justify-center gap-2 rounded-[12px] border-2 border-[hsl(var(--primary))] bg-card text-[15px] font-semibold text-[hsl(var(--primary))] hover:bg-secondary dark:text-white"
       >
-        {busy ? (
-          <Loader2 className="h-[18px] w-[18px] animate-spin" aria-hidden="true" />
-        ) : (
-          <Lock className="h-[18px] w-[18px]" aria-hidden="true" />
-        )}
+        <Lock className="h-[18px] w-[18px]" aria-hidden="true" />
         {t("depositReserve")}
         <span data-testid="detail-reserve-amount" className="tnum">
           · {money(quote.amount_eur)}
         </span>
       </Button>
 
-      <label className="mt-2.5 flex cursor-pointer items-start gap-2.5">
-        <Checkbox
-          data-testid="detail-reserve-terms"
-          checked={agreed}
-          onCheckedChange={(v) => setAgreed(v === true)}
-          className="mt-0.5 shrink-0"
-        />
-        <span className="text-[11.5px] leading-relaxed text-foreground">
-          {t("depositTerms")}
-        </span>
-      </label>
+      {/* The terms used to sit under the button as small print with a tick. Nobody reads small
+          print, and this is money on a card: the dialog puts the whole thing in front of the
+          buyer and the single button IS the acknowledgement. */}
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent data-testid="deposit-terms-dialog" className="max-w-[460px] bg-card">
+          <DialogHeader>
+            <DialogTitle className="text-[17px]">
+              {t("depositTitle")}
+              <span data-testid="deposit-dialog-amount" className="tnum ml-1.5">
+                · {money(quote.amount_eur)}
+              </span>
+            </DialogTitle>
+            <DialogDescription className="text-[13px] leading-relaxed">
+              {t("depositTerms")}
+            </DialogDescription>
+          </DialogHeader>
 
-      <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
-        {t("depositBlurb").replace("{sum}", money(quote.commission_eur))}
-      </p>
+          <p
+            data-testid="deposit-dialog-blurb"
+            className="rounded-[12px] border border-border bg-background p-3.5 text-[12.5px] leading-relaxed text-muted-foreground"
+          >
+            {t("depositBlurb").replace("{sum}", money(quote.commission_eur))}
+          </p>
+
+          <Button
+            data-testid="deposit-agree-continue"
+            onClick={pay}
+            disabled={busy}
+            className="h-12 w-full justify-center gap-2 rounded-[12px] bg-[hsl(var(--primary))] text-[14px] font-semibold text-primary-foreground hover:brightness-110"
+          >
+            {busy ? (
+              <Loader2 className="h-[18px] w-[18px] animate-spin" aria-hidden="true" />
+            ) : (
+              <ShieldCheck className="h-[18px] w-[18px]" aria-hidden="true" />
+            )}
+            {t("depositAgreeContinue")}
+          </Button>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

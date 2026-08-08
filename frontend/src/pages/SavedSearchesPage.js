@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { HeaderBar } from "@/components/HeaderBar";
 import { SavedSearchCard } from "@/components/SavedSearchCard";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
+import { SignInPrompt } from "@/components/SignInPrompt";
 import { useLangNav } from "@/hooks/useLangNav";
 import { resolveSlugs, searchCars } from "@/lib/api";
 import { buildPayload, hasResolvableTokens, paramsToState } from "@/lib/searchQuery";
@@ -45,6 +47,7 @@ async function resolveState(params) {
 export default function SavedSearchesPage() {
   const { t, lang, searches, renameSearch, removeSearch, markSearchSeen,
           toggleSearchAlerts } = useApp();
+  const { user, loading: authLoading } = useAuth();
   const { path, go } = useLangNav();
   const [states, setStates] = useState({});
 
@@ -92,7 +95,14 @@ export default function SavedSearchesPage() {
       <main className="mx-auto max-w-[900px] px-4 py-6 sm:px-6">
         <h1 className="mb-5 text-2xl font-semibold text-foreground">{t("savedSearches")}</h1>
 
-        {searches.length === 0 ? (
+        {searches.length === 0 && !user && !authLoading ? (
+          <SignInPrompt
+            testId="searches-signin-prompt"
+            icon={BookmarkX}
+            title={t("gateSearchTitle")}
+            body={t("gateSearchBody")}
+          />
+        ) : searches.length === 0 ? (
           <div
             data-testid="searches-empty-state"
             className="rounded-[16px] border border-border bg-card p-10 text-center"

@@ -5,6 +5,7 @@ import { AppProvider } from "@/context/AppContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { LangLayout, LangRedirect } from "@/components/LangLayout";
 import { PasskeyPrompt } from "@/components/PasskeyPrompt";
+import { SignInGate } from "@/components/SignInGate";
 import SearchPage from "@/pages/SearchPage";
 import CarDetailPage from "@/pages/CarDetailPage";
 import SavedCarsPage from "@/pages/SavedCarsPage";
@@ -69,8 +70,11 @@ function App() {
     <AppProvider>
       <BrowserRouter>
         <AuthProvider>
-          <AppRouter />
-          <PasskeyPrompt />
+          {/* Inside AuthProvider: the gate has to know whether anybody is signed in. */}
+          <SignInGate>
+            <AppRouter />
+            <PasskeyPrompt />
+          </SignInGate>
         </AuthProvider>
       </BrowserRouter>
       <Toaster position="bottom-right" />

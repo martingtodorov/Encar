@@ -49,19 +49,23 @@ export default function LoginPage() {
   const [code, setCode] = useState("");
   const [recovery, setRecovery] = useState(false);
 
+  // Where the buyer was when we asked them to sign in (the save gate sets this), so a heart
+  // tapped on a car does not dump them on the home page.
+  const back = location.state?.from || "";
+
   useEffect(() => {
     // An account that has not proved its address goes to the code screen, not home: this is
     // also what stops the register redirect from racing with the one below.
     if (user && user.email_verified === false) go("/verify-email", { replace: true });
-    else if (user) go("/", { replace: true });
-  }, [user, go]);
+    else if (user) go(back || "/", { replace: true });
+  }, [user, go, back]);
 
   const run = async (kind, fn) => {
     setError("");
     setBusy(kind);
     try {
       const to = await fn();
-      go(to || "/", { replace: true });
+      go(to || back || "/", { replace: true });
     } catch (e) {
       if (e?.mfa) return;          // a second factor is owed, not a failure
       const msg = errorMessage(e, t("authFailed"));

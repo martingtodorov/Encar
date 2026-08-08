@@ -21,6 +21,7 @@ import time
 from datetime import datetime, timedelta, timezone
 import uuid
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 from fastapi import (APIRouter, Depends, FastAPI, Header, HTTPException, Query,
@@ -1159,6 +1160,127 @@ async def admin_save_reco_defaults(body: RecoDefaultsBody, request: Request,
     await _audit(request, _actor(admin), "reco.defaults", "default_taste",
                  f"{len(picks)} picks, {'on' if body.enabled else 'off'}")
     return {"ok": True, "picks": picks}
+
+
+# ── the call button ───────────────────────────────────────────────────────────────────
+# A buyer who wants to talk should not have to hunt for a number, but a call at 23:40 rings
+# in an empty office and reads as a company that does not answer. The button is always
+# there; outside the hours the owner has set it says so first and asks whether to dial anyway.
+CALL_TZ = os.environ.get("CALL_TZ", "Europe/Sofia")
+CALL_DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+DEFAULT_CALL = {
+    "enabled": True,
+    "phone": "+359886717074",
+    "phone_label": "+359 88 6717074",
+    "hours": {
+        "mon": {"open": "09:00", "close": "18:00", "closed": False},
+        "tue": {"open": "09:00", "close": "18:00", "closed": False},
+        "wed": {"open": "09:00", "close": "18:00", "closed": False},
+        "thu": {"open": "09:00", "close": "18:00", "closed": False},
+        "fri": {"open": "09:00", "close": "18:00", "closed": False},
+        "sat": {"open": "10:00", "close": "15:00", "closed": False},
+        "sun": {"open": "", "close": "", "closed": True},
+    },
+}
+
+
+def _hhmm(value):
+    """A 24-hour time, or "" — never a half-parsed one that would silently close the office."""
+    m = re.fullmatch(r"\s*(\d{1,2}):(\d{2})\s*", str(value or ""))
+    if not m:
+        return ""
+    hour, minute = int(m.group(1)), int(m.group(2))
+    return f"{hour:02d}:{minute:02d}" if hour <= 23 and minute <= 59 else ""
+
+
+async def _call_conf():
+    doc = await db.site_settings.find_one({"_id": "call_button"}) or {}
+    conf = dict(DEFAULT_CALL)
+    for key in ("phone", "phone_label"):
+        if doc.get(key):
+            conf[key] = str(doc[key])[:40]
+    if "enabled" in doc:
+        conf["enabled"] = bool(doc["enabled"])
+    hours = {day: dict(row) for day, row in DEFAULT_CALL["hours"].items()}
+    for day, row in (doc.get("hours") or {}).items():
+        if day in CALL_DAYS and isinstance(row, dict):
+            hours[day] = {"open": _hhmm(row.get("open")), "close": _hhmm(row.get("close")),
+                          "closed": bool(row.get("closed"))}
+    conf["hours"] = hours
+    return conf
+
+
+def _call_open(conf, now):
+    """Open right now? A window with no times in it is closed, whatever the flag says."""
+    today = conf["hours"][CALL_DAYS[now.weekday()]]
+    if today.get("closed") or not today.get("open") or not today.get("close"):
+        return False, today
+    # Strings compare correctly in HH:MM, and a window that ends before it starts (an
+    # overnight shift) is honoured by treating it as two halves of the clock.
+    minute = now.strftime("%H:%M")
+    if today["close"] > today["open"]:
+        return today["open"] <= minute < today["close"], today
+    return minute >= today["open"] or minute < today["close"], today
+
+
+@api.get("/call-button")
+async def call_button():
+    """Whether to show the button, what to dial, and whether anybody is there to answer."""
+    conf = await _call_conf()
+    now = datetime.now(ZoneInfo(CALL_TZ))
+    is_open, today = _call_open(conf, now)
+    return {"enabled": conf["enabled"], "phone": conf["phone"],
+            "phone_label": conf["phone_label"] or conf["phone"],
+            "open_now": is_open, "timezone": CALL_TZ,
+            "local_time": now.strftime("%H:%M"), "day": CALL_DAYS[now.weekday()],
+            "today": today, "hours": conf["hours"]}
+
+
+class CallWindow(BaseModel):
+    open: str = ""
+    close: str = ""
+    closed: bool = False
+
+
+class CallButtonBody(BaseModel):
+    enabled: bool = True
+    phone: str = ""
+    phone_label: str = ""
+    hours: dict[str, CallWindow] = Field(default_factory=dict)
+
+
+@api.get("/admin/call-button")
+async def admin_call_button(request: Request, x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
+    conf = await _call_conf()
+    now = datetime.now(ZoneInfo(CALL_TZ))
+    is_open, _ = _call_open(conf, now)
+    return {**conf, "open_now": is_open, "timezone": CALL_TZ,
+            "local_time": now.strftime("%H:%M"), "day": CALL_DAYS[now.weekday()]}
+
+
+@api.put("/admin/call-button")
+async def admin_save_call_button(body: CallButtonBody, request: Request,
+                                 x_admin_token: str = Header(default="")):
+    admin = await _require_admin(request, x_admin_token)
+    phone = re.sub(r"[^\d+]", "", body.phone or "")[:24]
+    if not phone:
+        raise HTTPException(status_code=400, detail="a phone number is required")
+    hours = {}
+    for day in CALL_DAYS:
+        row = body.hours.get(day)
+        hours[day] = {"open": _hhmm(row.open) if row else "",
+                      "close": _hhmm(row.close) if row else "",
+                      "closed": bool(row.closed) if row else True}
+    await db.site_settings.update_one(
+        {"_id": "call_button"},
+        {"$set": {"enabled": bool(body.enabled), "phone": phone,
+                  "phone_label": (body.phone_label or phone).strip()[:40], "hours": hours,
+                  "updated_at": datetime.now(timezone.utc).isoformat(),
+                  "updated_by": _actor(admin)}}, upsert=True)
+    await _audit(request, _actor(admin), "call.button", "call_button",
+                 f"{'on' if body.enabled else 'off'}, {phone}")
+    return {"ok": True}
 
 
 @api.post("/admin/reco-defaults/reset")

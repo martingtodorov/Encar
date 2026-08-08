@@ -93,7 +93,8 @@ const ACCOUNT = {
       "Не таксуваме картата ви. Сумата се блокира за 7 дни и автомобилът се запазва за вас веднага. Усвояваме част или цялата сума само след като потвърдим автомобила; останалото се освобождава от банката ви. Ако не потвърдим до 7 дни, блокирането пада само и автомобилът се връща в обявите.",
     depositTerms:
       "Разбирам, че сумата се блокира на картата ми за 7 дни и че тя може да бъде усвоена изцяло или частично, след като автомобилът бъде потвърден за мен.",
-    depositReserve: "Блокирай сумата",
+    depositReserve: "Капарирай",
+    depositAgreeContinue: "Съгласен съм с условията, продължи към преавторизация",
     depositAmount: "Блокирана сума",
     depositWhy: "10% от цената на автомобила",
     depositReserved: "Този автомобил вече е резервиран",
@@ -201,7 +202,8 @@ const ACCOUNT = {
       "Nu îți debităm cardul. Suma este blocată pentru 7 zile, iar automobilul este rezervat pentru tine imediat. Încasăm o parte sau toată suma abia după ce confirmăm automobilul; restul este eliberat de banca ta. Dacă nu confirmăm în 7 zile, blocarea expiră singură și automobilul revine în listă.",
     depositTerms:
       "Înțeleg că suma este blocată pe cardul meu pentru 7 zile și că poate fi încasată integral sau parțial după ce automobilul este confirmat pentru mine.",
-    depositReserve: "Blochează suma",
+    depositReserve: "Achită avansul",
+    depositAgreeContinue: "Sunt de acord cu condițiile, continuă la preautorizare",
     depositAmount: "Sumă blocată",
     depositWhy: "10% din prețul automobilului",
     depositReserved: "Acest automobil este deja rezervat",
@@ -307,7 +309,8 @@ const ACCOUNT = {
       "We do not charge your card. The amount is held for 7 days and the car is reserved for you straight away. We take part or all of it only once we confirm the car; the rest is released by your bank. If we do not confirm within 7 days the hold falls away by itself and the car goes back on the market.",
     depositTerms:
       "I understand the amount is held on my card for 7 days and that it may be taken in full or in part once the car is confirmed for me.",
-    depositReserve: "Hold the amount",
+    depositReserve: "Pay the deposit",
+    depositAgreeContinue: "I agree to the terms, continue to pre-authorisation",
     depositAmount: "Amount held",
     depositWhy: "10% of the car's price",
     depositReserved: "This car is already reserved",
