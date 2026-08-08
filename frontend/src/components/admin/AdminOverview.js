@@ -149,6 +149,31 @@ export const AdminOverview = () => {
           </span>
           .
         </p>
+        {/* A key that is merely PRESENT proves nothing: Resend can reject it and every letter
+            is dropped in silence. This is the loudest thing on the page when that happens. */}
+        {email.auth?.ok === false ? (
+          <p
+            data-testid="admin-email-rejected"
+            className="mt-3 flex items-start gap-2 rounded-[10px] border border-destructive bg-secondary px-3 py-2 text-[12px] font-medium leading-relaxed text-destructive"
+          >
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              No email is going out at all — Resend rejects the API key ({email.auth.error}).
+              Enquiries, call-back requests, deposit receipts and price-drop alerts are all being
+              dropped. Put a valid <span className="font-semibold">RESEND_API_KEY</span> in the
+              backend environment to switch them back on.
+            </span>
+          </p>
+        ) : null}
+        {email.auth?.ok === null && email.auth?.error ? (
+          <p
+            data-testid="admin-email-unreachable"
+            className="mt-3 flex items-start gap-2 rounded-[10px] bg-secondary px-3 py-2 text-[12px] leading-relaxed text-muted-foreground"
+          >
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            Could not check the email key just now ({email.auth.error}).
+          </p>
+        ) : null}
         {email.shared_sender ? (
           <p
             data-testid="admin-email-warning"

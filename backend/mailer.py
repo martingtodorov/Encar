@@ -11,8 +11,43 @@ nuisance, a lost enquiry is a lost sale.
 import asyncio
 import logging
 import os
+import time
+
+import httpx
 
 log = logging.getLogger("mailer")
+
+# `configured()` only proves a key STRING is present. Resend can still reject it, and `_send`
+# swallows that so an enquiry is never lost — which meant the admin dashboard reported email as
+# healthy while every single letter was being dropped. This asks Resend directly, cached, so a
+# rejected key is visible instead of silent.
+_auth = {"at": 0.0, "ok": None, "error": ""}
+_AUTH_TTL = 300.0
+
+
+async def key_ok(force=False):
+    """Does Resend actually ACCEPT our key? `{"ok": bool|None, "error": str}`."""
+    if not os.environ.get("RESEND_API_KEY"):
+        return {"ok": False, "error": "no RESEND_API_KEY set"}
+    if not force and _auth["ok"] is not None and time.time() - _auth["at"] < _AUTH_TTL:
+        return {"ok": _auth["ok"], "error": _auth["error"]}
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as http:
+            r = await http.get("https://api.resend.com/domains", headers={
+                "Authorization": f"Bearer {os.environ['RESEND_API_KEY']}"})
+        ok = r.status_code < 400
+        error = "" if ok else (r.json().get("message") or r.text)[:200]
+    except Exception as e:                      # network trouble is not a rejected key
+        return {"ok": None, "error": f"could not reach Resend: {str(e)[:120]}"}
+    _auth.update({"at": time.time(), "ok": ok, "error": error})
+    if not ok:
+        log.warning("Resend rejected our API key: %s", error)
+    return {"ok": ok, "error": error}
+
+
+async def health():
+    """`status()` plus whether the key really works — for the admin dashboard."""
+    return {**status(), "auth": await key_ok()}
 
 # Resend's shared sender works without owning a domain, but it only DELIVERS to the
 # address that owns the Resend account. Set SENDER_EMAIL to an address on a verified
@@ -661,6 +696,89 @@ async def send_deposit_released(to, car_title, amount_eur, payment_status="relea
             + _row(t["car"], _esc(car_title))
             + _row(t["amount"], f"\u20ac{amount_eur:,.0f}"))
     return await _send(to, t["subject"], _shell(t["heading"], rows, t["footer"]))
+
+
+# ── call-back requests ───────────────────────────────────────────────────────
+# These used to borrow the enquiry letters, which meant the owner's inbox showed a call-back
+# booked for Monday 09:00 as "New enquiry" — indistinguishable from a message with no deadline,
+# and the buyer was thanked for an "enquiry" instead of being told when we would ring.
+CALLBACK_ACK = {
+    "bg": {
+        "subject": "Ще ви се обадим",
+        "heading": "Записахме обаждането",
+        "body": "Ще ви потърсим на посочения телефон в избрания час.",
+        "when": "Час на обаждане",
+        "phone": "Телефон",
+        "car": "Автомобил",
+        "footer": "Ако часът вече не ви е удобен, отговорете на този имейл.",
+    },
+    "ro": {
+        "subject": "Te vom suna",
+        "heading": "Am notat apelul",
+        "body": "Te vom suna la numărul indicat, la ora aleasă.",
+        "when": "Ora apelului",
+        "phone": "Telefon",
+        "car": "Automobil",
+        "footer": "Dacă ora nu îți mai convine, răspunde la acest email.",
+    },
+    "en": {
+        "subject": "We will call you",
+        "heading": "Your call is booked",
+        "body": "We will ring the number you left at the time you chose.",
+        "when": "Call time",
+        "phone": "Phone",
+        "car": "Car",
+        "footer": "If the time no longer suits you, just reply to this email.",
+    },
+}
+
+
+async def notify_new_callback(doc):
+    to = os.environ.get("ADMIN_NOTIFY_EMAIL", "").strip()
+    if not to:
+        log.info("callback %s: no ADMIN_NOTIFY_EMAIL set, notification skipped", doc["_id"])
+        return
+    when = doc.get("when_label") or ""
+    rows = "".join([
+        _row("Call at", f'<b>{_esc(when)}</b> ({_esc(doc.get("timezone"))})'),
+        _row("Phone", f'<a href="tel:{_esc(doc.get("phone"))}">{_esc(doc.get("phone"))}</a>'),
+        _row("Name", _esc(doc.get("name"))),
+        _row("Email", _esc(doc.get("email"))),
+        _row("Car", _esc(doc.get("car_title"))),
+        _row("Listing", _esc(doc.get("listing_id"))),
+        _row("Language", _esc(doc.get("lang"))),
+        _row("Message", _esc(doc.get("message")).replace("\n", "<br>")),
+    ])
+    html = _shell("Call-back request", rows,
+                  "Sent automatically when a buyer asks to be called back outside working hours.")
+    await _send(to, f"Call back {when}: {doc.get('phone') or 'a buyer'}", html)
+
+
+async def acknowledge_callback(doc):
+    to = (doc.get("email") or "").strip()
+    if not to:
+        return
+    c = CALLBACK_ACK.get(doc.get("lang")) or CALLBACK_ACK["en"]
+    rows = "".join([
+        f'<tr><td colspan="2" style="padding:0 0 14px;color:#111;line-height:1.55">'
+        f'{c["body"]}</td></tr>',
+        _row(c["when"], f'<b>{_esc(doc.get("when_label"))}</b>'),
+        _row(c["phone"], _esc(doc.get("phone"))),
+        _row(c["car"], _esc(doc.get("car_title"))),
+    ])
+    await _send(to, c["subject"], _shell(c["heading"], rows, c["footer"]))
+
+
+def send_callback_emails(doc):
+    """Both letters, fire-and-forget, so the buyer's POST returns immediately."""
+    async def _job():
+        await notify_new_callback(doc)
+        await acknowledge_callback(doc)
+
+    try:
+        asyncio.get_running_loop().create_task(_job())
+    except RuntimeError:
+        pass
 
 
 def send_enquiry_emails(doc):

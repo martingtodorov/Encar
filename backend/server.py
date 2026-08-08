@@ -2570,7 +2570,7 @@ async def admin_overview(request: Request, x_admin_token: str = Header(default="
             "total": await db.enquiries.count_documents({}),
             "new": await db.enquiries.count_documents({"status": "new"}),
         },
-        "email": mailer.status(),
+        "email": await mailer.health(),
     })
 
 
@@ -2830,11 +2830,7 @@ async def request_callback(body: CallbackBody, request: Request):
     }
     await db.callbacks.insert_one(doc)
     log.info("callback %s for %s at %s", doc["_id"], doc["phone"], doc["when_label"])
-    # The enquiry letters already say the right things to both sides; the requested time goes
-    # in the message so neither of them needs a template of its own.
-    mailer.send_enquiry_emails({**doc, "message": (
-        f"CALL BACK REQUEST — {doc['when_label']} ({CALL_TZ})"
-        + (f"\n\n{doc['message']}" if doc["message"] else ""))})
+    mailer.send_callback_emails(doc)
     notify.push_to_admins_later(
         "Call-back request",
         f"{doc['name'] or doc['phone']} wants a call on {doc['when_label']}",
