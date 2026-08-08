@@ -197,14 +197,21 @@ export default function CarDetailPage() {
   const photos = car?.photos || [];
   const q = car?.quote;
 
+  // The SEO/preview title carries the trim: "Mercedes-Benz AMG GT 4-door 43 4MATIC+" says far
+  // more in a search result or a chat bubble than the make and model alone. The H1 keeps its
+  // shorter form. Parts already contained in the title are not repeated.
+  const seoTitle = [stripGenerationYears(car?.title || ""), car?.grade, car?.badge_detail]
+    .filter(Boolean)
+    .reduce((acc, part) => (
+      acc.toLowerCase().includes(String(part).toLowerCase()) ? acc : `${acc} ${part}`.trim()
+    ), "");
+
   useSeo({
     lang,
     // The generation years belong on the page, not in a link preview: "(2018-2023)" reads as
     // clutter in a chat bubble and pushes the trim out of a truncated title.
-    title: car?.title ? `${stripGenerationYears(car.title)} \u00b7 Encar` : "Encar",
-    description: car?.title
-      ? `${stripGenerationYears(car.title)} \u2014 ${t("seoCarDesc")}`
-      : t("seoHomeDesc"),
+    title: seoTitle ? `${seoTitle} \u00b7 Encar` : "Encar",
+    description: seoTitle ? `${seoTitle} \u2014 ${t("seoCarDesc")}` : t("seoHomeDesc"),
     image: photos[0]?.full,
   });
 

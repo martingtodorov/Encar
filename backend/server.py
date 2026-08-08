@@ -302,8 +302,14 @@ SORTS = {
 
 
 HANGUL = re.compile(r"[\uac00-\ud7a3]")
-# per user instruction the per-vehicle dealer description stays in the original
-NO_TRANSLATE_KEYS = {"description", "description_original", "vin", "vehicle_no", "id"}
+# per user instruction the per-vehicle dealer description stays in the original.
+# TRIM FIELDS ARE LATIN EVERYWHERE (owner's rule), so they must be invisible to the
+# leftover-Korean pass: it walks the whole payload and replaces Hangul with the PAGE
+# language, which is how the car page came to print "Дизел 2.0 2WD Noblesse" while the
+# rows and the filters said "Diesel 2.0 2WD Noblesse". They are resolved from the ENGLISH
+# cache before the pass instead.
+NO_TRANSLATE_KEYS = {"description", "description_original", "vin", "vehicle_no", "id",
+                     "badge", "badge_detail", "grade"}
 
 # How many never-before-seen Korean phrases one detail page will translate inline
 # before deferring the rest to the background. Generous, because these phrase sets are
@@ -2212,6 +2218,23 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     def T(v):
         return tr.get((v or "").strip(), v) if v else v
 
+    # TRIMS ARE LATIN EVERYWHERE. `gradeName` is the trim ("4도어 43 4MATIC+") and running it
+    # through T localised it, so the car page printed a Bulgarian sub-model while the rows and
+    # the filters said English. Encar's own English name wins; otherwise the ENGLISH cache is
+    # read (never the page language, never a blocking call), and the last resort is the
+    # listing's own already-Latin `badge_t`.
+    trims = [v for v in (cat.get("gradeName"), cat.get("gradeDetailName"),
+                         (listing or {}).get("badge"), (listing or {}).get("badge_detail"))
+             if v]
+    latin = await translate_cached_only(db, trims, "en") if trims else {}
+    cold = [v.strip() for v in trims if HANGUL.search(v) and v.strip() not in latin]
+    if cold:
+        # Cache-only above, so a trim nobody has looked up yet would stay Korean forever.
+        schedule_translation(db, list(dict.fromkeys(cold)), "en")
+
+    def L(v):
+        return latin.get((v or "").strip()) or v
+
     # ── insurance history ("\ubcf4\ud5d8\uc774\ub825") ─────────────────────────────────────────────
     rec = cached.get("record") or {}
     insurance = None
@@ -2336,10 +2359,13 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
         "manufacturer": T(cat.get("manufacturerName")),
         "model": curate.display(2, (listing or {}).get("model") or "",
                                 T(cat.get("modelName"))),
-        "grade": T(cat.get("gradeName")) or cat.get("gradeEnglishName"),
-        "badge": (listing or {}).get("badge_t") or (listing or {}).get("badge"),
+        # Our own cached English trim FIRST, so the car page, the result rows and the filter
+        # dropdown all spell it the same way ("4-Door 43 4MATIC+", not Encar's "4Door 43").
+        "grade": (listing or {}).get("badge_t") or L((listing or {}).get("badge"))
+        or cat.get("gradeEnglishName") or L(cat.get("gradeName")),
+        "badge": (listing or {}).get("badge_t") or L((listing or {}).get("badge")),
         "badge_detail": (listing or {}).get("badge_detail_t")
-        or (listing or {}).get("badge_detail"),
+        or L((listing or {}).get("badge_detail")),
         "year_month": cat.get("yearMonth"),
         "form_year": cat.get("formYear"),
         "origin_price_manwon": cat.get("originPrice"),

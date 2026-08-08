@@ -1,5 +1,23 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-08: SUB-MODELS WERE BEING LOCALISED ON THE CAR PAGE ONLY — root cause found. The
+detail payload ends with a LEFTOVER-KOREAN pass (`collect_korean` + `apply_translations`) that
+walks the whole payload and replaces any Hangul string with the PAGE language. `badge` and
+`badge_detail` still held Korean there (the `_t` fields are in-memory only, never stored), so the
+page printed "Дизел 2.0 2WD Noblesse" / "Топ клас" / "(Без подкатегория)" while the rows and the
+filters said English. `grade` was worse: it went through `T()` on purpose. Fixed three ways:
+(1) `NO_TRANSLATE_KEYS` now contains `badge`, `badge_detail`, `grade` — the leftover pass can
+never touch a trim again; (2) `car_detail` resolves all four trim strings from the ENGLISH cache
+(`translate_cached_only(..., "en")` via the new `L()`), and schedules the English translation of
+anything still Korean so the next view is right; (3) `grade` prefers OUR cached English trim
+before Encar's `gradeEnglishName`, so the page, the rows and the dropdown spell it identically
+("4-Door 43 4MATIC+", not Encar's "4Door 43 4MATIC+").
+SEO TITLE now carries the trim: `CarDetailPage` builds `seoTitle` = title + grade + badge_detail
+(years stripped, parts never repeated), so 42174617 reads
+"Mercedes-Benz AMG GT 4-Door 43 4MATIC+ · Encar" in the tab, in og:title and in search results,
+while the H1 stays "Mercedes-Benz AMG GT". Verified in the browser and through
+`/api/share/car/42174617`. -->
+
 <!-- 2026-08-08: LINK PREVIEWS (og:image) — FOUND: nothing was ever blocking bots. The ONLY
 user-agent logic anywhere is the nginx `$encar_crawler` map, which ROUTES chat-app crawlers to
 `/api/share/car/{id}` so a preview HAS a picture, and it lives ONLY in
