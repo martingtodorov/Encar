@@ -18,7 +18,13 @@
  * follows them between devices — and so the operator can see what a buyer is after.
  */
 import http from "@/lib/api";
-import { allows, record as consentRecord, save as saveConsent, summary } from "@/lib/consent";
+import {
+  allows,
+  adopt as adoptConsent,
+  record as consentRecord,
+  save as saveConsent,
+  summary,
+} from "@/lib/consent";
 import { readCookie, readJsonCookie, writeCookie, writeJsonCookie } from "@/lib/cookies";
 
 const VID = "ab_vid";
@@ -44,7 +50,9 @@ export function getConsent() {
 export function setConsent(value) {
   if (consentRecord()) return;                 // this device has already decided
   if (value && typeof value === "object" && value.cats) {
-    saveConsent(value.cats);
+    // Adopted AS IT WAS MADE, version and timestamp included: re-stamping it with today's
+    // policy version would mean a policy change never asks the buyer again.
+    adoptConsent(value);
     return;
   }
   saveConsent(value === "all" ? { personalisation: true, statistics: true } : {});

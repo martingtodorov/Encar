@@ -1,5 +1,6 @@
 import { Input } from "@/components/ui/input";
 import { useApp } from "@/context/AppContext";
+import { PhoneInput } from "@/components/PhoneInput";
 
 export const BLANK_BILLING = {
   full_name: "", street: "", city: "", post_code: "", country: "", phone: "",
@@ -11,7 +12,6 @@ const FIELDS = [
   ["city", "billingCity", "address-level2", ""],
   ["post_code", "billingPost", "postal-code", ""],
   ["country", "billingCountry", "country", ""],
-  ["phone", "billingPhone", "tel", ""],
 ];
 
 /** The delivery address, shared by the sign-up form and the account page. */
@@ -33,6 +33,17 @@ export const BillingFields = ({ value, onChange, prefix = "billing" }) => {
           />
         </label>
       ))}
+      <label className="flex flex-col gap-1.5 sm:col-span-2">
+        <span className="text-[12px] font-medium text-muted-foreground">
+          {t("billingPhone")}
+        </span>
+        <PhoneInput
+          testId={`${prefix}-phone`}
+          value={value.phone || ""}
+          onChange={(v) => onChange({ ...value, phone: v })}
+          showError
+        />
+      </label>
     </div>
   );
 };

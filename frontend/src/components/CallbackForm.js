@@ -6,6 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
+import { PhoneInput } from "@/components/PhoneInput";
+import { isValidPhone } from "@/lib/phone";
 import { requestCallback } from "@/lib/api";
 
 /**
@@ -61,6 +63,7 @@ export const CallbackForm = ({ info, car, title, onDone }) => {
   const [time, setTime] = useState("");
   const [form, setForm] = useState({ name: "", phone: "", email: "" });
   const [busy, setBusy] = useState(false);
+  const [touched, setTouched] = useState(false);
 
   const set = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
   const name = form.name || user?.name || "";
@@ -71,6 +74,13 @@ export const CallbackForm = ({ info, car, title, onDone }) => {
 
   const submit = async (e) => {
     e.preventDefault();
+    setTouched(true);
+    // The whole point of this form is a call back, so a number nobody can dial fails here
+    // rather than sitting in the panel looking like a lead.
+    if (!isValidPhone(phone, lang)) {
+      toast.error(t("phoneInvalid"));
+      return;
+    }
     setBusy(true);
     try {
       const r = await requestCallback({
@@ -135,14 +145,12 @@ export const CallbackForm = ({ info, car, title, onDone }) => {
 
       <div className="flex flex-col gap-1.5">
         <Label className="text-[12px] font-medium">{t("phoneLabel")}</Label>
-        <Input
-          data-testid="callback-phone"
-          type="tel"
-          required
-          autoComplete="tel"
+        <PhoneInput
+          testId="callback-phone"
           value={phone}
-          onChange={set("phone")}
-          className="h-10 bg-background text-[14px]"
+          onChange={(v) => setForm((p) => ({ ...p, phone: v }))}
+          required
+          showError={touched}
         />
       </div>
 

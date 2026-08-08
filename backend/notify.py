@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from pywebpush import WebPushException, webpush
 
 import auth
+import phones
 
 log = logging.getLogger("notify")
 router = APIRouter()
@@ -76,6 +77,7 @@ class PrefsBody(BaseModel):
 
 class PhoneBody(BaseModel):
     phone: str = Field(default="", max_length=32)
+    lang: str = Field(default="", max_length=5)
 
 
 class SubscriptionBody(BaseModel):
@@ -110,7 +112,12 @@ async def put_prefs(body: PrefsBody, user=Depends(auth.current_user)):
 @router.put("/phone")
 async def put_phone(body: PhoneBody, user=Depends(auth.current_user)):
     """Kept for billing and for reaching a buyer about a deal already struck. Nothing else."""
-    phone = " ".join(body.phone.split())[:32]
+    raw = " ".join(body.phone.split())[:32]
+    # Stored in E.164, so the office can dial it without guessing the country. Clearing the
+    # field is allowed; a number that cannot be dialled is not.
+    phone = phones.clean(raw, body.lang)
+    if raw and not phone:
+        raise HTTPException(400, "that does not look like a phone number we can dial")
     await _db.users.update_one({"_id": user["_id"]}, {"$set": {"phone": phone}})
     return {"phone": phone}
 

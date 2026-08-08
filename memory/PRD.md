@@ -1,5 +1,41 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-08: CONSENT, TERMS AND PHONE NUMBERS (one session, owner-driven).
+COOKIE CONSENT IS NOW BLOCKING. It was a bar along the bottom and buyers scrolled straight past
+it, so for them nothing outside the strictly necessary category could ever be written — the
+owner's "some users have not been asked" was real. `CookieBar` is a modal over everything
+(`z-[200]`, `cookie-overlay` testid): body scroll locked, Tab trapped inside the panel, Escape
+and backdrop clicks ignored WHILE the choice is outstanding, no close button. Reopened from the
+footer afterwards it behaves as an ordinary closable dialog. Refusing stays as easy and as
+prominent as accepting (three equal buttons), toggles start OFF. Verified: overlay present on
+/bg/login?mode=register, body overflow hidden, a click on the form underneath does not reach it,
+and after a choice the overlay goes and overflow returns.
+Also FIXED a compliance bug in `taste.setConsent`: adopting the decision recorded on the ACCOUNT
+called `save()`, which re-stamps it with the CURRENT policy version — a policy change would then
+never ask again. New `consent.adopt()` keeps the original `v` and `ts`, so `hasDecision()` is
+false when the policy has moved on.
+TERMS ACCEPTANCE AT SIGN-UP. Mandatory unticked checkbox ("Прочетох и приемам Общи условия и
+Поверителност", links open in a new tab); the Sign Up button is disabled until it is ticked.
+`auth.register` REFUSES an account with no `terms_version` and stores
+`terms: {version, at}`, returned by `_public`. The version the buyer was shown lives in
+`frontend/src/lib/legal.js` (`TERMS_VERSION`) — bump it when either document changes.
+While wiring this up: the billing address typed on the SIGN-UP form was being collected and then
+DROPPED — `AuthContext.register` never passed it to `apiRegister`. It is sent now.
+NOTE THE GAP: a Google sign-up does not pass through this checkbox.
+PHONE NUMBERS. `lib/phone.js` + `backend/phones.py` normalise everything to E.164 and reject what
+cannot be dialled, checked in the browser AND at the API (`/enquiry`, `/callback`,
+`PUT /notifications/phone`). `PhoneInput` (`components/PhoneInput.jsx`) is a dial-code dropdown
+plus a number field, used by the enquiry dialog, the call-back form, the billing fields
+(sign-up + account) and the account phone panel. The prefix is PRESELECTED from the visitor's IP:
+`GET /api/geo` answers from a CDN header (`cf-ipcountry`) or a cached IP lookup
+(`backend/geoip.py`, keyed by a HASH of the address, 30-day TTL, never the address itself) and
+also serves the full list (`backend/dialcodes.py`, 222 entries). Shared codes resolve by COUNTRY,
+not alphabet, so +1 shows "United States" to a New Yorker rather than "Canada". Verified: a
+national "0881234567" posted to /enquiry is stored as "+359881234567", "88" is refused with 400.
+TESTS: `tests/test_terms_acceptance.py` (3 passing) covers the refusal, the stored version/date
+and the sign-up address. `tests/conftest.py` completes `terms_version` for the twelve older
+suites that register throwaway buyers — the gate itself is tested for real in the new file. -->
+
 <!-- 2026-08-08: CONTACT FORMS PREFILL THE PHONE. The enquiry dialog and the out-of-hours
 "call me back" form filled in name and email from the account but NOT the number, and the
 account's number was not even exposed: `auth._public` returned `billing` only, while a number

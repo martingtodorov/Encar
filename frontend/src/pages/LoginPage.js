@@ -3,6 +3,7 @@ import { useSearchParams, useLocation, Link } from "react-router-dom";
 import { Fingerprint, Loader2, LogIn, UserPlus, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { BLANK_BILLING, BillingFields } from "@/components/BillingFields";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -41,6 +42,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [billing, setBilling] = useState(BLANK_BILLING);
+  // No pre-ticked box: acceptance has to be an act, and the button stays dead until it is one.
+  const [terms, setTerms] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
   // Set when the password was right but a second factor is still owed. A Google sign-in on
@@ -316,6 +319,43 @@ export default function LoginPage() {
             </div>
           )}
 
+          {registering && (
+            <label
+              data-testid="auth-terms"
+              className="flex cursor-pointer items-start gap-2.5 rounded-[12px] border border-border bg-background p-3.5"
+            >
+              <Checkbox
+                data-testid="auth-terms-checkbox"
+                checked={terms}
+                onCheckedChange={(v) => setTerms(!!v)}
+                className="mt-0.5 shrink-0"
+              />
+              <span className="text-[12.5px] leading-relaxed text-muted-foreground">
+                {t("termsAcceptLead")}{" "}
+                <Link
+                  to={path("/terms")}
+                  data-testid="auth-terms-link"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-primary hover:underline"
+                >
+                  {t("legalTerms")}
+                </Link>{" "}
+                {t("termsAcceptAnd")}{" "}
+                <Link
+                  to={path("/privacy")}
+                  data-testid="auth-privacy-link"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-primary hover:underline"
+                >
+                  {t("legalPrivacy")}
+                </Link>
+                .
+              </span>
+            </label>
+          )}
+
           {error && (
             <div
               data-testid="auth-error"
@@ -330,7 +370,7 @@ export default function LoginPage() {
           <Button
             data-testid="auth-submit-button"
             type="submit"
-            disabled={!!busy}
+            disabled={!!busy || (registering && !terms)}
             className="h-12 w-full justify-center gap-2 rounded-[12px] bg-[hsl(var(--primary))] text-[15px] font-semibold text-primary-foreground hover:brightness-110"
           >
             {busy === "login" || busy === "register" ? (

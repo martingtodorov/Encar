@@ -59,7 +59,23 @@ def _token_for(self, base):
     return None
 
 
+def _accepts_terms(url, kwargs):
+    """Tick the terms box for a registration, the way the sign-up form does.
+
+    `POST /auth/register` now refuses an account with no accepted policy version, which is the
+    point of it. Sixteen call sites across a dozen files should not each have to know that, so
+    the body is completed here when the test has not said otherwise. Nothing is relaxed: the
+    gate itself is exercised for real in test_terms_acceptance.py.
+    """
+    if "/auth/register" not in url:
+        return
+    body = kwargs.get("json")
+    if isinstance(body, dict) and "terms_version" not in body:
+        body["terms_version"] = "test"
+
+
 def _patched(self, method, url, **kwargs):
+    _accepts_terms(url, kwargs)
     if _wants_token(method, url, kwargs.get("headers")):
         base = url.split("/api/")[0]
         token = _token_for(self, base)

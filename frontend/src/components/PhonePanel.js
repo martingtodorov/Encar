@@ -4,11 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
+import { PhoneInput } from "@/components/PhoneInput";
+import { isValidPhone } from "@/lib/phone";
 import http from "@/lib/api";
 
 /** Contact phone: billing, and reaching a buyer about a deal already agreed. Nothing else. */
 export const PhonePanel = () => {
-  const { t } = useApp();
+  const { t, lang } = useApp();
   const [phone, setPhone] = useState("");
   const [saved, setSaved] = useState("");
   const [busy, setBusy] = useState(false);
@@ -26,7 +28,7 @@ export const PhonePanel = () => {
   const save = async () => {
     setBusy(true);
     try {
-      const { data } = await http.put("/phone", { phone });
+      const { data } = await http.put("/phone", { phone, lang });
       setSaved(data.phone);
       setPhone(data.phone);
       toast.success(t("notifySaved"));
@@ -55,21 +57,18 @@ export const PhonePanel = () => {
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             {t("phoneLabel")}
           </span>
-          <Input
-            data-testid="account-phone-input"
-            type="tel"
-            inputMode="tel"
-            autoComplete="tel"
+          <PhoneInput
+            testId="account-phone"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="+359 88 123 4567"
-            className="h-10 w-56 bg-background"
+            onChange={setPhone}
+            showError
+            className="w-[340px]"
           />
         </label>
         <Button
           data-testid="account-phone-save"
           onClick={save}
-          disabled={busy || phone === saved}
+          disabled={busy || phone === saved || (!!phone && !isValidPhone(phone, lang))}
           className="h-10 rounded-[10px] bg-[hsl(var(--primary))] px-4 text-[13.5px] font-semibold text-primary-foreground hover:brightness-110"
         >
           {t("save")}

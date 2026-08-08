@@ -302,6 +302,7 @@ def _public(user, passkeys=0):
         "phone": user.get("phone") or (user.get("billing") or {}).get("phone") or "",
         "consent": user.get("consent") or "",
         "consent_record": user.get("consent_record") or {},
+        "terms": user.get("terms") or {},
         "twofa": bool((user.get("totp") or {}).get("enabled")),
         "recovery_codes_left": sum(
             1 for c in (user.get("recovery_codes") or []) if not c.get("used")),
@@ -339,6 +340,10 @@ class Credentials(BaseModel):
     name: str = ""
     lang: str = ""
     billing: Billing | None = None
+    # The version of the terms and privacy policy the buyer was actually shown when they
+    # ticked the box. Sent by the form, checked here: a registration with no acceptance is
+    # refused outright rather than quietly stored as consent.
+    terms_version: str = ""
 
 
 class LoginBody(BaseModel):
@@ -364,6 +369,9 @@ class SavedSearchesBody(BaseModel):
 async def register(body: Credentials, request: Request, response: Response):
     if len(body.password) < MIN_PASSWORD:
         raise HTTPException(400, f"password must be at least {MIN_PASSWORD} characters")
+    accepted = body.terms_version.strip()[:32]
+    if not accepted:
+        raise HTTPException(400, "please accept the terms of service and the privacy policy")
     email = str(body.email).strip().lower()
     user = {
         "_id": str(uuid.uuid4()),
@@ -378,6 +386,9 @@ async def register(body: Credentials, request: Request, response: Response):
         # New accounts start unproven. Accounts that existed before verification did are
         # trusted by `_verified()`, so nobody is locked out by the rollout.
         "email_verified": False,
+        # What they agreed to and when, kept as a record rather than a flag: an operator has to
+        # be able to show WHICH version of the terms a buyer accepted, not merely that they did.
+        "terms": {"version": accepted, "at": _now()},
         "created_at": _now(),
     }
     # Stored only when the buyer actually filled it in: an empty form leaves no address

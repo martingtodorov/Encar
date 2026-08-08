@@ -98,6 +98,23 @@ export const acceptAll = () =>
 
 export const rejectAll = () => save({});
 
+/**
+ * Take on a decision made ON ANOTHER DEVICE, exactly as it was made.
+ *
+ * `save()` stamps the CURRENT policy version, which would silently turn a decision taken
+ * against an older policy into agreement to the new one — the visitor would never be asked
+ * again after a policy change. This keeps the original version and timestamp, so
+ * `hasDecision()` still says no when the policy has moved on.
+ */
+export function adopt(rec) {
+  if (!rec || typeof rec !== "object" || !rec.cats) return null;
+  const clean = Object.fromEntries(CATEGORIES.map((c) => [c, !!rec.cats[c]]));
+  writeJsonCookie(COOKIE, { v: rec.v || "", ts: rec.ts || "", cats: clean }, DAYS);
+  if (!clean.personalisation) PERSONALISATION_COOKIES.forEach(dropCookie);
+  announce();
+  return clean;
+}
+
 /** A short, human summary for the account page and for the operator's record. */
 export function summary() {
   const r = record();

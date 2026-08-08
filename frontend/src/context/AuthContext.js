@@ -20,6 +20,7 @@ import {
 } from "@/lib/api";
 import http from "@/lib/api";
 import { createCredential, getCredential, passkeySupported } from "@/lib/passkey";
+import { TERMS_VERSION } from "@/lib/legal";
 import { useApp } from "@/context/AppContext";
 
 const AuthContext = createContext(null);
@@ -154,7 +155,16 @@ export function AuthProvider({ children }) {
     async (email, password, name, billing, lang = "") => {
       const local = favourites;
       const localSearches = searches;
-      const { user: u } = await apiRegister({ email, password, name: name || "", lang });
+      // billing and the accepted policy version travel WITH the registration: the address
+      // typed on the sign-up form was being collected and then dropped on the floor here.
+      const { user: u } = await apiRegister({
+        email,
+        password,
+        name: name || "",
+        lang,
+        billing: billing || undefined,
+        terms_version: TERMS_VERSION,
+      });
       await adopt(u, local, localSearches);
       setJustRegistered(true);
       return u;

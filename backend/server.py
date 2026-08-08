@@ -21,8 +21,10 @@ import time
 from datetime import datetime, timedelta, timezone
 import uuid
 from pathlib import Path
+from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import (APIRouter, Depends, FastAPI, Header, HTTPException, Query,
                      Request, Response)
@@ -74,6 +76,9 @@ import jsoncargo            # noqa: E402
 import maersk_public        # noqa: E402
 import tracking             # noqa: E402
 import mapshot              # noqa: E402
+import dialcodes            # noqa: E402
+import geoip                # noqa: E402
+import phones               # noqa: E402
 import ports as ports_mod   # noqa: E402
 import curate               # noqa: E402
 import sync as sync_mod      # noqa: E402
@@ -1940,6 +1945,41 @@ def _share_title(doc):
     return " ".join(parts)
 
 
+def _share_base(request: Request):
+    """The absolute site URL for og:* tags. Never relative: Facebook rejects those."""
+    return os.environ.get("PUBLIC_SITE_URL", "").strip().rstrip("/") \
+        or str(request.base_url).rstrip("/")
+
+
+ENCAR_IMAGE_HOSTS = ("ci.encar.com", "img.encar.com", "image.encar.com", "static.encar.com")
+
+
+@api.get("/image-proxy")
+async def image_proxy(url: str):
+    """Serve an Encar photo from OUR domain.
+
+    A link preview is fetched by Facebook's own servers, and a CDN that answers a browser
+    happily can still refuse an unknown crawler (hotlink protection, referer checks, plain
+    geo-blocking) — the preview then arrives with no picture at all and the app gets blamed.
+    Only Encar's own image hosts are allowed through, so this can never be turned into an open
+    proxy for the whole internet.
+    """
+    host = urlparse(url).hostname or ""
+    if not url.startswith("https://") or host not in ENCAR_IMAGE_HOSTS:
+        raise HTTPException(400, "only Encar images can be served through here")
+    try:
+        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+            r = await client.get(url, headers={"Referer": "https://www.encar.com/",
+                                              "User-Agent": "Mozilla/5.0"})
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"could not fetch that image: {str(e)[:120]}")
+    if r.is_error:
+        raise HTTPException(r.status_code, "the image host refused that request")
+    return Response(content=r.content,
+                    media_type=r.headers.get("content-type", "image/jpeg"),
+                    headers={"Cache-Control": "public, max-age=604800"})
+
+
 @api.get("/share/car/{listing_id}", response_class=HTMLResponse)
 async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     """A shareable link whose preview picture is the ad's own lead photo.
@@ -1967,10 +2007,13 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
              f"€{(doc or {}).get('sale_eur'):,.0f}".replace(",", " ")
              if (doc or {}).get("sale_eur") else ""]
     description = " · ".join([f for f in facts if f])
-    # 1200x630 is what every chat app and social network crops to.
-    image = image_url(photos[0], 1200, 630) if photos else ""
-    base = os.environ.get("PUBLIC_SITE_URL", "").strip().rstrip("/") \
-        or str(request.base_url).rstrip("/")
+    # 1200x630 is what every chat app and social network crops to, and the picture is served
+    # through OUR domain: Encar's CDN answers a browser but can refuse an unknown crawler, and
+    # a refused image means a preview with no picture at all.
+    raw_image = image_url(photos[0], 1200, 630) if photos else ""
+    image = f"{_share_base(request)}/api/image-proxy?url={quote(raw_image, safe='')}" \
+        if raw_image else ""
+    base = _share_base(request)
     target = f"{base}/{lang}/car/{listing_id}"
 
     tags = [f'<meta property="og:title" content="{_attr(title)}">',
@@ -2911,7 +2954,9 @@ async def create_enquiry(body: EnquiryBody, request: Request):
     account only pre-fills the contact details, it is never required to make contact."""
     user = await auth.optional_user(request)
     email = (body.email or (user or {}).get("email") or "").strip().lower()
-    phone = body.phone.strip()
+    phone = phones.clean(body.phone, body.lang)
+    if body.phone.strip() and not phone:
+        raise HTTPException(400, "that does not look like a phone number we can dial")
     if not email and not phone:
         raise HTTPException(400, "please leave an email address or a phone number")
 
@@ -2966,10 +3011,10 @@ async def request_callback(body: CallbackBody, request: Request):
     """"Call me on this number at this time." Both a phone AND an email are required: the
     phone is how we ring, the email is how the buyer gets a written confirmation."""
     user = await auth.optional_user(request)
-    phone = re.sub(r"[^\d+ ()\-]", "", body.phone or "").strip()[:60]
+    phone = phones.clean(body.phone, body.lang)
+    if not phone:
+        raise HTTPException(400, "please leave a phone number we can dial")
     email = (body.email or (user or {}).get("email") or "").strip().lower()[:200]
-    if len(re.sub(r"\D", "", phone)) < 6:
-        raise HTTPException(400, "please leave a phone number we can call")
     if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
         raise HTTPException(400, "please leave an email address")
 
@@ -3064,12 +3109,26 @@ auth.set_db(db)
 deposits.set_db(db)
 notify.set_db(db)
 csrf_mod.set_db(db)
+geoip.set_db(db)
 # ── shipment tracking ---------------------------------------------------------
 class TrackBody(BaseModel):
     ref: str
     by: str = "container"
     label: str = ""
     car_id: str = ""
+
+
+@api.get("/geo")
+async def geo_hint(request: Request):
+    """The dial-code dropdown: every prefix, plus the one to start on.
+
+    The country comes from the CDN header where there is one and from a cached IP lookup
+    otherwise (geoip.py). It is only a STARTING POINT — the buyer can pick any prefix, and a
+    wrong guess costs one click, never a rejected number.
+    """
+    country = await geoip.country_of(request)
+    return {"country": country, "dial": dialcodes.dial_of(country),
+            "guessed": bool(country), "codes": dialcodes.LIST}
 
 
 @api.get("/tracking")
@@ -3821,6 +3880,7 @@ async def on_startup():
     await csrf_mod.ensure_indexes(db)
     await postqueue.ensure_indexes(db)
     await traffic.ensure_indexes(db)
+    await geoip.ensure_indexes()
     # The de-duplication fingerprints are useful for a day and kept a little longer only so a
     # late-running digest can still be computed; after that they are noise.
     await db.car_view_seen.create_index("at", expireAfterSeconds=40 * 86400)

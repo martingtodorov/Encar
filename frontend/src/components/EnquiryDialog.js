@@ -15,6 +15,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
+import { PhoneInput } from "@/components/PhoneInput";
+import { isValidPhone } from "@/lib/phone";
 import http from "@/lib/api";
 
 /**
@@ -29,6 +31,7 @@ export const EnquiryDialog = ({ car, title }) => {
 
   const [open, setOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  const [touched, setTouched] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", phone: "", message: "" });
 
   const set = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
@@ -40,8 +43,15 @@ export const EnquiryDialog = ({ car, title }) => {
 
   const submit = async (e) => {
     e.preventDefault();
+    setTouched(true);
     if (!email.trim() && !phone.trim()) {
       toast.error(t("enquiryNeedContact"));
+      return;
+    }
+    // A number we cannot dial is worse than no number: the enquiry looks answered and nobody
+    // ever gets a call.
+    if (phone.trim() && !isValidPhone(phone, lang)) {
+      toast.error(t("phoneInvalid"));
       return;
     }
     setSending(true);
@@ -116,17 +126,12 @@ export const EnquiryDialog = ({ car, title }) => {
               />
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="enq-phone" className="text-[12.5px] font-medium">
-                {t("phoneLabel")}
-              </Label>
-              <Input
-                id="enq-phone"
-                data-testid="enquiry-phone-input"
-                type="tel"
+              <Label className="text-[12.5px] font-medium">{t("phoneLabel")}</Label>
+              <PhoneInput
+                testId="enquiry-phone"
                 value={phone}
-                onChange={set("phone")}
-                autoComplete="tel"
-                className="h-11 rounded-[10px] bg-card"
+                onChange={(v) => setForm((p) => ({ ...p, phone: v }))}
+                showError={touched}
               />
             </div>
           </div>
