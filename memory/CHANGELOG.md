@@ -1413,3 +1413,42 @@ header ending at 65.
   `py-4 sm:py-7` and its card row `mt-3 sm:mt-4`.
 * Measured after: desktop hero 311px and Recommended 418px (UNCHANGED); at 414px wide the hero
   is 499px with 16px padding top and bottom, Recommended 378px.
+
+## 2026-06 — Mobile admin bar, drawer preference circles, How-it-works expanded
+
+### The admin traffic bar showed only the live count on a phone (fixed)
+The three windows were `hidden sm:flex` / `hidden md:block`, so a phone got the live number and
+nothing else. Now the numbers wrap onto a SECOND ROW below 640px as
+"24ч 3/90 · 7д 3/90 · 30д 3/90" (visitors/views), and the bar height is MEASURED with a
+`ResizeObserver` and published as `--admin-bar-h` instead of the old 28px constant — otherwise
+the taller bar would cover the header. Verified at 414px: bar 54px, header starts at exactly 54.
+
+### Admin accounts are NOT counted — this was already true
+The owner reported admins showing in the live count. `traffic_ping` already refuses to record a
+request whose session belongs to an admin. PROVED with identical user agents: anonymous ->
+`{"counted": true}`, admin -> `{"counted": false}`. Note when testing: `BOTS` in traffic.py
+matches `curl`, so a plain curl ping always answers `counted: false` regardless of the session —
+pass a browser `-A` string or you will chase a bug that is not there.
+Remaining honest explanations for what the owner sees: browsing from a device/browser where they
+are NOT signed in, or 24h/7d/30d windows still holding rows recorded before the exclusion
+existed. Historic rows cannot be attributed retroactively — the digests are anonymous by design.
+
+### The drawer's three preferences are one line of circles
+ЕЗИК / ВАЛУТА / ТЕМА were three labelled rows of segmented controls in `NavDrawer` (the MOBILE
+menu). Now three 44px circles on one line showing the current value. First attempt made them
+CYCLE on press; the owner corrected that: a press must OPEN the full list. Language and currency
+are `DropdownMenu`s with a check on the active option (`language-option-*` /
+`currency-option-*` testids kept), theme stays a straight toggle (`theme-toggle`) because with
+two states a menu is one tap too many.
+
+### How it works: deposit, contract, tracking and an FAQ
+Added below the existing four steps and the price breakdown, in all three languages
+(`howDepositTitle/Body`, `howContractTitle/Body`, `howTrackTitle/Body`, `howFaqTitle`,
+`howFaq1..4Q/A` in i18n_extra.js) plus a `Detail` panel and a `<dl>` FAQ in HowItWorksPage.
+Every claim is checked against the code: 10% deposit (DEPOSIT_RATE), a card HOLD and not a
+charge, expiring after 7 days (AUTH_DAYS), EUR 300 commission (COMMISSION_EUR) due only on a
+real purchase, verified email required, QES contract, bill-of-lading/container tracking, and
+cars under contract in Korea being unreservable. If those env values change, the copy must too.
+CAUTION WHEN VERIFYING: the preview DB has a CMS stub page for how-it-works in BG and RO
+("Стъпка едно / Стъпка две") which REPLACES the whole built-in page, so the new sections only
+appear on /en there. Production has no such stub.

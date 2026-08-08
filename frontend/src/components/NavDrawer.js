@@ -7,6 +7,7 @@ import {
   ShieldCheck,
   Sun,
   Moon,
+  Check,
 } from "lucide-react";
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
@@ -14,11 +15,23 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
 import { useNavItems } from "@/lib/nav";
 import { LANGS, CURRENCIES } from "@/i18n";
+
+// Circular one-tap preference buttons in the drawer: the current value is on the face and a
+// click moves to the next one.
+const CIRCLE =
+  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-border bg-card text-[12.5px] font-bold uppercase tracking-tight text-foreground transition-all duration-200 hover:border-[hsl(var(--primary)/0.45)] hover:text-[hsl(var(--primary))] active:scale-95";
 
 export const NavDrawer = () => {
   const { t, favourites, lang, currency, setCurrency, theme, toggleTheme, searches } = useApp();
@@ -88,86 +101,86 @@ export const NavDrawer = () => {
 
           <Separator className="my-3" />
 
-          {/* Language and currency as compact inline toggles - they are one-tap
-              preferences, not sections worth scrolling through. */}
-          <div className="flex flex-col gap-2.5 px-2">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t("language")}
-              </span>
-              <div className="inline-flex rounded-[10px] border border-border bg-muted p-0.5">
+          {/* One line, three circles. A press OPENS the list and you pick — cycling made you
+              tap twice to get from BG to EN and gave no idea what was next. Theme stays a
+              straight switch: with two states a menu is one tap too many. */}
+          <div className="flex items-center gap-2.5 px-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  data-testid="language-cycle"
+                  aria-label={`${t("language")}: ${lang.toUpperCase()}`}
+                  className={CIRCLE}
+                >
+                  {lang.toUpperCase()}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[9rem]">
+                <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {t("language")}
+                </DropdownMenuLabel>
                 {LANGS.map((l) => (
-                  <button
+                  <DropdownMenuItem
                     key={l.code}
-                    type="button"
                     data-testid={`language-option-${l.code}`}
-                    onClick={() => switchLang(l.code)}
-                    aria-pressed={l.code === lang}
-                    className={`h-8 rounded-[8px] px-3 text-[12.5px] font-semibold uppercase transition-colors ${
-                      l.code === lang
-                        ? "bg-card text-[hsl(var(--primary))] shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    onSelect={() => switchLang(l.code)}
+                    className="justify-between text-[13.5px]"
                   >
-                    {l.code}
-                  </button>
+                    {l.label}
+                    {l.code === lang ? (
+                      <Check className="h-4 w-4 text-[hsl(var(--primary))]" aria-hidden="true" />
+                    ) : null}
+                  </DropdownMenuItem>
                 ))}
-              </div>
-            </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t("currency")}
-              </span>
-              <div className="inline-flex rounded-[10px] border border-border bg-muted p-0.5">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  data-testid="currency-cycle"
+                  aria-label={`${t("currency")}: ${currency}`}
+                  className={CIRCLE}
+                >
+                  {currency}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="min-w-[9rem]">
+                <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {t("currency")}
+                </DropdownMenuLabel>
                 {CURRENCIES.map((c) => (
-                  <button
+                  <DropdownMenuItem
                     key={c.code}
-                    type="button"
                     data-testid={`currency-option-${c.code}`}
-                    onClick={() => setCurrency(c.code)}
-                    aria-pressed={c.code === currency}
-                    className={`h-8 rounded-[8px] px-3 text-[12.5px] font-semibold transition-colors ${
-                      c.code === currency
-                        ? "bg-card text-[hsl(var(--primary))] shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    onSelect={() => setCurrency(c.code)}
+                    className="justify-between text-[13.5px]"
                   >
-                    {c.code}
-                  </button>
+                    {c.label || c.code}
+                    {c.code === currency ? (
+                      <Check className="h-4 w-4 text-[hsl(var(--primary))]" aria-hidden="true" />
+                    ) : null}
+                  </DropdownMenuItem>
                 ))}
-              </div>
-            </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {t("appearance")}
-              </span>
-              <div className="inline-flex rounded-[10px] border border-border bg-muted p-0.5">
-                {[
-                  { key: "light", icon: Sun, label: t("lightMode") },
-                  { key: "dark", icon: Moon, label: t("darkMode") },
-                ].map(({ key, icon: Icon, label }) => (
-                  <button
-                    key={key}
-                    type="button"
-                    data-testid={key === "dark" ? "theme-toggle" : `theme-option-${key}`}
-                    onClick={() => {
-                      if (theme !== key) toggleTheme();
-                    }}
-                    aria-pressed={theme === key}
-                    aria-label={label}
-                    className={`inline-flex h-8 w-10 items-center justify-center rounded-[8px] transition-colors ${
-                      theme === key
-                        ? "bg-card text-[hsl(var(--primary))] shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                ))}
-              </div>
-            </div>
+            <button
+              type="button"
+              data-testid="theme-toggle"
+              onClick={toggleTheme}
+              aria-label={theme === "dark" ? t("lightMode") : t("darkMode")}
+              title={theme === "dark" ? t("lightMode") : t("darkMode")}
+              className={CIRCLE}
+            >
+              {theme === "dark" ? (
+                <Sun className="h-[18px] w-[18px]" aria-hidden="true" />
+              ) : (
+                <Moon className="h-[18px] w-[18px]" aria-hidden="true" />
+              )}
+            </button>
           </div>
 
           {/* account actions, always last in the drawer */}

@@ -91,3 +91,4 @@ credentials.json
 deploy/hetzner/ansible/inventory.ini
 deploy/hetzner/ansible/group_vars/all.yml
 frontend/node_modules/.cache/default-development/0.pack
+frontend/node_modules/.cache/default-development/9.pack

@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { Ship, FileSearch, Receipt, Truck } from "lucide-react";
+import {
+  Ship,
+  FileSearch,
+  Receipt,
+  Truck,
+  CreditCard,
+  FileSignature,
+  MapPin,
+} from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useApp } from "@/context/AppContext";
 import { useSeo } from "@/lib/seo";
@@ -15,6 +23,20 @@ const Step = ({ icon: Icon, title, body, n }) => (
       <span className="tnum text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">
         {n}
       </span>
+    </div>
+    <h2 className="text-[16px] font-semibold text-foreground">{title}</h2>
+    <p className="mt-1.5 text-[14px] leading-relaxed text-muted-foreground">{body}</p>
+  </div>
+);
+
+/* Same panel as a Step, without the number: these are facts, not an ordered process. */
+const Detail = ({ icon: Icon, title, body, tid, className = "" }) => (
+  <div
+    data-testid={tid}
+    className={`rounded-[16px] border border-border bg-card p-5 shadow-sm ${className}`}
+  >
+    <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-[10px] bg-secondary">
+      <Icon className="h-[18px] w-[18px] text-[hsl(var(--primary))]" aria-hidden="true" />
     </div>
     <h2 className="text-[16px] font-semibold text-foreground">{title}</h2>
     <p className="mt-1.5 text-[14px] leading-relaxed text-muted-foreground">{body}</p>
@@ -88,6 +110,50 @@ export default function HowItWorksPage() {
                 <li>• {t("domestic")}</li>
               </ul>
               <p className="mt-3 text-[13px] leading-relaxed text-foreground">{t("trust1Body")}</p>
+            </section>
+
+            {/* What happens after the price: the deposit, the contract and the shipment. The
+                figures here mirror DEPOSIT_RATE, AUTH_DAYS and COMMISSION_EUR in the backend
+                — change the copy if those change. */}
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Detail
+                tid="how-deposit"
+                icon={CreditCard}
+                title={t("howDepositTitle")}
+                body={t("howDepositBody")}
+              />
+              <Detail
+                tid="how-contract"
+                icon={FileSignature}
+                title={t("howContractTitle")}
+                body={t("howContractBody")}
+              />
+              <Detail
+                tid="how-tracking"
+                icon={MapPin}
+                title={t("howTrackTitle")}
+                body={t("howTrackBody")}
+                className="sm:col-span-2"
+              />
+            </div>
+
+            <section
+              data-testid="how-faq"
+              className="mt-4 rounded-[16px] border border-border bg-card p-5"
+            >
+              <h2 className="text-[16px] font-semibold text-foreground">{t("howFaqTitle")}</h2>
+              <dl className="mt-3 divide-y divide-border">
+                {[1, 2, 3, 4].map((n) => (
+                  <div key={n} className="py-3 first:pt-0 last:pb-0">
+                    <dt className="text-[14px] font-semibold text-foreground">
+                      {t(`howFaq${n}Q`)}
+                    </dt>
+                    <dd className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">
+                      {t(`howFaq${n}A`)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
             </section>
           </>
         )}
