@@ -2894,6 +2894,17 @@ class EnquiryBody(BaseModel):
     lang: str = "bg"
 
 
+async def _remember_phone(user, phone):
+    """Keep a signed-in buyer's number, so the next form is already filled in.
+
+    A number typed into an enquiry is the same number we would call back on; asking for it a
+    second time is how enquiries get abandoned. An account that already has one is left alone.
+    """
+    if not user or not phone or user.get("phone"):
+        return
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"phone": phone[:32]}})
+
+
 @api.post("/enquiry")
 async def create_enquiry(body: EnquiryBody, request: Request):
     """Buyer enquiry about one car. Works for GUESTS as well as signed-in users - the
@@ -2919,6 +2930,7 @@ async def create_enquiry(body: EnquiryBody, request: Request):
         "created_at": datetime.now(timezone.utc),
     }
     await db.enquiries.insert_one(doc)
+    await _remember_phone(user, phone)
     log.info("enquiry %s for listing %s (guest=%s)", doc["_id"], doc["listing_id"],
              doc["is_guest"])
     mailer.send_enquiry_emails(doc)
@@ -2993,6 +3005,7 @@ async def request_callback(body: CallbackBody, request: Request):
         "created_at": datetime.now(timezone.utc),
     }
     await db.callbacks.insert_one(doc)
+    await _remember_phone(user, phone)
     log.info("callback %s for %s at %s", doc["_id"], doc["phone"], doc["when_label"])
     mailer.send_callback_emails(doc)
     notify.push_to_admins_later(

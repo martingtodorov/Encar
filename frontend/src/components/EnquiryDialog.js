@@ -35,10 +35,12 @@ export const EnquiryDialog = ({ car, title }) => {
 
   const name = form.name || user?.name || "";
   const email = form.email || user?.email || "";
+  // A signed-in buyer has already given us their number; asking for it again loses enquiries.
+  const phone = form.phone || user?.phone || "";
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!email.trim() && !form.phone.trim()) {
+    if (!email.trim() && !phone.trim()) {
       toast.error(t("enquiryNeedContact"));
       return;
     }
@@ -49,7 +51,7 @@ export const EnquiryDialog = ({ car, title }) => {
         car_title: title || "",
         name,
         email,
-        phone: form.phone,
+        phone,
         message: form.message,
         lang,
       });
@@ -121,7 +123,7 @@ export const EnquiryDialog = ({ car, title }) => {
                 id="enq-phone"
                 data-testid="enquiry-phone-input"
                 type="tel"
-                value={form.phone}
+                value={phone}
                 onChange={set("phone")}
                 autoComplete="tel"
                 className="h-11 rounded-[10px] bg-card"

@@ -1,5 +1,15 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-08: CONTACT FORMS PREFILL THE PHONE. The enquiry dialog and the out-of-hours
+"call me back" form filled in name and email from the account but NOT the number, and the
+account's number was not even exposed: `auth._public` returned `billing` only, while a number
+kept for notifications lives at `users.phone`. Now `_public` returns one `phone` field
+(`users.phone` first, then `billing.phone`) and both forms read it. A number typed by a
+signed-in buyer is REMEMBERED (`server._remember_phone`, called after the enquiry and the
+callback are stored) but never overwrites one the account already has. Verified end to end:
+login -> phone "" -> enquiry with a number -> `/api/auth/me` returns it -> both dialogs open
+with phone, name and email already filled. -->
+
 <!-- 2026-08-08: SUB-MODELS WERE BEING LOCALISED ON THE CAR PAGE ONLY — root cause found. The
 detail payload ends with a LEFTOVER-KOREAN pass (`collect_korean` + `apply_translations`) that
 walks the whole payload and replaces any Hangul string with the PAGE language. `badge` and

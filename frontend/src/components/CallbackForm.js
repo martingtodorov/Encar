@@ -65,6 +65,8 @@ export const CallbackForm = ({ info, car, title, onDone }) => {
   const set = (k) => (e) => setForm((p) => ({ ...p, [k]: e.target.value }));
   const name = form.name || user?.name || "";
   const email = form.email || user?.email || "";
+  // A signed-in buyer should never retype their number to ask for a call back.
+  const phone = form.phone || user?.phone || "";
   const chosen = time || slots[0] || "";
 
   const submit = async (e) => {
@@ -73,7 +75,7 @@ export const CallbackForm = ({ info, car, title, onDone }) => {
     try {
       const r = await requestCallback({
         name,
-        phone: form.phone,
+        phone,
         email,
         day: dayIso,
         time: chosen,
@@ -138,7 +140,7 @@ export const CallbackForm = ({ info, car, title, onDone }) => {
           type="tel"
           required
           autoComplete="tel"
-          value={form.phone}
+          value={phone}
           onChange={set("phone")}
           className="h-10 bg-background text-[14px]"
         />

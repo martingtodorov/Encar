@@ -297,6 +297,9 @@ def _public(user, passkeys=0):
         "is_admin": bool(user.get("is_admin")),
         "email_verified": _verified(user),
         "billing": user.get("billing") or {},
+        # One phone for the UI to prefill with: the number kept for notifications wins over the
+        # billing one, because it is the one the buyer keeps current.
+        "phone": user.get("phone") or (user.get("billing") or {}).get("phone") or "",
         "consent": user.get("consent") or "",
         "consent_record": user.get("consent_record") or {},
         "twofa": bool((user.get("totp") or {}).get("enabled")),
