@@ -1,5 +1,27 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-08: TERMS AT GOOGLE SIGN-UP + COUNTRY DROPDOWN.
+GOOGLE. `POST /auth/google/session` no longer creates an account on trust: when the identity has
+NO account yet and the body carries no `terms_version`, it answers **409 `terms_required`** and
+writes nothing. Google proving who somebody is does not accept our terms for them. Signing in to
+an EXISTING account never asks again. The tick made on the sign-up form survives the redirect in
+`sessionStorage` under `TERMS_HANDOFF` (`encar:terms-accepted`, set in `LoginPage.googleSignIn`,
+read and cleared in `AuthCallback`); when it is absent — somebody who pressed "sign in" but turns
+out to be new — `AuthCallback` renders the checkbox itself and retries with `TERMS_VERSION`, so
+the account is still created in the same visit. `terms: {version, at}` is stored either way.
+NOT VERIFIED END TO END: this path needs a real Google account, so it is code-reviewed only. Test
+it by signing in with a Google address that has never been used here.
+COUNTRY IS A DROPDOWN. `BillingFields` had a two-letter free-text box, which produced "bg", "BGR"
+and "Бг" in the same column. It is now a select of all 222 countries from `/api/geo`, preselected
+from the visitor's IP, and an address saved under the old field is matched forward ("bg", "BGR" or
+"Bulgaria" -> BG) so an existing account does not open blank. Label lost its "(BG, RO…)" hint in
+all three languages. The phone field spans the full width (it was sharing a row and the number
+box was ~30px wide).
+Verified in the browser: 223 options, preselect from IP, picking BG sticks, phone prefix
+"Bulgaria +359", number field 226px, submit still gated by the terms tick. Backend: 45 tests pass
+across the registration suites (`tests/conftest.py` completes `terms_version` for the older
+files). -->
+
 <!-- 2026-08-08: CONSENT, TERMS AND PHONE NUMBERS (one session, owner-driven).
 COOKIE CONSENT IS NOW BLOCKING. It was a bar along the bottom and buyers scrolled straight past
 it, so for them nothing outside the strictly necessary category could ever be written — the

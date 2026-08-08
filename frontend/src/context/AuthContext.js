@@ -119,10 +119,10 @@ export function AuthProvider({ children }) {
 
   /** Google sign-in, second half: exchange the one-time id for a session of our own. */
   const googleSession = useCallback(
-    async (sessionId) => {
+    async (sessionId, termsVersion = "") => {
       const local = favourites;
       const localSearches = searches;
-      const answer = await apiGoogleSession(sessionId);
+      const answer = await apiGoogleSession(sessionId, termsVersion);
       if (answer.mfa_required) return answer;
       await adopt(answer.user, local, localSearches);
       return answer;

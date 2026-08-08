@@ -4,6 +4,8 @@ import { Fingerprint, Loader2, LogIn, UserPlus, AlertCircle } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
+import { TERMS_VERSION } from "@/lib/legal";
+import { TERMS_HANDOFF } from "@/pages/AuthCallback";
 import { BLANK_BILLING, BillingFields } from "@/components/BillingFields";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -116,6 +118,10 @@ export default function LoginPage() {
   // THE AUTH. The buyer must come back to the exact origin they are on, whichever domain
   // that is, so the redirect is built from the browser's own location.
   const googleSignIn = () => {
+    // The tick made here has to survive a full round trip to Google and back, so it is handed
+    // to the callback screen rather than kept in component state. Without it the backend
+    // refuses to create a new account and the callback asks there instead.
+    if (registering && terms) sessionStorage.setItem(TERMS_HANDOFF, TERMS_VERSION);
     const redirectUrl = window.location.origin + path("/");
     window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(
       redirectUrl

@@ -649,6 +649,9 @@ EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/
 
 class GoogleSessionBody(BaseModel):
     session_id: str
+    # The policy version the buyer ticked before being sent to Google. Only needed when this
+    # identity has no account yet; signing in to an existing one never asks again.
+    terms_version: str = ""
 
 
 async def _emergent_identity(session_id: str):
@@ -674,6 +677,12 @@ async def google_session(body: GoogleSessionBody, request: Request, response: Re
 
     user = await _db.users.find_one({"email_norm": email})
     if not user:
+        # A NEW account may not be created without the terms being accepted, and Google proving
+        # who somebody is does not accept anything on their behalf. The form sends the version
+        # it showed; without one the browser is told to ask, and nothing is written.
+        accepted = body.terms_version.strip()[:32]
+        if not accepted:
+            raise HTTPException(409, "terms_required")
         user = {
             "_id": str(uuid.uuid4()),
             "email": email,
@@ -687,6 +696,7 @@ async def google_session(body: GoogleSessionBody, request: Request, response: Re
             "is_admin": await _db.users.count_documents({"is_admin": True}) == 0,
             "google_id": data.get("id") or "",
             "picture": data.get("picture") or "",
+            "terms": {"version": accepted, "at": _now()},
             "created_at": _now(),
         }
         await _db.users.insert_one(user)
