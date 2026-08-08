@@ -83,7 +83,7 @@ export const VesselMap = ({ milestones = [], position, vesselName = "", labelFor
               <br />
               {s.events.map((e, n) => (
                 <span key={n}>
-                  {labelFor ? labelFor(e.code) : e.code}
+                  {labelFor ? labelFor(e.code, e.estimated) : e.code}
                   {e.estimated ? " (est.)" : ""}
                   <br />
                 </span>

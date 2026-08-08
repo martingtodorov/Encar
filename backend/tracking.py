@@ -394,9 +394,10 @@ async def _last_leg(db, stones, owner_id, destination=""):
         at_final = next((s for s in reversed(stones)
                          if not s.get("estimated") and _same_place(s.get("location")) == wanted),
                         None)
-    # Already at its final stop: customs happened upstream at the sea port, so the only thing
-    # left to promise is the lorry.
-    arrival, road_only = (at_final, True) if at_final else (landed, False)
+    # A real discharge wins; otherwise the arrival at the destination we know. Both then get
+    # the SAME tail — customs runs after the box is on the quay wherever that quay is, so an
+    # arrival at the final port is not "already cleared".
+    arrival = landed or at_final
     if not arrival:
         return []
     port = arrival.get("location") or ""
@@ -408,18 +409,20 @@ async def _last_leg(db, stones, owner_id, destination=""):
     if owner_id:
         owner = await db.users.find_one({"_id": owner_id}, {"billing": 1})
         country = ((owner or {}).get("billing") or {}).get("country") or ""
+    # An anonymous lookup has no buyer attached, and "Delivery" with no place at all reads as
+    # if the car went nowhere. Our own market is the fallback; a buyer we DO know always
+    # overrides it with their own country.
+    country = country or os.environ.get("DEFAULT_DELIVERY_COUNTRY", "BG")
     fmt = "%Y-%m-%dT%H:%M:00"
-    if road_only:
-        return [_stone("DLV", "Delivery",
-                       (base + timedelta(days=DELIVERY_DAYS)).strftime(fmt), country or "")]
     return [
         _stone("CU", "Customs cleared",
                (base + timedelta(days=CUSTOMS_DAYS)).strftime(fmt), port),
         # Country only — the buyer's street address is not something to print on a page
-        # that a shared link can open.
+        # that a shared link can open. The code travels (BG/RO/DE...) and the page prints it
+        # in the visitor's own language.
         _stone("DLV", "Delivery",
                (base + timedelta(days=CUSTOMS_DAYS + DELIVERY_DAYS)).strftime(fmt),
-               country, country),
+               "", country),
     ]
 
 

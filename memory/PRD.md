@@ -1,5 +1,23 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-08: TRACKING TENSE — a milestone that has not happened is no longer worded in the
+past ("Пристигна" under a date a week away). `TrackPage.FUTURE` holds future-tense copy per
+event code in BG/RO/EN and `label(lang, code, estimated)` prefers it; a milestone counts as
+future when the carrier marks it estimated OR its date is still ahead of now (`ahead()`),
+because JSONCargo sometimes flags a PLANNED arrival as actual. Applied to the timeline, the
+ETA line, "last event" and the map popups (`VesselMap` now passes `e.estimated` to
+`labelFor`). Verified on B/L 271191199 in BG and EN: "Отплава / Пристигна / Ще бъде доставен",
+"Vessel departed / Vessel arrived / To be delivered". The +4d customs / +7d delivery tail from
+`tracking._last_leg` is confirmed working.
+LAST LEG, final rule (owner, 2026-08-08): the tail is ALWAYS both steps — customs = arrival + 4
+days, delivery = customs + 7 days — anchored on a real discharge (`UV`) or on the arrival at the
+destination JSONCargo names (`route.to`). The old "already at the final port, so only the lorry"
+branch is GONE: customs still has to run at Bergen op Zoom. The delivery step carries the buyer's
+billing COUNTRY CODE only (never the street); with no buyer attached it falls back to
+`DEFAULT_DELIVERY_COUNTRY` (BG). `TrackPage.COUNTRIES` + `countryName()`/`place()` print it in the
+page language, so BG reads "България" and EN "Bulgaria". Verified on B/L 271191199: arrival 06.08
+Bergen Op Zoom -> "Ще бъде освободен от митницата" 10.08 -> "Ще бъде доставен" 17.08, България. -->
+
 <!-- 2026-06 (later): Outside working hours a buyer can LEAVE A NUMBER AND A TIME and we
 ring them back (admin list under Enquiries; the slot is re-checked server-side against the
 owner's Sofia hours). The hand-picked shelf now ORDERS ITSELF by deposits x 10 + CTR, with a

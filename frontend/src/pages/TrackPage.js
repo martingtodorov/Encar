@@ -76,7 +76,63 @@ const EVENTS = {
   },
 };
 
-const label = (lang, code) => EVENTS[lang]?.[code] || EVENTS.en[code] || code;
+/**
+ * A forecast has not happened yet, so it must not be worded as if it had: an ETA read
+ * "Пристигна" (arrived) under a date a fortnight away. Only the codes that genuinely turn up
+ * as estimates need an entry; anything else falls back to the neutral past-tense map.
+ */
+const FUTURE = {
+  bg: {
+    LOAD: "Ще бъде натоварен на кораба", AR: "Ще бъде натоварен на кораба",
+    DEPA: "Ще отплава", VD: "Ще отплава",
+    ARRI: "Ще пристигне", VA: "Ще пристигне",
+    DISC: "Ще бъде разтоварен от кораба", UV: "Ще бъде разтоварен от кораба",
+    STRP: "Ще бъде разтоварен от контейнера",
+    GTIN: "Ще бъде приет в терминала", AG: "Ще бъде приет в терминала",
+    GTOT: "Ще излезе от терминала", OA: "Ще излезе от терминала",
+    AE: "Ще бъде предаден за доставка", AV: "Ще бъде готов за доставка",
+    PICK: "Ще бъде вдигнат", DROP: "Ще бъде оставен",
+    RD: "Контейнерът ще бъде върнат", EE: "Празният контейнер ще бъде изпратен",
+    CU: "Ще бъде освободен от митницата",
+    D: "Ще бъде доставен", DLV: "Ще бъде доставен",
+  },
+  ro: {
+    LOAD: "Va fi încărcat pe navă", AR: "Va fi încărcat pe navă",
+    DEPA: "Va pleca", VD: "Va pleca",
+    ARRI: "Va sosi", VA: "Va sosi",
+    DISC: "Va fi descărcat de pe navă", UV: "Va fi descărcat de pe navă",
+    STRP: "Va fi descărcat din container",
+    GTIN: "Va fi primit în terminal", AG: "Va fi primit în terminal",
+    GTOT: "Va ieși din terminal", OA: "Va ieși din terminal",
+    AE: "Va fi predat pentru livrare", AV: "Va fi gata de livrare",
+    PICK: "Va fi ridicat", DROP: "Va fi predat",
+    RD: "Containerul va fi returnat", EE: "Containerul gol va fi trimis",
+    CU: "Va fi eliberat de vamă",
+    D: "Va fi livrat", DLV: "Va fi livrat",
+  },
+  en: {
+    LOAD: "To be loaded on vessel", AR: "To be loaded on vessel",
+    DEPA: "Departing", VD: "Vessel departing",
+    ARRI: "Arriving", VA: "Vessel arriving",
+    DISC: "To be discharged from vessel", UV: "To be unloaded from vessel",
+    STRP: "To be unloaded from container",
+    GTIN: "To be received at terminal", AG: "To be received at terminal",
+    GTOT: "To leave the terminal", OA: "To leave the terminal",
+    AE: "To be released for delivery", AV: "To become available for delivery",
+    PICK: "To be picked up", DROP: "To be dropped off",
+    RD: "Container to be returned", EE: "Empty container to be dispatched",
+    CU: "To be cleared by customs",
+    D: "To be delivered", DLV: "To be delivered",
+  },
+};
+
+const label = (lang, code, estimated = false) => {
+  if (estimated) {
+    const soon = FUTURE[lang]?.[code] || FUTURE.en[code];
+    if (soon) return soon;
+  }
+  return EVENTS[lang]?.[code] || EVENTS.en[code] || code;
+};
 
 /**
  * Work out what kind of number this is from its shape.
@@ -106,6 +162,66 @@ const when = (iso, lang) => {
   });
 };
 
+/**
+ * The delivery step carries the buyer's COUNTRY CODE only (never their street), so the page
+ * prints the country in the language being read: "България" / "Bulgaria". Anything we have no
+ * name for falls back to the code, which is still readable.
+ */
+const COUNTRIES = {
+  bg: {
+    BG: "България", RO: "Румъния", GR: "Гърция", DE: "Германия", AT: "Австрия",
+    NL: "Нидерландия", BE: "Белгия", FR: "Франция", IT: "Италия", ES: "Испания",
+    PT: "Португалия", PL: "Полша", CZ: "Чехия", SK: "Словакия", HU: "Унгария",
+    SI: "Словения", HR: "Хърватия", RS: "Сърбия", MK: "Северна Македония",
+    AL: "Албания", BA: "Босна и Херцеговина", ME: "Черна гора", MD: "Молдова",
+    UA: "Украйна", TR: "Турция", CY: "Кипър", MT: "Малта", DK: "Дания",
+    SE: "Швеция", NO: "Норвегия", FI: "Финландия", EE: "Естония", LV: "Латвия",
+    LT: "Литва", IE: "Ирландия", GB: "Великобритания", CH: "Швейцария", LU: "Люксембург",
+  },
+  ro: {
+    BG: "Bulgaria", RO: "România", GR: "Grecia", DE: "Germania", AT: "Austria",
+    NL: "Țările de Jos", BE: "Belgia", FR: "Franța", IT: "Italia", ES: "Spania",
+    PT: "Portugalia", PL: "Polonia", CZ: "Cehia", SK: "Slovacia", HU: "Ungaria",
+    SI: "Slovenia", HR: "Croația", RS: "Serbia", MK: "Macedonia de Nord",
+    AL: "Albania", BA: "Bosnia și Herțegovina", ME: "Muntenegru", MD: "Moldova",
+    UA: "Ucraina", TR: "Turcia", CY: "Cipru", MT: "Malta", DK: "Danemarca",
+    SE: "Suedia", NO: "Norvegia", FI: "Finlanda", EE: "Estonia", LV: "Letonia",
+    LT: "Lituania", IE: "Irlanda", GB: "Regatul Unit", CH: "Elveția", LU: "Luxemburg",
+  },
+  en: {
+    BG: "Bulgaria", RO: "Romania", GR: "Greece", DE: "Germany", AT: "Austria",
+    NL: "Netherlands", BE: "Belgium", FR: "France", IT: "Italy", ES: "Spain",
+    PT: "Portugal", PL: "Poland", CZ: "Czechia", SK: "Slovakia", HU: "Hungary",
+    SI: "Slovenia", HR: "Croatia", RS: "Serbia", MK: "North Macedonia",
+    AL: "Albania", BA: "Bosnia and Herzegovina", ME: "Montenegro", MD: "Moldova",
+    UA: "Ukraine", TR: "Turkey", CY: "Cyprus", MT: "Malta", DK: "Denmark",
+    SE: "Sweden", NO: "Norway", FI: "Finland", EE: "Estonia", LV: "Latvia",
+    LT: "Lithuania", IE: "Ireland", GB: "United Kingdom", CH: "Switzerland", LU: "Luxembourg",
+  },
+};
+
+export const countryName = (lang, code) => {
+  const c = (code || "").trim();
+  if (!c) return "";
+  const key = c.toUpperCase();
+  return COUNTRIES[lang]?.[key] || COUNTRIES.en[key] || c;
+};
+
+// Where a milestone happened, as one line: a port with its country, or - for the doorstep
+// step - just the country.
+const place = (lang, m) => {
+  const country = countryName(lang, m.country);
+  if (!m.location) return country;
+  return country && country !== m.location ? `${m.location}, ${country}` : m.location;
+};
+
+// A carrier sometimes flags a PLANNED arrival as actual, so the date decides too: nothing
+// dated ahead of now may be worded as if it had already happened.
+const ahead = (iso) => {
+  const d = new Date(iso || "");
+  return !Number.isNaN(d.getTime()) && d.getTime() > Date.now();
+};
+
 const Row = ({ m, lang, last }) => (
   <li className="relative flex gap-4 pb-6 last:pb-0" data-testid="track-milestone">
     <span className="absolute left-[7px] top-5 h-full w-px bg-border last:hidden" />
@@ -121,7 +237,7 @@ const Row = ({ m, lang, last }) => (
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-baseline gap-x-2">
         <span className="text-sm font-semibold text-foreground">
-          {label(lang, m.code) || m.text}
+          {label(lang, m.code, m.estimated || ahead(m.when)) || m.text}
         </span>
         {m.estimated && (
           <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -130,13 +246,12 @@ const Row = ({ m, lang, last }) => (
         )}
       </div>
       <div className="tnum mt-0.5 text-[12px] text-muted-foreground">{when(m.when, lang)}</div>
-      {(m.location || m.vessel_name) && (
+      {(place(lang, m) || m.vessel_name) && (
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-muted-foreground">
-          {m.location && (
+          {place(lang, m) && (
             <span className="inline-flex items-center gap-1">
               <MapPin className="h-3 w-3" aria-hidden="true" />
-              {m.location}
-              {m.country ? `, ${m.country}` : ""}
+              {place(lang, m)}
             </span>
           )}
           {m.vessel_name && (
@@ -525,9 +640,9 @@ export default function TrackPage() {
                     <div className="mt-0.5 text-sm font-semibold text-foreground">
                       {when(data.delivery.when, lang)}
                     </div>
-                    {data.delivery.location && (
+                    {place(lang, data.delivery) && (
                       <div className="mt-0.5 text-[12px] text-muted-foreground">
-                        {data.delivery.location}
+                        {place(lang, data.delivery)}
                       </div>
                     )}
                   </div>
@@ -541,8 +656,8 @@ export default function TrackPage() {
                       {when(data.eta.when, lang)}
                     </div>
                     <div className="text-[12px] text-muted-foreground">
-                      {label(lang, data.eta.code) || data.eta.text}
-                      {data.eta.location ? ` · ${data.eta.location}` : ""}
+                      {label(lang, data.eta.code, data.eta.estimated !== false) || data.eta.text}
+                      {place(lang, data.eta) ? ` · ${place(lang, data.eta)}` : ""}
                     </div>
                   </div>
                 )}
@@ -552,11 +667,11 @@ export default function TrackPage() {
                       {t("trackLastSeen")}
                     </div>
                     <div className="mt-0.5 text-sm font-semibold text-foreground">
-                      {label(lang, data.last.code) || data.last.text}
+                      {label(lang, data.last.code, ahead(data.last.when)) || data.last.text}
                     </div>
                     <div className="text-[12px] text-muted-foreground">
                       {when(data.last.when, lang)}
-                      {data.last.location ? ` · ${data.last.location}` : ""}
+                      {place(lang, data.last) ? ` · ${place(lang, data.last)}` : ""}
                     </div>
                   </div>
                 )}
@@ -631,7 +746,7 @@ export default function TrackPage() {
                 milestones={data.milestones}
                 position={data.vessel?.position}
                 vesselName={data.vessel?.name}
-                labelFor={(code) => label(lang, code)}
+                labelFor={(code, est) => label(lang, code, est)}
               />
             )}
 
