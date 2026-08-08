@@ -30,7 +30,7 @@ export const Recommended = ({ onOpen }) => {
 
   return (
     <section data-testid="recommended" className="border-b border-border bg-background">
-      <div className="mx-auto max-w-[1280px] px-4 py-7 sm:px-6">
+      <div className="mx-auto max-w-[1280px] px-4 py-4 sm:px-6 sm:py-7">
         <div className="flex items-end justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold tracking-tight text-foreground">
@@ -43,7 +43,7 @@ export const Recommended = ({ onOpen }) => {
             the strip dead on every card. */}
         <div
           data-testid="recommended-strip"
-          className="-mx-4 mt-4 flex gap-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="-mx-4 mt-3 flex gap-4 sm:mt-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {items.map((car) => (
             <div

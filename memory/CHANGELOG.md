@@ -1361,3 +1361,55 @@ visible.
 narrowing fields. `test_relevant_sort.py` gained a shop-window test, and its old "filtered"
 assertion was fixed: it passed `manufacturer`, which is NOT a search field, so it was really
 comparing two landing views. 249 backend tests pass.
+
+## 2026-06 — Hero rebuilt, trust strip removed, hidden h1
+
+The owner rejected TWO attempts before this one. What they rejected, so nobody rebuilds it:
+* the original pale pink gradient wash (`hero-bg` linear-gradient + `hero-grain` noise dots);
+* a CENTRED hero on a blueprint grid with a radial red glow and a pulsing "radar" dot next to
+  the catalogue counter. Their words: "this looks like every vibecoded ai slop project I have
+  ever seen", "don't use the glowing radar red dot", "I really don't like the background".
+DO NOT reintroduce: centred hero copy, gradient/gradient-wash backgrounds, the grid overlay,
+noise textures, glowing or pulsing dots, pastel pink tinted icon tiles.
+
+What it is now (`components/Hero.js`, `.hero-bg` / `.hero-panel` in index.css):
+* Left-aligned, two columns on desktop (`minmax(0,1fr) 320px`, bottom-aligned), one column on
+  a phone. A SOLID surface, no gradient, no texture: paper `hsl(220 16% 96%)` in light mode,
+  `hsl(222 18% 7%)` in dark. Depth comes from the panel and hairlines only.
+* Right: a specification panel — the three Encar guarantees as label + what it contains
+  (`heroChip1Note`/`2Note`/`3Note`, new keys in all three languages), hairline-divided, red
+  lucide icons. It replaced the pill chips, which orphaned the third pill on its own row and
+  left the desktop column empty.
+* CTA: red, 10px radius, an arrow that nudges on hover; the counter beside it is plain tabular
+  text with NO indicator dot.
+* Entrance: `.animate-rise` (a 10px rise + fade) staggered 0/60/120/180ms via inline
+  `animation-delay`, disabled under `prefers-reduced-motion`. No library.
+* Padding cut twice at the owner's request; now `py-6 sm:py-8 lg:py-9` (hero is 311px tall on
+  a 1440 desktop, down from 351).
+* The kicker line ("ДИРЕКТЕН ВНОС ОТ ЮЖНА КОРЕЯ") was added and then REMOVED on request; the
+  `heroKicker` key was deleted from all three languages.
+
+`TrustStrip` (Крайна цена / Документи / Бързо търсене) was DELETED on request — the component
+file is gone and the usage is out of SearchPage. The `trust1Title`…`trust3Body` i18n keys were
+left in place, harmless, in case the owner wants the block back.
+
+Hidden h1: the landing view renders `<h1 className="sr-only">Encar Europe</h1>` as the FIRST
+heading, and the hero's own headline became an `<h2>` with identical classes — so the page has
+exactly ONE h1 and it is the brand. `sr-only`, deliberately NOT `display: none`, which search
+engines discount. Verified: one h1 on the page, text "Encar Europe", box 1x1px.
+
+The hero CTA now scrolls to the MAKE/MODEL/SUBMODEL dropdowns (`taxRef`), not to the results
+list, offsetting the sticky header AND `--admin-bar-h` by hand because `scrollIntoView` puts
+the target under the header. Verified: after the click the МАРКА label sits at y=92 with the
+header ending at 65.
+
+### Hero panel type size and MOBILE-ONLY vertical tightening (2026-06)
+* The specification panel's rows went up a step at the owner's request: label 13px -> 14px
+  (`text-sm`), note 11.5px -> 13px, icon 16 -> 17px.
+* Then vertical space was cut on the PHONE ONLY — the owner was explicit that the desktop
+  spacing must stay. Every cut is a base utility with an `sm:` restoring the old value:
+  hero wrapper `py-4 sm:py-8 lg:py-9`, hero grid `gap-5 sm:gap-8`, standfirst `mt-3 sm:mt-3.5`,
+  CTA row `mt-5 sm:mt-7`, panel rows `py-3 sm:py-3.5`; Recommended wrapper
+  `py-4 sm:py-7` and its card row `mt-3 sm:mt-4`.
+* Measured after: desktop hero 311px and Recommended 418px (UNCHANGED); at 414px wide the hero
+  is 499px with 16px padding top and bottom, Recommended 378px.

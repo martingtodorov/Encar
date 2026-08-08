@@ -13,7 +13,6 @@ import {
 import { HeaderBar } from "@/components/HeaderBar";
 import { Hero } from "@/components/Hero";
 import { Recommended } from "@/components/Recommended";
-import { TrustStrip } from "@/components/TrustStrip";
 import { TaxonomySelects } from "@/components/TaxonomySelects";
 import { FilterSidebar } from "@/components/FilterSidebar";
 import { AppliedFiltersChips } from "@/components/AppliedFiltersChips";
@@ -199,6 +198,7 @@ export default function SearchPage() {
   }, [resolving]);
 
   const resultsRef = useRef(null);
+  const taxRef = useRef(null);
   const debounce = useRef(null);
 
   const learnSlugs = useCallback((entries) => {
@@ -419,8 +419,19 @@ export default function SearchPage() {
     window.scrollTo(0, 0);
   }, [homeSignal, resetAll]);
 
-  const scrollToResults = useCallback(() => {
-    resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  // The hero's button lands on the make/model dropdowns, not on the list: the visitor asked to
+  // start searching, and the first thing they need is the first dropdown. The sticky header
+  // (and the admin bar above it, when present) would cover them, so it is offset by hand
+  // instead of using scrollIntoView.
+  const scrollToSearch = useCallback(() => {
+    const node = taxRef.current;
+    if (!node) return;
+    const bar = parseInt(
+      getComputedStyle(document.documentElement).getPropertyValue("--admin-bar-h") || "0",
+      10,
+    ) || 0;
+    const top = node.getBoundingClientRect().top + window.scrollY - bar - 64 - 8;
+    window.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
   }, []);
 
   // A new page starts at the top of the page, not at the pagination the visitor just
@@ -557,17 +568,20 @@ export default function SearchPage() {
         </button>
       </div>
 
+      {/* The site name as the landing page's h1, for crawlers. `sr-only` and not
+          `display: none`: hidden text is discounted, a screen-reader-only heading is not. The
+          hero's own headline is an h2 below it, so the page keeps exactly ONE h1. */}
+      {isHome && <h1 className="sr-only">Encar Europe</h1>}
+
       {/* The pitch belongs on the landing view only: once someone has filtered, they are
           shopping and the hero is just something to scroll past. Sorting alone still counts
           as the home view. */}
-      {isHome && <Hero totalUpstream={catalogueSize} onStart={scrollToResults} />}
-
-      {isHome && <TrustStrip />}
+      {isHome && <Hero totalUpstream={catalogueSize} onStart={scrollToSearch} />}
 
       {isHome && <Recommended onOpen={openCar} />}
 
       {/* Cascading Make -> Model -> Submodel -> Trim replaces the old search box */}
-      <section className="bg-background">
+      <section ref={taxRef} className="bg-background">
         <div className="mx-auto max-w-[1280px] px-4 py-5 sm:px-6">
           <TaxonomySelects
             // While the URL's English slugs are still being translated back, `tax` holds

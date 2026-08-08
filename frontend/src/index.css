@@ -112,34 +112,24 @@ code {
     background-color: hsl(var(--surface-2));
 }
 
-/* The landing shop window. No photograph: a car image behind the headline would fight the 24
-   car photos that start one scroll below. A blueprint grid plus one soft brand glow reads as
-   technical rather than promotional, costs nothing to load and works in both themes. */
+/* The landing band. A solid surface: no gradient, no noise, no grid. Depth comes from the
+   panel layered on top and from hairlines, which is what makes it read as a trading terminal
+   instead of a marketing splash. It follows the theme — a paper tone in light mode, near
+   black in dark — and the panel is one step lighter than whatever it sits on. */
 .hero-bg {
-    background-color: hsl(var(--background));
-    background-image: radial-gradient(
-        ellipse 90% 70% at 50% -20%,
-        hsl(var(--primary) / 0.09),
-        transparent 70%
-    );
-}
-.dark .hero-bg {
-    background-image: radial-gradient(
-        ellipse 90% 70% at 50% -20%,
-        hsl(var(--primary) / 0.22),
-        transparent 70%
-    );
+    background-color: hsl(220 16% 96%);
 }
 
-/* 1px grid, faded out towards the results so there is no hard seam. */
-.hero-grid {
-    background-image:
-        linear-gradient(to right, hsl(var(--border)) 1px, transparent 1px),
-        linear-gradient(to bottom, hsl(var(--border)) 1px, transparent 1px);
-    background-size: 56px 56px;
-    opacity: 0.55;
-    -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 85%);
-    mask-image: linear-gradient(to bottom, #000 0%, transparent 85%);
+.hero-panel {
+    background-color: hsl(var(--card));
+}
+
+.dark .hero-bg {
+    background-color: hsl(222 18% 7%);
+}
+
+.dark .hero-panel {
+    background-color: hsl(222 15% 13%);
 }
 
 /* Staggered entrance for the hero, applied with an inline animation-delay. */
@@ -161,15 +151,6 @@ code {
     .animate-rise {
         animation: none;
     }
-}
-
-/* The chip row scrolls sideways on a narrow screen instead of orphaning the third pill. */
-.no-scrollbar {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-}
-.no-scrollbar::-webkit-scrollbar {
-    display: none;
 }
 
 .shimmer {
