@@ -76,7 +76,10 @@ export function useSeo({ lang, title, description, image, noindex = false }) {
     const origin = window.location.origin;
     const rest = stripLang(pathname);
     const self = `${origin}/${lang}${rest}`;
-    const picture = image || `${origin}/icons/icon-512.png`;
+    // og.png is our logo on the brand plate at 1200x630 — a square app icon previews as a
+    // cropped blob in a chat list. A page with a picture of its own (a car, the route map)
+    // passes it in.
+    const picture = image || `${origin}/og.png`;
 
     // Private pages are kept out of the index, but never out of a crawler's reach.
     meta("robots", noindex ? "noindex, nofollow" : "index, follow, max-image-preview:large");
@@ -90,6 +93,8 @@ export function useSeo({ lang, title, description, image, noindex = false }) {
     property("og:url", self);
     property("og:type", "website");
     property("og:image", picture);
+    property("og:image:width", "1200");
+    property("og:image:height", "630");
     property("og:locale", OG_LOCALE[lang] || OG_LOCALE.en);
     if (description) property("og:description", description);
 

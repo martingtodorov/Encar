@@ -24,6 +24,36 @@ const shell = path.join(build, "index.html");
 const MAP = require("./seo-landing.json");
 const LANGS = ["bg", "ro", "en"];
 
+// The absolute site URL, because an og:image must not be relative. CRA only loads .env for the
+// bundle, so this postbuild script reads it itself.
+function siteUrl() {
+  if (process.env.REACT_APP_SITE_URL) return process.env.REACT_APP_SITE_URL.replace(/\/$/, "");
+  try {
+    const env = fs.readFileSync(path.join(__dirname, "..", ".env"), "utf8");
+    const hit = env.match(/^REACT_APP_SITE_URL=(.*)$/m);
+    if (hit) return hit[1].trim().replace(/^["']|["']$/g, "").replace(/\/$/, "");
+  } catch (e) {
+    /* no .env in this build environment */
+  }
+  return "";
+}
+
+const SITE = siteUrl();
+
+// Copy for the pages that are worth their own preview. The route map is rendered by the
+// backend from OpenStreetMap tiles (backend/mapshot.py); everything else previews with the logo.
+const ROUTES = {
+  track: {
+    image: "/api/map/track.png",
+    bg: ["Проследи автомобила си · Encar Europe",
+         "Виж къде е контейнерът с колата ти — от терминала в Корея до доставката."],
+    ro: ["Urmărește mașina ta · Encar Europe",
+         "Vezi unde este containerul mașinii tale — din terminalul din Coreea până la livrare."],
+    en: ["Track my vehicle · Encar Europe",
+         "See where your car's container is — from the terminal in Korea to delivery."],
+  },
+};
+
 if (!fs.existsSync(shell)) {
   console.error("gen-lang-html: build/index.html is missing - run the build first");
   process.exit(1);
@@ -38,13 +68,47 @@ function retag(source, { lang, title, description }) {
     .replace(
       /<meta name="description" content="[^"]*"\s*\/?>/,
       `<meta name="description" content="${description}" />`
+    )
+    .replace(
+      /<meta property="og:title" content="[^"]*"\s*\/?>/,
+      `<meta property="og:title" content="${title}" />`
+    )
+    .replace(
+      /<meta property="og:description" content="[^"]*"\s*\/?>/,
+      `<meta property="og:description" content="${description}" />`
+    )
+    .replace(
+      /<meta name="twitter:title" content="[^"]*"\s*\/?>/,
+      `<meta name="twitter:title" content="${title}" />`
+    )
+    .replace(
+      /<meta name="twitter:description" content="[^"]*"\s*\/?>/,
+      `<meta name="twitter:description" content="${description}" />`
     );
+}
+
+// A page whose preview picture is NOT the logo: every og:image/twitter:image is repointed.
+function repoint(source, image) {
+  return source.replace(
+    /content="[^"]*\/og\.png"/g,
+    `content="${image}"`
+  );
 }
 
 LANGS.forEach((lang) => {
   const dir = path.join(build, lang);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, "index.html"), retag(html, MAP[lang]));
+
+  // /bg/track and friends get their own file, so a link pasted into a chat previews with the
+  // route map instead of the site's logo. nginx serves it through `try_files $uri/index.html`.
+  Object.entries(ROUTES).forEach(([route, copy]) => {
+    const [title, description] = copy[lang];
+    const page = repoint(retag(html, { lang, title, description }), `${SITE}${copy.image}`);
+    const sub = path.join(dir, route);
+    fs.mkdirSync(sub, { recursive: true });
+    fs.writeFileSync(path.join(sub, "index.html"), page);
+  });
 });
 
 const runtime = `<script>/*gen-lang-html*/(function(){var M=${JSON.stringify(

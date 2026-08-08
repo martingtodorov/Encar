@@ -1,5 +1,33 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-08: LINK PREVIEWS (og:image) — FOUND: nothing was ever blocking bots. The ONLY
+user-agent logic anywhere is the nginx `$encar_crawler` map, which ROUTES chat-app crawlers to
+`/api/share/car/{id}` so a preview HAS a picture, and it lives ONLY in
+`deploy/hetzner/ansible/templates/nginx-encar.conf.j2` — i.e. on the owner's own server. THAT is
+why nothing previews on the PREVIEW URL: this pod's ingress sends only `/api` to the backend, so
+`/bg/car/123` is always answered by the CRA shell, and `public/index.html` carried NO og tags at
+all. Fixed:
+* `public/og.png` (1200x630) is the owner's own logo on the #141414 brand plate, built from
+  `public/logo.png`. Full og:/twitter: tags now sit STATICALLY in `public/index.html` with an
+  absolute image URL via `%REACT_APP_SITE_URL%` (new key in frontend/.env, CRA substitutes it at
+  build AND in dev). So every shared URL previews with the logo and the site's title.
+* `lib/seo.js` default picture moved from the square `icons/icon-512.png` to `/og.png` and now
+  emits og:image:width/height.
+* TRACK PAGE PREVIEW IS A REAL MAP: `backend/mapshot.py` renders the shipment's route on
+  OpenStreetMap tiles server side (1200x630 PNG) — tiles cached forever under
+  `MEDIA_ROOT/tiles`, composed pictures for 6h under `MEDIA_ROOT/mapshots`, real User-Agent per
+  OSM policy, so one preview costs zero upstream calls after the first. Endpoints:
+  `GET /api/map/track.png?ref=&by=` and `GET /api/share/track?ref=&by=&lang=`. With no reference
+  it draws Incheon -> Singapore -> Rotterdam. `TrackPage` passes the same URL to `useSeo`, and
+  `scripts/gen-lang-html.js` writes `build/<lang>/track/index.html` with the map as og:image.
+* nginx template gained the same crawler route for `^/(bg|ro|en)/track/?$` (passes `$args`).
+* `share_car` title now carries the TRIM (`badge_detail` or `badge`): "BMW 5 Series (F10) 520d",
+  "Mercedes-Benz S-Class W223 S580L 4MATIC". It was make + model only.
+STILL TRUE AND WORTH REMEMBERING: a per-CAR photo preview needs the request to reach our nginx
+(their Hetzner box) or the `/api/share/car/{id}` link pasted by hand. On the emergent preview URL
+the logo plate is the best that is technically possible, because no per-path server rule exists
+there. `PUBLIC_SITE_URL` and `REACT_APP_SITE_URL` must both be changed at go-live. -->
+
 <!-- 2026-08-08: TRAFFIC COUNTERS ARE CALENDAR PERIODS, NOT ROLLING WINDOWS. `traffic._day_start`
 returns midnight in `ADMIN_TZ` (Europe/Sofia) N calendar days ago, converted to UTC, and
 `snapshot()` uses it for all three cards: today from 00:00, the last 7 calendar days (today

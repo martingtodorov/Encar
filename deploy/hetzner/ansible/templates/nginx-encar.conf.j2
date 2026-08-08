@@ -152,6 +152,16 @@ server {
         try_files $uri $uri/index.html /index.html;
     }
 
+    # The Track page: the crawler gets a page whose og:image is the shipment's own route drawn
+    # on OpenStreetMap tiles (backend/mapshot.py). `$args` carries ?ref=&by= through.
+    location ~ ^/(bg|ro|en)/track/?$ {
+        set $share_lang $1;
+        if ($encar_crawler) {
+            proxy_pass http://{{ app_name }}_backend/api/share/track?lang=$share_lang&$args;
+        }
+        try_files $uri $uri/index.html /index.html;
+    }
+
     # Every route is client side: /bg, /ro, /en and everything under them.
     location / {
         # `$uri/index.html` before the shell: it is what serves build/bg|ro|en/index.html, the

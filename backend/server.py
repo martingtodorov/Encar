@@ -73,6 +73,8 @@ import edi                  # noqa: E402
 import jsoncargo            # noqa: E402
 import maersk_public        # noqa: E402
 import tracking             # noqa: E402
+import mapshot              # noqa: E402
+import ports as ports_mod   # noqa: E402
 import curate               # noqa: E402
 import sync as sync_mod      # noqa: E402
 from encar import encar, image_url, detail_photo_paths, under_contract, sales_status  # noqa: E402
@@ -1912,7 +1914,7 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     doc = await db.listings.find_one(
         {"_id": listing_id},
         {"photos": 1, "manufacturer": 1, "model": 1, "manufacturer_t": 1, "model_t": 1,
-         "badge_detail": 1, "year_month": 1, "mileage": 1, "sale_eur": 1})
+         "badge": 1, "badge_detail": 1, "year_month": 1, "mileage": 1, "sale_eur": 1})
     photos = (doc or {}).get("photos") or []
     # Makes and models are proper nouns: translate_listings resolves them from the ENGLISH
     # cache, so a shared link never shows the Korean model name.
@@ -1921,6 +1923,10 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     title = " ".join(filter(None, [
         (doc or {}).get("manufacturer_t") or (doc or {}).get("manufacturer"),
         (doc or {}).get("model_t") or (doc or {}).get("model"),
+        # The trim belongs in the title: "BMW 5 Series (F10)" tells a buyer far less than
+        # "BMW 5 Series (F10) 520d". Trims are Latin everywhere, so no translation is needed,
+        # and `badge_detail` is empty on plenty of ads, where `badge` carries it.
+        (doc or {}).get("badge_detail") or (doc or {}).get("badge") or "",
     ])) or "Europe Encar"
     ym = str((doc or {}).get("year_month") or "")
     facts = [f"{ym[4:6]}/{ym[:4]}" if len(ym) >= 6 else "",
@@ -1962,6 +1968,102 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     # Chat apps cache previews hard; a day is long enough to be cheap and short enough
     # that a price change is picked up.
     return HTMLResponse(html, headers={"Cache-Control": "public, max-age=86400"})
+
+
+def _map_stops(view):
+    """Consecutive events in the same port collapse into one stop, like the Track page map."""
+    stops = []
+    for m in view.get("milestones") or []:
+        if m.get("lat") is None or m.get("lon") is None:
+            continue
+        if stops and stops[-1]["lat"] == m["lat"] and stops[-1]["lon"] == m["lon"]:
+            stops[-1]["estimated"] = stops[-1]["estimated"] and bool(m.get("estimated"))
+            continue
+        stops.append({"lat": m["lat"], "lon": m["lon"], "estimated": bool(m.get("estimated"))})
+    return stops
+
+
+def _default_stops():
+    """Korea to Rotterdam: what the page is ABOUT, for a link with no reference on it."""
+    out = []
+    for name in ("INCHON", "SINGAPORE", "ROTTERDAM"):
+        where = ports_mod.locate(name=name)
+        if where:
+            out.append({"lat": where["lat"], "lon": where["lon"], "estimated": False})
+    return out
+
+
+@api.get("/map/track.png")
+async def map_track_png(ref: str = "", by: str = "bol"):
+    """The shipment's route drawn on OpenStreetMap tiles, for link previews.
+
+    Messenger, Viber and WhatsApp never run our JavaScript, so the Leaflet map cannot be the
+    preview picture — this is the same route, rendered server side.
+    """
+    ref = (ref or "").strip().upper()[:40]
+    by = by if by in ("container", "bol") else "bol"
+    key = hashlib.sha256(f"{ref}|{by}".encode()).hexdigest()[:32]
+    data = mapshot.fresh(key)
+    if data is None:
+        stops = []
+        if ref:
+            try:
+                view = await tracking.track(db, ref, by)
+                if view.get("found"):
+                    stops = _map_stops(view)
+            except (ValueError, RuntimeError) as e:
+                log.warning("map for %s failed: %s", ref, str(e)[:160])
+        img = await mapshot.render(stops or _default_stops())
+        if img is None:
+            raise HTTPException(status_code=404, detail="no route to draw")
+        data = mapshot.store(key, img)
+    return Response(content=data, media_type="image/png",
+                    headers={"Cache-Control": "public, max-age=21600"})
+
+
+@api.get("/share/track", response_class=HTMLResponse)
+async def share_track(request: Request, ref: str = "", by: str = "bol", lang: str = "bg"):
+    """The Track page as a shareable link: the preview picture is the route on a real map."""
+    lang = norm_lang(lang)
+    ref = (ref or "").strip().upper()[:40]
+    by = by if by in ("container", "bol") else "bol"
+    base = os.environ.get("PUBLIC_SITE_URL", "").strip().rstrip("/") \
+        or str(request.base_url).rstrip("/")
+    copy = {
+        "bg": ("Проследи автомобила си · Encar Europe",
+               "Виж къде е контейнерът с колата ти — от терминала в Корея до доставката."),
+        "ro": ("Urmărește mașina ta · Encar Europe",
+               "Vezi unde este containerul mașinii tale — din terminalul din Coreea până la livrare."),
+        "en": ("Track my vehicle · Encar Europe",
+               "See where your car's container is — from the terminal in Korea to delivery."),
+    }[lang]
+    title = f"{copy[0]} · {ref}" if ref else copy[0]
+    query = f"?ref={ref}&by={by}" if ref else ""
+    target = f"{base}/{lang}/track{query}"
+    image = f"{base}/api/map/track.png{query}"
+    tags = [f'<meta property="og:title" content="{_attr(title)}">',
+            f'<meta property="og:description" content="{_attr(copy[1])}">',
+            f'<meta property="og:url" content="{_attr(target)}">',
+            '<meta property="og:type" content="website">',
+            '<meta property="og:site_name" content="Europe Encar">',
+            f'<meta property="og:image" content="{_attr(image)}">',
+            f'<meta property="og:image:secure_url" content="{_attr(image)}">',
+            '<meta property="og:image:width" content="1200">',
+            '<meta property="og:image:height" content="630">',
+            f'<meta property="og:image:alt" content="{_attr(copy[0])}">',
+            '<meta name="twitter:card" content="summary_large_image">',
+            f'<meta name="twitter:title" content="{_attr(title)}">',
+            f'<meta name="twitter:description" content="{_attr(copy[1])}">',
+            f'<meta name="twitter:image" content="{_attr(image)}">']
+    html = ("<!doctype html><html><head><meta charset=\"utf-8\">"
+            f"<title>{_attr(title)}</title>" + "".join(tags)
+            + f'<link rel="canonical" href="{_attr(target)}">'
+            + f'<meta http-equiv="refresh" content="0;url={_attr(target)}">'
+            + "</head><body>"
+            + f'<a href="{_attr(target)}">{_attr(title)}</a>'
+            + f'<script>location.replace("{target}")</script>'
+            + "</body></html>")
+    return HTMLResponse(html, headers={"Cache-Control": "public, max-age=21600"})
 
 
 @api.get("/car/{listing_id}")

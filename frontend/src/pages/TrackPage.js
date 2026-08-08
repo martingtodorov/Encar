@@ -298,6 +298,11 @@ export default function TrackPage() {
     lang,
     title: `${t("trackTitle")} · Encar`,
     description: t("seoTrackDesc"),
+    // The preview picture is the route drawn on real OpenStreetMap tiles, server side, because
+    // a chat app cannot run the Leaflet map (backend/mapshot.py).
+    image: `${process.env.REACT_APP_BACKEND_URL}/api/map/track.png${
+      pathRef ? `?ref=${encodeURIComponent(pathRef)}&by=${detectBy(pathRef)}` : ""
+    }`,
     // A reference in the path makes an unbounded number of URLs, and someone else's shipment is
     // not a page for a search engine. Only the bare /track is indexable.
     noindex: Boolean(pathRef),
