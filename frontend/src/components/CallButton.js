@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Phone, PhoneOff } from "lucide-react";
+import { Phone, PhoneCall, PhoneOff } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/context/AppContext";
+import { CallbackForm } from "@/components/CallbackForm";
 import { getCallButton } from "@/lib/api";
 
 /**
@@ -22,10 +23,11 @@ import { getCallButton } from "@/lib/api";
 const DAY_KEY = ["callMon", "callTue", "callWed", "callThu", "callFri", "callSat", "callSun"];
 const ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
-export const CallButton = () => {
+export const CallButton = ({ car, title }) => {
   const { t } = useApp();
   const [info, setInfo] = useState(null);
   const [warn, setWarn] = useState(false);
+  const [mode, setMode] = useState("ask");
 
   useEffect(() => {
     let alive = true;
@@ -47,7 +49,11 @@ export const CallButton = () => {
   const button = (
     <Button
       data-testid="call-button"
-      onClick={() => (info.open_now ? dial() : setWarn(true))}
+      onClick={() => {
+        if (info.open_now) return dial();
+        setMode("ask");
+        setWarn(true);
+      }}
       className="h-12 w-full justify-center gap-2 rounded-[12px] bg-[hsl(var(--primary))] text-[15px] font-semibold text-primary-foreground hover:brightness-110"
     >
       <Phone className="h-[17px] w-[17px]" aria-hidden="true" />
@@ -72,52 +78,81 @@ export const CallButton = () => {
               />
             </div>
             <DialogTitle data-testid="call-closed-title" className="text-[17px]">
-              {t("callClosedTitle")}
+              {mode === "callback" ? t("callbackTitle") : t("callClosedTitle")}
             </DialogTitle>
             <DialogDescription className="text-[13px] leading-relaxed">
-              {t("callClosedBody")}
+              {mode === "callback" ? t("callbackBody") : t("callClosedBody")}
             </DialogDescription>
           </DialogHeader>
 
-          <dl
-            data-testid="call-hours"
-            className="rounded-[12px] border border-border bg-background p-3 text-[13px]"
-          >
-            {ORDER.map((day, i) => {
-              const row = info.hours?.[day] || {};
-              const shut = row.closed || !row.open || !row.close;
-              return (
-                <div
-                  key={day}
-                  className={`flex items-center justify-between py-1 ${
-                    day === info.day ? "font-semibold text-foreground" : "text-muted-foreground"
-                  }`}
-                >
-                  <dt>{t(DAY_KEY[i])}</dt>
-                  <dd className="tnum">{shut ? t("callClosedDay") : `${row.open}–${row.close}`}</dd>
-                </div>
-              );
-            })}
-          </dl>
+          {mode === "callback" ? (
+            <CallbackForm
+              info={info}
+              car={car}
+              title={title}
+              onDone={() => {
+                setWarn(false);
+                setMode("ask");
+              }}
+            />
+          ) : (
+            <>
+              <dl
+                data-testid="call-hours"
+                className="rounded-[12px] border border-border bg-background p-3 text-[13px]"
+              >
+                {ORDER.map((day, i) => {
+                  const row = info.hours?.[day] || {};
+                  const shut = row.closed || !row.open || !row.close;
+                  return (
+                    <div
+                      key={day}
+                      className={`flex items-center justify-between py-1 ${
+                        day === info.day
+                          ? "font-semibold text-foreground"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      <dt>{t(DAY_KEY[i])}</dt>
+                      <dd className="tnum">
+                        {shut ? t("callClosedDay") : `${row.open}–${row.close}`}
+                      </dd>
+                    </div>
+                  );
+                })}
+              </dl>
 
-          <div className="flex flex-col gap-2.5 sm:flex-row-reverse">
-            <Button
-              data-testid="call-anyway"
-              onClick={dial}
-              className="h-11 flex-1 justify-center gap-2 rounded-[11px] bg-[hsl(var(--primary))] text-[14.5px] font-semibold text-primary-foreground hover:brightness-110"
-            >
-              <Phone className="h-[17px] w-[17px]" aria-hidden="true" />
-              {t("callAnyway")}
-            </Button>
-            <Button
-              variant="outline"
-              data-testid="call-cancel"
-              onClick={() => setWarn(false)}
-              className="h-11 flex-1 justify-center rounded-[11px] border-border bg-card text-[14.5px] font-medium hover:bg-muted"
-            >
-              {t("close")}
-            </Button>
-          </div>
+              {/* The better answer at 23:40 is not "ring anyway" — it is "we will ring you". */}
+              <Button
+                data-testid="callback-open"
+                onClick={() => setMode("callback")}
+                className="h-auto min-h-12 w-full justify-center gap-2 whitespace-normal rounded-[12px] bg-[hsl(var(--primary))] px-4 py-3 text-center text-[14.5px] font-semibold leading-tight text-primary-foreground hover:brightness-110"
+              >
+                <PhoneCall className="h-[17px] w-[17px]" aria-hidden="true" />
+                {t("callbackCta")}
+              </Button>
+
+              <div className="flex flex-col gap-2.5 sm:flex-row-reverse">
+                <Button
+                  variant="outline"
+                  data-testid="call-anyway"
+                  onClick={dial}
+                  className="h-11 flex-1 justify-center gap-2 rounded-[11px] border-border bg-card text-[14px] font-medium hover:bg-muted"
+                >
+                  <Phone className="h-[16px] w-[16px]" aria-hidden="true" />
+                  {t("callAnyway")}
+                </Button>
+                <Button
+                  variant="ghost"
+                  data-testid="call-cancel"
+                  onClick={() => setWarn(false)}
+                  className="h-11 flex-1 justify-center rounded-[11px] text-[14px] font-medium text-muted-foreground hover:bg-muted"
+                >
+                  {t("close")}
+                </Button>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </>

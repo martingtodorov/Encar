@@ -664,6 +664,26 @@ export async function getCallButton() {
   return data;
 }
 
+export async function requestCallback(body) {
+  const { data } = await http.post("/callback", body);
+  return data;
+}
+
+export async function adminCallbacks(params) {
+  const { data } = await http.get("/admin/callbacks", { params });
+  return data;
+}
+
+export async function adminSetCallbackStatus(id, status) {
+  const { data } = await http.patch(`/admin/callbacks/${id}`, { status });
+  return data;
+}
+
+export async function adminDeleteCallback(id) {
+  const { data } = await http.delete(`/admin/callbacks/${id}`);
+  return data;
+}
+
 export async function adminCallButton() {
   const { data } = await http.get("/admin/call-button");
   return data;

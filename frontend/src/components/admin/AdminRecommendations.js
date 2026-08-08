@@ -42,6 +42,7 @@ const Row = ({ pick, onChange, onRemove, lang }) => {
 
   return (
     <tr data-testid={`reco-row-${pick.key}`} className="border-t border-border align-middle">
+      <td className="py-2 pr-3 text-[13px] text-muted-foreground">{pick.rank || "—"}</td>
       <td className="py-2 pr-3">
         <div className="text-[13px] font-medium text-foreground">{pick.make_label}</div>
       </td>
@@ -85,6 +86,18 @@ const Row = ({ pick, onChange, onRemove, lang }) => {
       </td>
       <td className="tnum py-2 pr-3 text-right text-[13px] font-semibold text-[hsl(var(--primary))]">
         {pick.deposits}
+      </td>
+      <td className="tnum py-2 pr-3 text-right text-[13px]">
+        {pick.judged ? (
+          <span className="font-semibold text-foreground">{pick.score}</span>
+        ) : (
+          <span
+            className="text-muted-foreground"
+            title="Not enough impressions yet to judge this pick fairly"
+          >
+            —
+          </span>
+        )}
       </td>
       <td className="py-2 text-right">
         <button
@@ -214,6 +227,8 @@ export const AdminRecommendations = () => {
     try {
       await adminSaveRecoDefaults({
         enabled: next.enabled,
+        auto_rank: next.auto_rank,
+        min_impressions: Number(next.min_impressions) || 1,
         picks: next.picks.map((p) => ({ make: p.make, model: p.model, badge: p.badge || "" })),
       });
       toast.success("Default shelf saved");
@@ -286,10 +301,46 @@ export const AdminRecommendations = () => {
           </div>
         </div>
 
+        <div className="mt-4 flex flex-wrap items-center gap-4 rounded-[12px] border border-border bg-background p-3.5">
+          <div className="flex items-center gap-2.5">
+            <Switch
+              data-testid="reco-auto-rank"
+              checked={data.auto_rank}
+              onCheckedChange={(v) => {
+                const next = { ...data, auto_rank: v };
+                setData(next);
+                save(next);
+              }}
+            />
+            <Label className="text-[13px] font-medium">Order by results automatically</Label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label className="text-[12.5px] text-muted-foreground">
+              Not judged below
+            </Label>
+            <Input
+              data-testid="reco-min-impressions"
+              type="number"
+              min={1}
+              value={data.min_impressions}
+              onChange={(e) => setData((p) => ({ ...p, min_impressions: e.target.value }))}
+              className="h-9 w-[90px] bg-card text-[13px]"
+            />
+            <Label className="text-[12.5px] text-muted-foreground">impressions</Label>
+          </div>
+          <p className="max-w-[520px] text-[12px] leading-relaxed text-muted-foreground">
+            Score is <span className="font-medium text-foreground">deposits × 10 + CTR</span> — a
+            reservation is real proof, a click is only interest. A pick that has not been shown
+            enough yet is not judged at all: it keeps its place and keeps collecting numbers,
+            so one lucky click can never win the front row.
+          </p>
+        </div>
+
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[900px] text-left">
             <thead>
               <tr className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <th className="pb-2 pr-3">#</th>
                 <th className="pb-2 pr-3">Make</th>
                 <th className="pb-2 pr-3">Model</th>
                 <th className="pb-2 pr-3">Trim contains</th>
@@ -298,6 +349,7 @@ export const AdminRecommendations = () => {
                 <th className="pb-2 pr-3 text-right">Opened</th>
                 <th className="pb-2 pr-3 text-right">CTR</th>
                 <th className="pb-2 pr-3 text-right">Deposits</th>
+                <th className="pb-2 pr-3 text-right">Score</th>
                 <th className="pb-2" />
               </tr>
             </thead>
@@ -312,10 +364,9 @@ export const AdminRecommendations = () => {
                   }
                   onRemove={() => save({ ...data, picks: data.picks.filter((_, n) => n !== i) })}
                 />
-              ))}
-              {!data.picks.length && (
+              ))}              {!data.picks.length && (
                 <tr className="border-t border-border">
-                  <td colSpan={9} className="py-6 text-center text-[13px] text-muted-foreground">
+                  <td colSpan={11} className="py-6 text-center text-[13px] text-muted-foreground">
                     No picks yet — the popular list is being shown instead.
                   </td>
                 </tr>
@@ -324,7 +375,7 @@ export const AdminRecommendations = () => {
             {data.picks.length > 0 && (
               <tfoot>
                 <tr className="border-t border-border text-[12.5px] font-semibold text-foreground">
-                  <td className="py-2 pr-3" colSpan={4}>
+                  <td className="py-2 pr-3" colSpan={5}>
                     All picks
                   </td>
                   <td className="tnum py-2 pr-3 text-right">{totals.impressions}</td>
@@ -335,6 +386,7 @@ export const AdminRecommendations = () => {
                       : "0%"}
                   </td>
                   <td className="tnum py-2 pr-3 text-right">{totals.deposits}</td>
+                  <td />
                   <td />
                 </tr>
               </tfoot>

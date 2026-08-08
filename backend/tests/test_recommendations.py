@@ -50,12 +50,18 @@ def test_limit_respected():
 
 
 # --- empty profile ---------------------------------------------------------------------
-def test_empty_profile_returns_no_items():
-    """No taste yet is not an empty shelf: the visitor gets the popular cars instead."""
+def test_empty_profile_gets_the_owners_own_shelf():
+    """No taste yet is not an empty shelf.
+
+    This used to assert `source == "popular"` — the crowd's most opened ads. The owner now
+    chooses what a brand-new visitor meets first, so the answer is the hand-picked shelf, and
+    "popular" survives only as the fallback for when that shelf is off or out of stock. See
+    test_default_shelf.py for the picks themselves.
+    """
     r = _post({"makes": {}, "models": {}, "fuels": {}, "limit": 12, "lang": "bg"})
     assert r.status_code == 200
     data = r.json()
-    assert data.get("source") == "popular", data.get("source")
+    assert data.get("source") in ("curated", "popular"), data.get("source")
     assert len(data["items"]) <= 12
 
 

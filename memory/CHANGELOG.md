@@ -1547,3 +1547,53 @@ the acknowledgement. `dark:text-white` on the button — the red-on-dark label w
 
 Tests: `backend/tests/test_call_button.py` (6) + `test_default_shelf.py` (9) pass. Testing
 agent iteration_38.json: 13/13 frontend scenarios passed, 0 defects.
+
+## 2026-06 (later) — Call-backs, the shelf ranking itself, Cayenne's years, Sofia clocks
+
+### "Leave a number and we will call you", outside hours only
+`POST /api/callback` books a ring-back. The requested slot is RE-CHECKED on the server against
+the owner's hours: a form is a suggestion, not a fact, and a call booked for a Sunday never
+happens. Refused for a closed day, a time outside the window, a moment already past, a phone
+with under 6 digits, or a bad email (the owner wanted BOTH phone and email). Stored in
+`callbacks` `{when, when_label, phone, email, status: new|called|closed}`; the existing enquiry
+letters carry it, with the requested time folded into the message, so no new templates.
+Admin list `AdminCallbacks.js` under the Enquiries tab, soonest first, with new/called/closed.
+BUG my own check caught before the owner did: `openDays()` offered TODAY whenever the schedule
+said the day was open, so at 19:09 on a Saturday that shuts at 15:00 the day was listed with
+ZERO remaining slots — empty time dropdown, form impossible to submit. `openDays` now builds
+each day's slots and drops any day with none left.
+
+### The shelf orders itself
+`auto_rank` (on by default) sorts the picks by `deposits × 10 + CTR` — a reservation is proof, a
+click is only interest. THE GUARD THAT MATTERS: below `min_impressions` (default 50, editable) a
+pick is NOT JUDGED at all — score `null`, keeps its configured place, keeps collecting data.
+Without it a pick with one impression and one click would sit at 100% CTR forever. Leftover
+slots go to the front of the order (top picks get 2 cars, the rest 1), so nothing vanishes.
+The 60s `_rank_cache` is fine for the shelf but the admin screen passes `fresh=True`: a cached
+order beside freshly computed scores contradicted itself on the page (two tests caught it).
+
+### A renamed model was silently losing its years
+`curate.display()` returned the owner's manual label and went home, so `카이엔 (PO536)` renamed to
+"Cayenne" showed NO production span while the other two generations showed theirs. A rename
+replaces the NAME, not the years — level 2 now always routes through `model_label()`.
+Live: Cayenne (2019-) / (2011-2018) / (2004-2010). Test: `tests/test_model_year_labels.py`.
+
+### Admin clocks are Sofia, always
+Every admin timestamp was `toLocaleString()` — the DEVICE's timezone — and AdminTraffic cut the
+day at a UTC boundary. `stampSofia()` / `daySofia()` in `AdminBits.js` pin `Europe/Sofia`, used
+by Enquiries, Catalogue sync, Pages and Traffic. The call-button logic was already correct
+(server-side Sofia, verified: pod UTC 16:11 → 19:11 EEST).
+
+### An outage I caused, and how to avoid repeating it
+`search_replace` wrote `backend/server.py` from a STALE copy twice: once duplicating the tail
+(caught by py_compile) and once EATING the middle of `tracking_lookup` plus the
+`@api.get("/tracking/saved")` decorator — a SyntaxError that took the backend down and left the
+site with no ads. Recovered from `git show HEAD:backend/server.py`. Lesson, worth the pain:
+after any large edit to server.py run `python3 -m py_compile server.py` AND compare the
+def/class/route signature list against HEAD — syntax alone passed while a whole block was gone.
+
+Tests: 31 pass across recommendations, default shelf, call button, callbacks/ranking and model
+year labels; 249 pass across the full suite. `test_recommendations.py` had asserted the OLD
+contract (`source == "popular"` for an empty profile) and was updated to the curated shelf.
+Pre-existing, NOT regressions: the Stripe checkout e2e modules error out because the Playwright
+browser binary is missing in this pod (`playwright install`).

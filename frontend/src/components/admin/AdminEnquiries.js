@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { deleteEnquiry, getAdminEnquiries, setEnquiryStatus } from "@/lib/api";
-import { Spinner, num } from "@/components/admin/AdminBits";
+import { Spinner, num, stampSofia } from "@/components/admin/AdminBits";
 import { AdminCallButton } from "@/components/admin/AdminCallButton";
+import { AdminCallbacks } from "@/components/admin/AdminCallbacks";
 
 const STATUSES = ["", "new", "contacted", "closed"];
 const LABEL = { "": "All", new: "New", contacted: "Contacted", closed: "Closed" };
@@ -15,7 +16,7 @@ const PILL = {
   closed: "bg-muted text-muted-foreground",
 };
 
-const when = (iso) => (iso ? new Date(iso).toLocaleString("en-GB") : "—");
+const when = stampSofia;
 
 export const AdminEnquiries = () => {
   const [data, setData] = useState(null);
@@ -60,6 +61,7 @@ export const AdminEnquiries = () => {
   return (
     <div data-testid="admin-enquiries" className="flex flex-col gap-4">
       <AdminCallButton />
+      <AdminCallbacks />
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex rounded-[10px] border border-border bg-muted p-0.5">
           {STATUSES.map((s) => (

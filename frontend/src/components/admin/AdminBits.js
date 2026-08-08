@@ -2,6 +2,41 @@ import { Loader2 } from "lucide-react";
 
 const nf = new Intl.NumberFormat("en-GB");
 
+/**
+ * Admin timestamps are read in SOFIA, always.
+ *
+ * These used to be plain `toLocaleString()`, which renders in whatever timezone the device
+ * happens to be set to. The office works Sofia hours, so an enquiry that arrived at 17:40
+ * showed as 14:40 to anyone looking from another zone — and the owner cannot tell whether a
+ * call came inside working hours from a number that lies about it.
+ */
+export const OFFICE_TZ = "Europe/Sofia";
+
+const stampFmt = new Intl.DateTimeFormat("en-GB", {
+  timeZone: OFFICE_TZ,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** A date and time as the office reads it. `—` for anything unparseable. */
+export const stampSofia = (iso) => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : stampFmt.format(d);
+};
+
+/** A bare day (`2026-08-08`) as the office reads it — never shifted by a UTC boundary. */
+export const daySofia = (iso, opts = { day: "numeric", month: "short" }) => {
+  if (!iso) return "—";
+  const d = new Date(`${iso}T12:00:00Z`);
+  return Number.isNaN(d.getTime())
+    ? "—"
+    : d.toLocaleDateString("bg-BG", { ...opts, timeZone: OFFICE_TZ });
+};
+
 export const Stat = ({ label, value, sub, tone = "default", testId }) => (
   <div
     data-testid={testId}

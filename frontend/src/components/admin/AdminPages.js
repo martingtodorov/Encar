@@ -18,7 +18,7 @@ import { COMPANY } from "@/content/company";
 import { legalDoc } from "@/content/legal";
 import { helpDoc } from "@/content/help";
 import { t as translate } from "@/i18n";
-import { Spinner } from "@/components/admin/AdminBits";
+import { Spinner, stampSofia } from "@/components/admin/AdminBits";
 
 const LANGS = ["bg", "ro", "en"];
 const LANG_LABEL = { bg: "Български", ro: "Română", en: "English" };
@@ -502,7 +502,7 @@ export const AdminPages = () => {
 
             {doc.updated_at ? (
               <span className="text-[12px] text-muted-foreground">
-                Saved {new Date(doc.updated_at).toLocaleString("en-GB")}
+                Saved {stampSofia(doc.updated_at)}
                 {doc.updated_by ? ` by ${doc.updated_by}` : ""}
               </span>
             ) : (

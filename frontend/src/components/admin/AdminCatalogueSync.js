@@ -5,15 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { getCatalogueSync, putSyncSchedule, startCatalogueSync } from "@/lib/api";
-import { Spinner, Stat, ago, num } from "@/components/admin/AdminBits";
+import { Spinner, Stat, ago, num, stampSofia } from "@/components/admin/AdminBits";
 
 const ZONES = ["Europe/Sofia", "Europe/Bucharest", "Europe/London", "Asia/Seoul", "UTC"];
 
-const stamp = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
-};
+const stamp = stampSofia;
 
 /** Start a whole-catalogue crawl, and choose a time for it to run by itself each day. */
 export const AdminCatalogueSync = () => {

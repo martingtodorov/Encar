@@ -983,6 +983,8 @@ DEFAULT_PICKS = [
     {"make": "벤츠", "model": "GLE-클래스 W167", "badge": "GLE400d"},
     {"make": "BMW", "model": "X3 (G01)", "badge": "M40i"},
 ]
+# Below this many impressions a pick is not judged at all: see `_pick_score`.
+MIN_PICK_IMPRESSIONS = int(os.environ.get("MIN_PICK_IMPRESSIONS", "50"))
 
 
 def _pick_key(p):
@@ -1008,31 +1010,96 @@ def _pick_query(p):
     return query
 
 
-async def default_picks():
-    """The owner's list, or the one this file ships with until they change it."""
+async def default_taste_conf():
+    """The owner's list and how it is ordered, or what this file ships with."""
     doc = await db.site_settings.find_one({"_id": "default_taste"}) or {}
     picks = doc.get("picks")
-    return bool(doc.get("enabled", True)), list(picks if picks is not None else DEFAULT_PICKS)[:24]
+    return {
+        "enabled": bool(doc.get("enabled", True)),
+        "picks": list(picks if picks is not None else DEFAULT_PICKS)[:24],
+        "auto_rank": bool(doc.get("auto_rank", True)),
+        "min_impressions": max(1, int(doc.get("min_impressions") or MIN_PICK_IMPRESSIONS)),
+    }
+
+
+async def default_picks():
+    """The owner's list, or the one this file ships with."""
+    conf = await default_taste_conf()
+    return conf["enabled"], conf["picks"]
+
+
+def _pick_score(row, min_impressions):
+    """How well one pick is doing, or None when there is not enough evidence to say.
+
+    A deposit is the only real proof a car earned anything; a click is interest. And a pick
+    with three impressions and one click is NOT a 33% performer — it is unmeasured. Below the
+    threshold it scores nothing at all, which keeps it in the shelf gathering data instead of
+    winning or losing on luck.
+    """
+    shown = int((row or {}).get("impressions") or 0)
+    if shown < min_impressions:
+        return None
+    clicks = int((row or {}).get("clicks") or 0)
+    return round(int((row or {}).get("deposits") or 0) * 10.0 + clicks * 100.0 / shown, 2)
+
+
+async def _pick_scores(picks, min_impressions):
+    stats = {d["_id"]: d async for d in db.reco_stats.find({})}
+    earned = await _reco_deposits(picks)
+    out = {}
+    for p in picks:
+        key = _pick_key(p)
+        row = dict(stats.get(key) or {})
+        row["deposits"] = earned.get(key, 0)
+        out[key] = _pick_score(row, min_impressions)
+    return out
+
+
+_rank_cache = {"at": 0.0, "order": None, "key": ""}
+
+
+async def _ranked_picks(picks, min_impressions, fresh=False):
+    """Best first. Picks with too little data keep their configured place at the back of the
+    judged ones — they are never dropped, or they could never earn a number.
+
+    `fresh` skips the cache. The shelf is happy with a minute-old order, but the admin screen
+    shows the scores beside the order, and a cached order next to fresh scores contradicts
+    itself on the page.
+    """
+    key = "|".join(_pick_key(p) for p in picks) + f"#{min_impressions}"
+    if not fresh and _rank_cache["key"] == key and time.time() - _rank_cache["at"] < 60:
+        return _rank_cache["order"]
+    scores = await _pick_scores(picks, min_impressions)
+    judged = sorted((p for p in picks if scores[_pick_key(p)] is not None),
+                    key=lambda p: -scores[_pick_key(p)])
+    order = judged + [p for p in picks if scores[_pick_key(p)] is None]
+    _rank_cache.update({"at": time.time(), "order": order, "key": key})
+    return order
 
 
 async def _curated_shelf(lang, exclude, limit):
     """The hand-picked shelf. Empty if the owner has switched it off or nothing is in stock."""
-    enabled, picks = await default_picks()
-    if not enabled or not picks:
+    conf = await default_taste_conf()
+    if not conf["enabled"] or not conf["picks"]:
         return []
+    picks = await _ranked_picks(conf["picks"], conf["min_impressions"]) \
+        if conf["auto_rank"] else conf["picks"]
     seen = {str(x) for x in (exclude or [])}
-    per = max(1, -(-limit // len(picks)))
+    # The leftover slots go to the front of the order: the strongest picks get two cars each,
+    # everybody else one. A flat share handed the last pick nothing for no stated reason.
+    extra = max(0, limit - len(picks))
     chosen = []
-    for p in picks:
+    for i, p in enumerate(picks):
+        want = 2 if i < extra else 1
         taken = 0
-        cursor = db.listings.find(_pick_query(p)).sort(SORTS["newest"]).limit(per * 4)
+        cursor = db.listings.find(_pick_query(p)).sort(SORTS["newest"]).limit(want * 4)
         async for doc in cursor:
             if doc["_id"] in seen:
                 continue
             seen.add(doc["_id"])
             chosen.append((0.0, "model", doc, _pick_key(p)))
             taken += 1
-            if taken >= per:
+            if taken >= want:
                 break
     if not chosen:
         return []
@@ -1108,15 +1175,21 @@ class RecoPickBody(BaseModel):
 
 class RecoDefaultsBody(BaseModel):
     enabled: bool = True
+    auto_rank: bool = True
+    min_impressions: int = MIN_PICK_IMPRESSIONS
     picks: list[RecoPickBody] = Field(default_factory=list)
 
 
 @api.get("/admin/reco-defaults")
 async def admin_reco_defaults(request: Request, x_admin_token: str = Header(default="")):
     await _require_admin(request, x_admin_token)
-    enabled, picks = await default_picks()
+    conf = await default_taste_conf()
+    picks = conf["picks"]
     stats = {d["_id"]: d async for d in db.reco_stats.find({})}
     earned = await _reco_deposits(picks)
+    scores = await _pick_scores(picks, conf["min_impressions"])
+    order = await _ranked_picks(picks, conf["min_impressions"]) if conf["auto_rank"] else picks
+    place = {_pick_key(p): n + 1 for n, p in enumerate(order)}
     names = await _labels([v for p in picks for v in (p.get("make"), p.get("model")) if v], "en")
     items = []
     for p in picks:
@@ -1135,9 +1208,13 @@ async def admin_reco_defaults(request: Request, x_admin_token: str = Header(defa
             "clicks": clicks,
             "ctr": round(clicks * 100.0 / shown, 1) if shown else 0.0,
             "deposits": earned.get(key, 0),
+            "score": scores[key],
+            "rank": place.get(key, 0),
+            "judged": scores[key] is not None,
         })
-    return {"enabled": enabled, "picks": items, "custom": bool(
-        await db.site_settings.count_documents({"_id": "default_taste"}))}
+    return {"enabled": conf["enabled"], "auto_rank": conf["auto_rank"],
+            "min_impressions": conf["min_impressions"], "picks": items,
+            "custom": bool(await db.site_settings.count_documents({"_id": "default_taste"}))}
 
 
 @api.put("/admin/reco-defaults")
@@ -1155,10 +1232,14 @@ async def admin_save_reco_defaults(body: RecoDefaultsBody, request: Request,
     await db.site_settings.update_one(
         {"_id": "default_taste"},
         {"$set": {"enabled": bool(body.enabled), "picks": picks,
+                  "auto_rank": bool(body.auto_rank),
+                  "min_impressions": max(1, min(int(body.min_impressions or 1), 100_000)),
                   "updated_at": datetime.now(timezone.utc).isoformat(),
                   "updated_by": _actor(admin)}}, upsert=True)
+    _rank_cache["key"] = ""          # the order must not survive a change to the list
     await _audit(request, _actor(admin), "reco.defaults", "default_taste",
-                 f"{len(picks)} picks, {'on' if body.enabled else 'off'}")
+                 f"{len(picks)} picks, {'on' if body.enabled else 'off'},"
+                 f" auto-rank {'on' if body.auto_rank else 'off'}")
     return {"ok": True, "picks": picks}
 
 
@@ -1232,7 +1313,8 @@ async def call_button():
     return {"enabled": conf["enabled"], "phone": conf["phone"],
             "phone_label": conf["phone_label"] or conf["phone"],
             "open_now": is_open, "timezone": CALL_TZ,
-            "local_time": now.strftime("%H:%M"), "day": CALL_DAYS[now.weekday()],
+            "local_time": now.strftime("%H:%M"), "local_date": now.strftime("%Y-%m-%d"),
+            "day": CALL_DAYS[now.weekday()],
             "today": today, "hours": conf["hours"]}
 
 
@@ -1290,9 +1372,11 @@ async def admin_reset_reco_defaults(request: Request, stats: bool = False,
     admin = await _require_admin(request, x_admin_token)
     if stats:
         await db.reco_stats.delete_many({})
+        _rank_cache["key"] = ""
         await _audit(request, _actor(admin), "reco.stats.reset", "reco_stats")
     else:
         await db.site_settings.delete_one({"_id": "default_taste"})
+        _rank_cache["key"] = ""
         await _audit(request, _actor(admin), "reco.defaults.reset", "default_taste")
     return {"ok": True}
 
@@ -2682,6 +2766,127 @@ async def create_enquiry(body: EnquiryBody, request: Request):
     return {"ok": True, "id": doc["_id"]}
 
 
+# ── "call me back" ────────────────────────────────────────────────────────────────────
+# Offered ONLY when the office is shut: inside working hours the buyer should just dial. The
+# requested slot is re-checked against the owner's hours on the server — a form is a
+# suggestion, not a fact, and a callback booked for a Sunday would simply never happen.
+CALLBACK_STATUSES = ("new", "called", "closed")
+
+
+class CallbackBody(BaseModel):
+    name: str = ""
+    phone: str = ""
+    email: str = ""
+    day: str = ""          # YYYY-MM-DD, read in the office's own timezone
+    time: str = ""         # HH:MM
+    listing_id: str = ""
+    car_title: str = ""
+    message: str = ""
+    lang: str = "bg"
+
+
+@api.post("/callback")
+async def request_callback(body: CallbackBody, request: Request):
+    """"Call me on this number at this time." Both a phone AND an email are required: the
+    phone is how we ring, the email is how the buyer gets a written confirmation."""
+    user = await auth.optional_user(request)
+    phone = re.sub(r"[^\d+ ()\-]", "", body.phone or "").strip()[:60]
+    email = (body.email or (user or {}).get("email") or "").strip().lower()[:200]
+    if len(re.sub(r"\D", "", phone)) < 6:
+        raise HTTPException(400, "please leave a phone number we can call")
+    if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+        raise HTTPException(400, "please leave an email address")
+
+    conf = await _call_conf()
+    at = _hhmm(body.time)
+    try:
+        wanted = datetime.strptime(str(body.day or "")[:10], "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "pick a day for the call")
+    window = conf["hours"][CALL_DAYS[wanted.weekday()]]
+    if window.get("closed") or not window.get("open") or not window.get("close"):
+        raise HTTPException(400, "we are closed that day, please pick another")
+    if not at or not window["open"] <= at <= window["close"]:
+        raise HTTPException(400, f"pick a time between {window['open']} and {window['close']}")
+    slot = wanted.replace(hour=int(at[:2]), minute=int(at[3:]), tzinfo=ZoneInfo(CALL_TZ))
+    if slot < datetime.now(ZoneInfo(CALL_TZ)):
+        raise HTTPException(400, "that time has already passed, please pick a later one")
+
+    doc = {
+        "_id": str(uuid.uuid4()),
+        "listing_id": body.listing_id[:64],
+        "car_title": body.car_title[:200],
+        "name": (body.name or (user or {}).get("name") or "").strip()[:120],
+        "phone": phone,
+        "email": email,
+        "when": slot.isoformat(),
+        "when_label": f"{wanted.strftime('%Y-%m-%d')} {at}",
+        "timezone": CALL_TZ,
+        "message": body.message.strip()[:2000],
+        "lang": norm_lang(body.lang),
+        "user_id": (user or {}).get("_id"),
+        "status": "new",
+        "created_at": datetime.now(timezone.utc),
+    }
+    await db.callbacks.insert_one(doc)
+    log.info("callback %s for %s at %s", doc["_id"], doc["phone"], doc["when_label"])
+    # The enquiry letters already say the right things to both sides; the requested time goes
+    # in the message so neither of them needs a template of its own.
+    mailer.send_enquiry_emails({**doc, "message": (
+        f"CALL BACK REQUEST — {doc['when_label']} ({CALL_TZ})"
+        + (f"\n\n{doc['message']}" if doc["message"] else ""))})
+    notify.push_to_admins_later(
+        "Call-back request",
+        f"{doc['name'] or doc['phone']} wants a call on {doc['when_label']}",
+        f"/{doc['lang']}/admin?tab=enquiries", "callback")
+    return {"ok": True, "id": doc["_id"], "when": doc["when_label"]}
+
+
+@api.get("/admin/callbacks")
+async def admin_callbacks(request: Request, status: str = "",
+                          page: int = Query(1, ge=1), page_size: int = Query(25, ge=1, le=100),
+                          x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
+    query = {"status": status} if status in CALLBACK_STATUSES else {}
+    total = await db.callbacks.count_documents(query)
+    rows = [d async for d in db.callbacks.find(query)
+            .sort("when", 1)
+            .skip((page - 1) * page_size)
+            .limit(page_size)]
+    for r in rows:
+        r["id"] = r.pop("_id")
+    counts = {s: await db.callbacks.count_documents({"status": s}) for s in CALLBACK_STATUSES}
+    return jsonable({"total": total, "page": page, "page_size": page_size,
+                     "counts": counts, "items": rows})
+
+
+class CallbackStatusBody(BaseModel):
+    status: str
+
+
+@api.patch("/admin/callbacks/{callback_id}")
+async def admin_callback_status(callback_id: str, body: CallbackStatusBody, request: Request,
+                               x_admin_token: str = Header(default="")):
+    await _require_admin(request, x_admin_token)
+    if body.status not in CALLBACK_STATUSES:
+        raise HTTPException(400, f"status must be one of {', '.join(CALLBACK_STATUSES)}")
+    res = await db.callbacks.update_one(
+        {"_id": callback_id},
+        {"$set": {"status": body.status, "updated_at": datetime.now(timezone.utc)}})
+    if not res.matched_count:
+        raise HTTPException(404, "no such call-back request")
+    return {"ok": True, "status": body.status}
+
+
+@api.delete("/admin/callbacks/{callback_id}")
+async def admin_callback_delete(callback_id: str, request: Request,
+                                x_admin_token: str = Header(default="")):
+    admin = await _require_admin(request, x_admin_token)
+    res = await db.callbacks.delete_one({"_id": callback_id})
+    if not res.deleted_count:
+        raise HTTPException(404, "no such call-back request")
+    await _audit(request, _actor(admin), "callback.delete", callback_id)
+    return {"ok": True}
 auth.set_db(db)
 deposits.set_db(db)
 notify.set_db(db)

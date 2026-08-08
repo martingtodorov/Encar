@@ -485,7 +485,7 @@ export default function CarDetailPage() {
                   buyer can pick the channel they actually want without hunting for a number. */}
               <div className="grid grid-cols-2 gap-3">
                 <EnquiryDialog car={car} title={car.title} />
-                <CallButton />
+                <CallButton car={car} title={car.title} />
               </div>
               <ReserveCar car={car} />
             </div>

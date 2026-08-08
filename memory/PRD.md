@@ -1,5 +1,10 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-06 (later): Outside working hours a buyer can LEAVE A NUMBER AND A TIME and we
+ring them back (admin list under Enquiries; the slot is re-checked server-side against the
+owner's Sofia hours). The hand-picked shelf now ORDERS ITSELF by deposits x 10 + CTR, with a
+minimum-impressions guard so a lucky click cannot win. A renamed model keeps its production
+years (Cayenne). All admin timestamps are pinned to Europe/Sofia. See CHANGELOG.md. -->
 <!-- 2026-06: SAVING NOW REQUIRES AN ACCOUNT — the heart and "save this search" open a
 Вход/Регистрация dialog (components/SignInGate.js) for a signed-out visitor, and logging out
 clears the local lists. A red "Обади се" button sits beside "Прати запитване" (half its old

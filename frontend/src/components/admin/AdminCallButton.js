@@ -78,8 +78,9 @@ export const AdminCallButton = () => {
             >
               {conf.open_now ? "inside" : "outside"}
             </span>{" "}
-            working hours ({conf.local_time} {conf.timezone}). Outside them the buyer is told
-            nobody is likely to pick up and asked whether to dial anyway.
+            working hours ({conf.local_time} {conf.timezone}). Outside them the buyer is told we
+            are not working right now and asked whether to call anyway — or to leave a number
+            and a time for us to ring them back.
           </p>
         </div>
         <div className="flex items-center gap-2.5">

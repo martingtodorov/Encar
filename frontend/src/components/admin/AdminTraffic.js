@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getTraffic, getTrafficHistory } from "@/lib/api";
+import { daySofia } from "@/components/admin/AdminBits";
 
 const RANGES = [
   { days: 7, label: "7 дни" },
@@ -9,8 +10,7 @@ const RANGES = [
 ];
 
 const fmt = (n) => new Intl.NumberFormat("bg-BG").format(n || 0);
-const dayLabel = (iso) =>
-  new Date(`${iso}T00:00:00Z`).toLocaleDateString("bg-BG", { day: "numeric", month: "short" });
+const dayLabel = (iso) => daySofia(iso);
 
 /**
  * Traffic over time, next to the live figures.

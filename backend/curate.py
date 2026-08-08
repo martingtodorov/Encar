@@ -66,12 +66,16 @@ async def ensure_years(db, force=False):
 
 
 def display(level, value, label=""):
-    """The label a buyer sees: the owner's own rename wins, then our model-name cleanup."""
+    """The label a buyer sees: the owner's own rename wins, then our model-name cleanup.
+
+    A rename replaces the NAME, not the years. Returning the manual label early meant any model
+    the owner renamed silently lost its production span — "Cayenne" instead of
+    "Cayenne (2019-)" — which is the one thing that tells two generations apart.
+    """
     manual = label_for(level, value)
-    if manual:
-        return manual
-    label = label or value
-    return model_label(value, label) if int(level) == 2 else label
+    if int(level) == 2:
+        return model_label(value, manual or label or value)
+    return manual or label or value
 
 
 def model_label(value, label, this_year=None):
