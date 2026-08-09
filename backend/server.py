@@ -1954,6 +1954,30 @@ def _share_base(request: Request):
 ENCAR_IMAGE_HOSTS = ("ci.encar.com", "img.encar.com", "image.encar.com", "static.encar.com")
 
 
+async def _encar_image(url):
+    """The bytes of an Encar photo, from disk if we have fetched it before.
+
+    Facebook warns that "new images are processed asynchronously" when it cannot fetch the
+    picture quickly, and a preview then arrives with no image on the first share. Encar's CDN
+    is on the other side of the world, so every proxied photo is kept: the second fetch — the
+    one the crawler makes — is local and instant.
+    """
+    key = hashlib.sha256(url.encode()).hexdigest()[:32]
+    folder = Path(os.environ["MEDIA_ROOT"]) / "imgcache"
+    for hit in folder.glob(f"{key}.*"):
+        return hit.read_bytes(), f"image/{hit.suffix.lstrip('.')}"
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
+        r = await client.get(url, headers={"Referer": "https://www.encar.com/",
+                                          "User-Agent": "Mozilla/5.0"})
+    if r.is_error:
+        raise HTTPException(r.status_code, "the image host refused that request")
+    kind = (r.headers.get("content-type") or "image/jpeg").split(";")[0]
+    subtype = kind.split("/")[-1] if kind.startswith("image/") else "jpeg"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{key}.{subtype}").write_bytes(r.content)
+    return r.content, kind
+
+
 @api.get("/image-proxy")
 async def image_proxy(url: str):
     """Serve an Encar photo from OUR domain.
@@ -1968,15 +1992,10 @@ async def image_proxy(url: str):
     if not url.startswith("https://") or host not in ENCAR_IMAGE_HOSTS:
         raise HTTPException(400, "only Encar images can be served through here")
     try:
-        async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-            r = await client.get(url, headers={"Referer": "https://www.encar.com/",
-                                              "User-Agent": "Mozilla/5.0"})
+        data, kind = await _encar_image(url)
     except httpx.HTTPError as e:
         raise HTTPException(502, f"could not fetch that image: {str(e)[:120]}")
-    if r.is_error:
-        raise HTTPException(r.status_code, "the image host refused that request")
-    return Response(content=r.content,
-                    media_type=r.headers.get("content-type", "image/jpeg"),
+    return Response(content=data, media_type=kind,
                     headers={"Cache-Control": "public, max-age=604800"})
 
 
@@ -2027,6 +2046,7 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     if image:
         tags += [f'<meta property="og:image" content="{_attr(image)}">',
                  f'<meta property="og:image:secure_url" content="{_attr(image)}">',
+                 '<meta property="og:image:type" content="image/jpeg">',
                  '<meta property="og:image:width" content="1200">',
                  '<meta property="og:image:height" content="630">',
                  f'<meta property="og:image:alt" content="{_attr(title)}">',
@@ -2040,6 +2060,16 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
             + f'<a href="{_attr(target)}">{_attr(title)}</a>'
             + f'<script>location.replace("{target}")</script>'
             + "</body></html>")
+    # Warmed in the background: the crawler asks for the HTML first and the picture a moment
+    # later, so fetching from Encar NOW means the picture is already on disk when it does.
+    # Facebook's "images are processed asynchronously" notice is exactly that race.
+    if raw_image:
+        async def warm():
+            try:
+                await _encar_image(raw_image)
+            except (httpx.HTTPError, HTTPException, OSError) as e:
+                log.info("could not warm %s: %s", raw_image[:80], str(e)[:120])
+        asyncio.create_task(warm())
     # Chat apps cache previews hard; a day is long enough to be cheap and short enough
     # that a price change is picked up.
     return HTMLResponse(html, headers={"Cache-Control": "public, max-age=86400"})
@@ -2123,6 +2153,7 @@ async def share_track(request: Request, ref: str = "", by: str = "bol", lang: st
             '<meta property="og:site_name" content="Europe Encar">',
             f'<meta property="og:image" content="{_attr(image)}">',
             f'<meta property="og:image:secure_url" content="{_attr(image)}">',
+            '<meta property="og:image:type" content="image/png">',
             '<meta property="og:image:width" content="1200">',
             '<meta property="og:image:height" content="630">',
             f'<meta property="og:image:alt" content="{_attr(copy[0])}">',

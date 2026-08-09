@@ -1,5 +1,16 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-08: FACEBOOK "og:image processed asynchronously" WARNING. The dimensions were
+already declared on every page, so the real cause was the RACE the notice describes: the crawler
+reads the HTML, then fetches the picture, and our proxy was going all the way to Encar's CDN in
+Korea for it — too slow, so Facebook queued it and the first share had no image. Now
+`_encar_image()` keeps every proxied photo under `MEDIA_ROOT/imgcache` (name = sha256 of the
+source URL, suffix = the real image type) and `share_car` WARMS it in a background task while it
+answers the HTML, so the crawler's fetch is local: measured 0.155s against a cold CDN round trip.
+Added the missing `og:image:type` — `image/jpeg` for a car photo, `image/png` for the route map
+and the logo plate. Chat apps and Facebook cache previews hard, so an already-shared URL keeps
+the old blank preview until "Scrape Again" in the Sharing Debugger. -->
+
 <!-- 2026-08-08: TERMS AT GOOGLE SIGN-UP + COUNTRY DROPDOWN.
 GOOGLE. `POST /auth/google/session` no longer creates an account on trust: when the identity has
 NO account yet and the body carries no `terms_version`, it answers **409 `terms_required`** and
