@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Heart, Gauge, Calendar, Fuel } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ import {
  *
  * Mobile keeps the card grid (see CarCard) - rows do not fit a narrow viewport.
  */
-export const CarRow = ({ car, onOpen }) => {
+export const CarRow = ({ car, onOpen, eager = false }) => {
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
   const { requireAccount } = useGate();
   const saved = isFavourite(car.id);
@@ -72,55 +73,64 @@ export const CarRow = ({ car, onOpen }) => {
     },
   ].filter(Boolean);
 
+  // Same card-link pattern as CarCard: a real <a href> covers the row so it works as a
+  // link for a screen reader, a crawler and a middle-click, while the photo swiper (z-10)
+  // and the save/details buttons (z-20) sit above it and keep their own click handlers.
+  const title = carTitle(car);
+  const href = `/${lang}/car/${car.id}`;
+  const handleCardClick = (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+    e.preventDefault();
+    onOpen?.(car);
+  };
+
   return (
     <article
       data-testid="car-row"
       data-car-id={car.id}
       data-under-contract={car.under_contract ? "true" : "false"}
       {...warm}
-      role="button"
-      tabIndex={0}
-      aria-label={`${carTitle(car)} \u2014 ${t("viewDetails")}`}
-      onClick={() => onOpen?.(car)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen?.(car);
-        }
-      }}
-      className="group/card relative flex cursor-pointer items-stretch gap-4 overflow-hidden rounded-[14px] border border-border bg-card p-3 shadow-sm transition-shadow duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group/card relative flex items-stretch gap-4 overflow-hidden rounded-[14px] border border-border bg-card p-3 shadow-sm transition-shadow duration-200 hover:shadow-md focus-within:ring-2 focus-within:ring-ring"
     >
+      <Link
+        to={href}
+        onClick={handleCardClick}
+        aria-label={`${title} \u2014 ${t("viewDetails")}`}
+        className="absolute inset-0 z-0 focus:outline-none"
+      />
+
       {car.under_contract && (
         <span data-testid="car-row-contract-ribbon" className="ribbon">
           {t("underContract")}
         </span>
       )}
 
-      {/* Swipe through the photos in place; a tap anywhere on the row opens the car. */}
-      <div className="relative w-[236px] shrink-0">
+      {/* Swipe through the photos in place; a tap on the picture opens the car. */}
+      <div className="relative z-10 w-[236px] shrink-0">
         <div
           data-testid="car-row-open"
           className="aspect-video w-full overflow-hidden rounded-[10px]"
         >
           <PhotoSwiper
             images={car.images?.length ? car.images : [car.image]}
-            alt={carTitle(car)}
+            alt={title}
             testId="car-row-swiper"
             arrows
             ctaLabel={t("viewListing")}
             ctaHint={t("tapToOpen")}
             onCtaReached={warmNow}
+            eager={eager}
           />
         </div>
       </div>
 
       {/* details */}
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-1.5 py-0.5">
+      <div className="pointer-events-none flex min-w-0 flex-1 flex-col justify-center gap-1.5 py-0.5">
         <h3
           data-testid="car-row-title"
           className="line-clamp-1 text-[16px] font-semibold leading-tight text-foreground"
         >
-          {carTitle(car)}
+          {title}
         </h3>
 
         {subtitle && (
@@ -163,12 +173,13 @@ export const CarRow = ({ car, onOpen }) => {
           data-testid="car-row-save-button"
           onClick={(e) => {
             e.stopPropagation();
+            e.preventDefault();
             if (!requireAccount("car")) return;
             toggleFavourite(car.id, car);
           }}
           aria-label={saved ? t("saved") : t("save")}
           aria-pressed={saved}
-          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="absolute right-3 top-3 z-20 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Heart
             className={`h-4 w-4 ${
@@ -180,7 +191,7 @@ export const CarRow = ({ car, onOpen }) => {
           />
         </button>
 
-        <div className="mt-6 text-right leading-none">
+        <div className="pointer-events-none mt-6 text-right leading-none">
           <div
             data-testid="car-row-price"
             className="tnum text-[22px] font-semibold tracking-tight text-foreground"
@@ -194,9 +205,10 @@ export const CarRow = ({ car, onOpen }) => {
           data-testid="car-row-details-button"
           onClick={(e) => {
             e.stopPropagation();
+            e.preventDefault();
             onOpen?.(car);
           }}
-          className="h-9 w-full rounded-[9px] bg-[hsl(var(--primary))] px-3 text-[13px] font-medium text-primary-foreground transition-all hover:brightness-110"
+          className="relative z-10 h-9 w-full rounded-[9px] bg-[hsl(var(--primary))] px-3 text-[13px] font-medium text-primary-foreground transition-all hover:brightness-110"
         >
           {t("viewDetails")}
         </Button>

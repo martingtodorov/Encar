@@ -67,13 +67,13 @@ export const Recommended = ({ onOpen }) => {
           className="-mx-4 mt-3 flex gap-4 sm:mt-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {items.length
-            ? items.map((car) => (
+            ? items.map((car, i) => (
                 <div
                   key={car.id}
                   data-testid={`recommended-card-${car.id}`}
                   className="w-[280px] shrink-0 sm:w-[300px]"
                 >
-                  <CarCard car={car} onOpen={open} showRegion={false} />
+                  <CarCard car={car} onOpen={open} showRegion={false} eager={i === 0} />
                 </div>
               ))
             : /* A placeholder tile reserves the height (aspect-video + body ≈ 300 px)

@@ -33,7 +33,21 @@
         <link rel="icon" href="%PUBLIC_URL%/favicon.ico" sizes="any" />
         <link rel="icon" type="image/png" href="%PUBLIC_URL%/favicon.png" sizes="256x256" />
         <link rel="apple-touch-icon" href="%PUBLIC_URL%/icons/icon-180.png" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
+        <!-- Google Fonts CSS is loaded asynchronously so it never blocks the first paint.
+             The link starts as `preload as="style"` (fetched with the highest priority but
+             NOT applied to the page), then onload flips its rel to "stylesheet" and the
+             font styles kick in. The <noscript> fallback keeps things working with JS off.
+             Lighthouse counted the render-blocking Google Fonts fetch as ~1200 ms on
+             mobile - biggest single win on the LCP path. -->
+        <link
+          rel="preload"
+          as="style"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap"
+          onload="this.onload=null;this.rel='stylesheet'"
+        />
+        <noscript>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
+        </noscript>
         <!--
         manifest.json provides metadata used when your web app is installed on a
         user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
@@ -57,7 +71,11 @@
              The copy lives in scripts/seo-landing.json. -->
 
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
-        <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
+        <!-- Third-party badge/telemetry script from the Emergent platform is deferred so
+             it never blocks the initial render. Lighthouse counted this at ~770 ms on the
+             critical path; `defer` runs it after DOMContentLoaded, which is fine for a
+             non-essential badge. -->
+        <script src="https://assets.emergent.sh/scripts/emergent-main.js" defer></script>
     </head>
     <body>
         <noscript>You need to enable JavaScript to run this app.</noscript>
