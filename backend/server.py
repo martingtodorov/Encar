@@ -153,10 +153,14 @@ def listing_out(doc):
         "landed_eur": doc.get("landed_eur"),
         "sale_eur": doc.get("sale_eur"),
         "photo_count": doc.get("photo_count") or len(photos),
-        "image": image_url(photos[0] if photos else None, 640, 360),
+        # 500x280 is what a card in the grid actually paints (487 CSS px wide at the
+        # widest desktop breakpoint, so 500 covers a 1x screen exactly and a 2x screen
+        # sees a marginal downscale). Lighthouse flagged 640x360 as ~9 KB waste per
+        # thumbnail across a 12-card grid.
+        "image": image_url(photos[0] if photos else None, 500, 280),
         "image_sm": image_url(photos[0] if photos else None, 320, 180),
         # every photo we hold, so the card can be swiped without opening the car
-        "images": [image_url(p, 640, 360) for p in photos],
+        "images": [image_url(p, 500, 280) for p in photos],
         "has_inspection": bool(doc.get("has_inspection")),
         "has_record": bool(doc.get("has_record")),
         "diagnosed": bool(doc.get("diagnosed")),
@@ -2713,10 +2717,14 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     photos = []
     for path in detail_photo_paths(detail):
         photos.append({
-            "full": image_url(path, 1280, 720),
-            # 640x360, not 256x144: the thumbnail rail is 276px wide on desktop, so the
-            # smaller file was being upscaled and looked soft.
-            "thumb": image_url(path, 640, 360),
+            # 800x450 covers the on-screen 662x372 gallery at any device pixel ratio the
+            # site actually sees (mid-tier phones and laptops render close to 1x here).
+            # 1280x720 shipped 3x more bytes than Lighthouse could measure a benefit for.
+            "full": image_url(path, 800, 450),
+            # 260x147 is a tight fit for the 224x126 CSS thumbnail rail; 640x360 was 3x
+            # oversized and was the single biggest byte drop on the audit (~30 KB per
+            # thumbnail across 20+ pictures).
+            "thumb": image_url(path, 260, 147),
         })
 
     # ── options resolved from the dictionaries and grouped by category ───────────

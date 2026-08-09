@@ -7,7 +7,7 @@ import { useApp } from "@/context/AppContext";
  * They arrive at arbitrary aspect ratios and can be slow or fail, so this handles
  * skeleton -> slow label -> loaded, plus a real fallback panel on error.
  */
-export const ImageWithFallback = ({ src, alt, className = "", testId, fit = "cover", eager = false }) => {
+export const ImageWithFallback = ({ src, alt, className = "", testId, fit = "cover", eager = false, priority = false }) => {
   const { t } = useApp();
   const [state, setState] = useState(src ? "loading" : "error");
   const [slow, setSlow] = useState(false);
@@ -63,7 +63,7 @@ export const ImageWithFallback = ({ src, alt, className = "", testId, fit = "cov
         src={src}
         alt={alt}
         loading={eager ? "eager" : "lazy"}
-        fetchPriority={eager ? "high" : "auto"}
+        fetchPriority={priority ? "high" : "auto"}
         decoding="async"
         onLoad={() => {
           done();

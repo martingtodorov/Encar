@@ -1,20 +1,25 @@
 /**
  * Wordmark: the Europe Encar logo.
  *
- * Served as WebP when the browser accepts it (~7 KB) with a PNG fallback (~13 KB),
- * and at two densities so retina screens get the sharp copy without every visitor
- * paying for it. Lighthouse flagged the earlier 776×220 PNG (113 KB) as one of the
- * biggest single-file savings on the landing.
+ * Served as WebP when the browser accepts it (~7 KB) with a PNG fallback (~13 KB), and
+ * a density switch: the compact header wordmark (106x30 CSS px, so 212x60 on a 2x screen)
+ * uses only the 220 asset - Lighthouse flagged 440 as oversized here (15 KB waste per
+ * visit). The larger, non-compact logo (141x40 = 282x80 on 2x) still needs both sizes
+ * so a retina screen gets the sharper copy.
  */
 export const BrandLogo = ({ compact = false, className = "" }) => (
   <picture>
-    <source
-      type="image/webp"
-      srcSet="/logo-220.webp 1x, /logo-440.webp 2x"
-    />
+    {compact ? (
+      <source type="image/webp" srcSet="/logo-220.webp" />
+    ) : (
+      <source
+        type="image/webp"
+        srcSet="/logo-220.webp 1x, /logo-440.webp 2x"
+      />
+    )}
     <img
       src="/logo-220.png"
-      srcSet="/logo-220.png 1x, /logo-440.png 2x"
+      srcSet={compact ? undefined : "/logo-220.png 1x, /logo-440.png 2x"}
       alt="Europe Encar"
       data-testid="brand-logo"
       width={compact ? 106 : 141}

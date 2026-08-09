@@ -22,32 +22,40 @@
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Korean cars with a final landed price | Encar Europe" />
         <meta name="twitter:description" content="Browse every Encar listing in English, Bulgarian and Romanian with a final price that includes customs duty, VAT, sea freight and delivery." />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <!-- Every single car card and every car detail page loads its photos DIRECTLY
-             from Encar's CDN (ci.encar.com); a preconnect here saves the TLS handshake
-             and DNS round trip on the very first image request. Lighthouse flagged it
-             as one of the biggest LCP wins for the search grid. -->
-        <link rel="preconnect" href="https://ci.encar.com" crossorigin />
+        <link rel="preconnect" href="https://ci.encar.com" />
         <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
         <link rel="icon" href="%PUBLIC_URL%/favicon.ico" sizes="any" />
         <link rel="icon" type="image/png" href="%PUBLIC_URL%/favicon.png" sizes="256x256" />
         <link rel="apple-touch-icon" href="%PUBLIC_URL%/icons/icon-180.png" />
-        <!-- Google Fonts CSS is loaded asynchronously so it never blocks the first paint.
-             The link starts as `preload as="style"` (fetched with the highest priority but
-             NOT applied to the page), then onload flips its rel to "stylesheet" and the
-             font styles kick in. The <noscript> fallback keeps things working with JS off.
-             Lighthouse counted the render-blocking Google Fonts fetch as ~1200 ms on
-             mobile - biggest single win on the LCP path. -->
+        <!-- Fonts are SELF-HOSTED (see public/fonts/): Google Fonts CSS was still on the
+             critical render path even with the preload+onload trick because the browser
+             counts a rel="preload" as="style" as blocking until it resolves. Shipping the
+             two font families from our own origin (12 KB CSS + only the woff2 subsets the
+             page needs, which the browser picks by `unicode-range`) removes the last cross-
+             origin dependency Lighthouse flagged.
+             Only the primary Cyrillic and Latin Plex 400 subsets are preloaded - those
+             two files paint every visible character on a landing page; the browser then
+             streams the extended and italic subsets lazily. -->
+        <link rel="preload" as="style" href="/fonts/fonts.css" />
+        <link rel="stylesheet" href="/fonts/fonts.css" />
+        <!-- Preload the two woff2 subsets that paint every character of the landing (Cyrillic
+             + Latin for IBM Plex 400, the body weight). Without these hints the browser
+             has to parse the CSS first before it discovers the woff2, which is what left
+             the fonts on the LCP critical path in the last Lighthouse run. -->
         <link
           rel="preload"
-          as="style"
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap"
-          onload="this.onload=null;this.rel='stylesheet'"
+          as="font"
+          type="font/woff2"
+          href="/fonts/230b61-zYXzKVElMYYaJe8bpLHnCwDKr932-G7dytD-Dmu1syxTKYbSB4ZhRNU.woff2"
+          crossorigin
         />
-        <noscript>
-          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
-        </noscript>
+        <link
+          rel="preload"
+          as="font"
+          type="font/woff2"
+          href="/fonts/effb1e-zYXzKVElMYYaJe8bpLHnCwDKr932-G7dytD-Dmu1syxQKYbSB4ZhRNU.woff2"
+          crossorigin
+        />
         <!--
         manifest.json provides metadata used when your web app is installed on a
         user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/

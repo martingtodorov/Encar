@@ -127,14 +127,14 @@ export const CarGrid = ({ items, loading, error, onRetry, onOpen, onClearFilters
       {!desktop && (
         <div className={GRID}>
           {items.map((car, i) => (
-            <CarCard key={car.id} car={car} onOpen={onOpen} eager={i === 0} />
+            <CarCard key={car.id} car={car} onOpen={onOpen} eager={i < 4} priority={i === 0} />
           ))}
         </div>
       )}
       {desktop && (
         <div data-testid="car-rows" className={ROWS}>
           {items.map((car, i) => (
-            <CarRow key={car.id} car={car} onOpen={onOpen} eager={i === 0} />
+            <CarRow key={car.id} car={car} onOpen={onOpen} eager={i < 2} priority={i === 0} />
           ))}
         </div>
       )}

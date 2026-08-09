@@ -16,7 +16,7 @@ import {
 
 // The Korean city is never shown: it is the one fact that cannot help a buyer in Europe
 // decide. `showRegion` is kept as a no-op prop so the callers need no change.
-export const CarCard = ({ car, onOpen, showRegion = true, eager = false }) => {
+export const CarCard = ({ car, onOpen, showRegion = true, eager = false, priority = false }) => {
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
   const { requireAccount } = useGate();
   const saved = isFavourite(car.id);
@@ -90,6 +90,7 @@ export const CarCard = ({ car, onOpen, showRegion = true, eager = false }) => {
             ctaHint={t("tapToOpen")}
             onCtaReached={warmNow}
             eager={eager}
+            priority={priority}
             // Swiping to the second photo is intent: nobody flicks past the cover shot of a
             // car they are not considering. The ad is fetched in the background from there
             // on (warmCar dedupes, so the extra calls cost nothing) and the tap is instant.

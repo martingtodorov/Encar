@@ -24,7 +24,7 @@ import {
  *
  * Mobile keeps the card grid (see CarCard) - rows do not fit a narrow viewport.
  */
-export const CarRow = ({ car, onOpen, eager = false }) => {
+export const CarRow = ({ car, onOpen, eager = false, priority = false }) => {
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
   const { requireAccount } = useGate();
   const saved = isFavourite(car.id);
@@ -120,6 +120,7 @@ export const CarRow = ({ car, onOpen, eager = false }) => {
             ctaHint={t("tapToOpen")}
             onCtaReached={warmNow}
             eager={eager}
+            priority={priority}
           />
         </div>
       </div>

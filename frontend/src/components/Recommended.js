@@ -73,7 +73,20 @@ export const Recommended = ({ onOpen }) => {
                   data-testid={`recommended-card-${car.id}`}
                   className="w-[280px] shrink-0 sm:w-[300px]"
                 >
-                  <CarCard car={car} onOpen={open} showRegion={false} eager={i === 0} />
+                  {/* The first four cards are above the fold on every viewport wider than
+                      ~1024 CSS px. Marking them all eager (rather than only i === 0) is
+                      what Lighthouse's "LCP resources should not use loading=lazy" audit
+                      wants: the LCP image is whichever card the browser paints biggest,
+                      and that is not always index 0 when the shelf renders in a single
+                      wide row. `fetchpriority="high"` only applies to the very first so
+                      bandwidth is not shared across four "high" images. */}
+                  <CarCard
+                    car={car}
+                    onOpen={open}
+                    showRegion={false}
+                    eager={i < 4}
+                    priority={i === 0}
+                  />
                 </div>
               ))
             : /* A placeholder tile reserves the height (aspect-video + body ≈ 300 px)

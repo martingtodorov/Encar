@@ -483,6 +483,11 @@ export default function CarDetailPage() {
                     countOnHover
                     hint={t("zoom")}
                     arrows
+                    // The main gallery picture is the LCP element on this route: telling
+                    // the browser to load it eagerly and prioritise it removes the "lazy"
+                    // flag Lighthouse kept flagging on `detail-main-photo-image`.
+                    eager
+                    priority
                   />
                 </div>
 
