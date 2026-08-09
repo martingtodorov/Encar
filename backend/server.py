@@ -1958,7 +1958,11 @@ def _share_title(doc):
         if any(value.casefold() in p.casefold() for p in parts):
             continue
         parts.append(value)
-    return " ".join(parts)
+    # "BMW" + "M2" + "M2 Coupe" joins as "BMW M2 M2 Coupe" — a stutter. Consecutive
+    # repeats of the same word collapse; non-adjacent repeats are legitimate names.
+    words = " ".join(parts).split()
+    return " ".join(w for i, w in enumerate(words)
+                    if i == 0 or w.casefold() != words[i - 1].casefold())
 
 
 def _share_base(request: Request):

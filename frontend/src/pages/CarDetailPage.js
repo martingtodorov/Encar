@@ -209,7 +209,12 @@ export default function CarDetailPage() {
     .filter((p) => !/^\(.*\)$/.test(String(p).trim()))
     .reduce((acc, part) => (
       acc.toLowerCase().includes(String(part).toLowerCase()) ? acc : `${acc} ${part}`.trim()
-    ), "");
+    ), "")
+    // "BMW M2" + "M2 Coupe" joins as "BMW M2 M2 Coupe" — the same word twice in a row is a
+    // stutter, so consecutive repeats collapse. Same rule as the backend's _share_title.
+    .split(/\s+/)
+    .filter((w, i, a) => !i || w.toLowerCase() !== a[i - 1].toLowerCase())
+    .join(" ");
 
   // Title and description are built from the SAME cleaned name and the SAME facts the share
   // page uses (backend `share_car`), so a Google snippet and a Messenger preview of one car
@@ -225,7 +230,11 @@ export default function CarDetailPage() {
     lang,
     title: seoTitle ? `${seoTitle} \u00b7 Encar` : "Encar",
     description: facts ? `${facts} \u2014 ${t("seoCarDesc")}` : t("seoCarDesc"),
-    image: photos[0]?.full,
+    // Sharing from Safari's share sheet hands Messages whatever og:image the LIVE page
+    // carries at that instant — and until the car loaded that used to be the og.png logo,
+    // which is exactly the preview owners kept seeing. The og image endpoint needs only the
+    // id from the URL, so the RIGHT picture is advertised from the very first render.
+    image: `${window.location.origin}/api/og/${id}.jpg`,
   });
 
   // Structured data: this is what earns a car a rich result with its price and mileage

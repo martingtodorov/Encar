@@ -1,5 +1,10 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-09 (round 6): SOLVED — owner's screenshot title "… · Encar" proved the iMessage
+preview comes from the LIVE SPA tags (Safari share sheet), where og:image was the og.png
+logo until the car loaded. CarDetailPage now advertises /api/og/{id}.jpg from first render.
+Adjacent duplicate words ("M2 M2") deduped in both _share_title and frontend seoTitle. -->
+
 <!-- 2026-08-09 (night): search page with make/model now titles itself "Обяви {make model
 (years)} | Encar" + matching description; sort=relevant no longer written to the URL.
 og.png backup logo NOT removed anywhere (owner confirmed concern). -->

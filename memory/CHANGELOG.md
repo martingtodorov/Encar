@@ -2,6 +2,22 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-09 (round 6) — the iMessage logo mystery SOLVED by the owner's screenshot
+The failing preview read "BMW M2 M2 Coupe **· Encar**" — that " · Encar" suffix exists ONLY
+in the frontend useSeo document title (the backend share page has no suffix). So the preview
+was built from the LIVE SPA's runtime tags — the owner shares via Safari's share sheet, and
+Messages takes whatever the open page advertises at that instant. Until the car data loaded,
+useSeo's og:image fallback was the og.png LOGO → Apple snapshots early → logo. NOT Encar
+rate-limiting, NOT nginx, NOT Cloudflare, NOT HTTP protocol.
+Fixes:
+1. **CarDetailPage useSeo now advertises `/api/og/{id}.jpg` from the very first render** —
+   the id is in the URL, no need to wait for data; the logo window is gone entirely.
+2. **"M2 M2" stutter deduped**: `_share_title` (backend) and `seoTitle` (frontend, feeds h1 +
+   doc title) both collapse consecutive case-insensitive word repeats after joining. Unit
+   checks: "BMW M2 M2 Coupe"→"BMW M2 Coupe"; Mercedes/Korando titles unchanged.
+Verified in browser: og:image = /api/og/… BEFORE data loads and after; doc title + h1 clean.
+Needs BOTH deploy playbooks (frontend + backend).
+
 ## 2026-08-09 (night) — make/model SEO titles + sort=relevant dropped from URLs
 - `SearchPage` `useSeo` now builds a landing-page title/description when a make (and
   optionally model) is selected: bg "Обяви BMW 1 Series (E82) (2008-2013) | Encar",
