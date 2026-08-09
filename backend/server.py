@@ -2022,6 +2022,42 @@ async def image_proxy(url: str):
                     headers={"Cache-Control": "public, max-age=604800"})
 
 
+# Digit grouping exactly as Intl.NumberFormat does it for the three page locales
+# (bg-BG NBSP and only from 10 000 up, ro-RO full stop, en-GB comma). Kept here because a
+# preview and the rendered page must quote the same car identically.
+_GROUPING = {"bg": ("\u00a0", 10000), "ro": (".", 1000), "en": (",", 1000)}
+
+
+def _fmt_int(n, lang: str) -> str:
+    sep, floor = _GROUPING.get(lang, _GROUPING["bg"])
+    v = int(round(n))
+    grouped = f"{v:,}"
+    return grouped.replace(",", "") if abs(v) < floor else grouped.replace(",", sep)
+
+
+def _fmt_price(amount, lang: str, currency: str = "EUR") -> str:
+    v = _fmt_int(amount, lang)
+    if currency == "RON":
+        return f"{v}\u00a0RON"
+    if lang == "en":
+        return f"\u20ac{v}"
+    if lang == "ro":
+        return f"{v}\u00a0EUR"
+    return f"{v}\u00a0\u20ac"
+
+
+async def _share_price(sale_eur, lang: str) -> str:
+    """The price the PAGE shows: Romanian visitors are quoted in RON (AppContext), everyone
+    else in EUR. A preview quoting euros to a Romanian would not match the ad they open."""
+    if not sale_eur:
+        return ""
+    if lang != "ro":
+        return _fmt_price(sale_eur, lang)
+    rates = await fx_mod.get_rates(db)
+    return _fmt_price(sale_eur * float(rates.get("eur_ron") or 4.977), lang, "RON")
+
+
+
 @api.get("/share/car/{listing_id}", response_class=HTMLResponse)
 async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     """A shareable link whose preview picture is the ad's own lead photo.
@@ -2044,11 +2080,11 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     title = _share_title(doc) or "Europe Encar"
     ym = str((doc or {}).get("year_month") or "")
     facts = [f"{ym[4:6]}/{ym[:4]}" if len(ym) >= 6 else "",
-             f"{(doc or {}).get('mileage'):,} km".replace(",", " ")
+             f"{_fmt_int((doc or {}).get('mileage'), lang)} km"
              if (doc or {}).get("mileage") else "",
-             # Same shape the page prints ("9199 €"), so a chat preview and the page itself do
-             # not quote one car's price in two different formats.
-             f"{(doc or {}).get('sale_eur'):.0f} €" if (doc or {}).get("sale_eur") else ""]
+             # Byte-identical to what the page prints (Intl.NumberFormat, see lib/format.js), so
+             # a chat preview and the page itself never quote one car's price in two formats.
+             await _share_price((doc or {}).get("sale_eur"), lang)]
     # The SAME description the page itself writes (see CarDetailPage `useSeo`): the facts, then
     # the one thing that makes this site worth using. A shared link and a search result should
     # not describe the same car differently.

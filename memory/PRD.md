@@ -1,5 +1,18 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-06-09: SHARE PREVIEW PRICE NOW MATCHES THE PAGE BYTE FOR BYTE. `share_car` printed
+`f"{sale_eur:.0f} €"` and `f"{mileage:,}".replace(",", " ")`, so a five-figure car was quoted
+"69599 €" in a chat preview and "69 599 €" on the page (iteration_41 minor finding). New
+`_fmt_int` / `_fmt_price` / `_share_price` in server.py reproduce Intl.NumberFormat for the three
+locales: bg-BG NBSP grouping and ONLY from 10 000 up (9199 is ungrouped — that is Intl's
+minimumGroupingDigits, not a bug), ro-RO full stop, en-GB comma with the € as a PREFIX. While
+checking it, a bigger mismatch surfaced: the RO page quotes RON (AppContext switches currency
+with the language) while the preview said EUR — `_share_price` now converts with
+`fx.get_rates` for `lang == "ro"`. Verified against the rendered page: bg '69\xa0599\xa0€',
+ro '365.615\xa0RON', en '€69,599' — identical on both sides.
+NOT DONE (owner picked the separator only): the crawler page still emits og:description without
+a `<meta name="description">` twin. -->
+
 <!-- 2026-08-08: FACEBOOK "og:image processed asynchronously" WARNING. The dimensions were
 already declared on every page, so the real cause was the RACE the notice describes: the crawler
 reads the HTML, then fetches the picture, and our proxy was going all the way to Encar's CDN in
