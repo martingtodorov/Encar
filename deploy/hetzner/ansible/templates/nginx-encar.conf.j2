@@ -41,6 +41,12 @@ real_ip_header CF-Connecting-IP;
 map $http_user_agent $encar_crawler {
     default 0;
     "~*(facebookexternalhit|facebookcatalog|Facebot|Twitterbot|Slackbot|WhatsApp|Viber|TelegramBot|LinkedInBot|Discordbot|Pinterest|SkypeUriPreview|redditbot|vkShare|Applebot|Applebot-Extended|com\.apple\.WebKit\.Networking|WebKit/[0-9.]+ .*Preview|Iframely|embedly|Snapchat|Instagram|Mastodon|Bluesky|Google-InspectionTool)" 1;
+    # Apple's iOS/macOS iMessage link-preview fetcher, iOS 16+: a headless WebKit whose UA
+    # is a Safari base with NO trailing `Version/X` and NO `Safari/X` markers. A real Safari
+    # (iPhone or Mac) ALWAYS carries both. Matching UAs that end at "(KHTML, like Gecko)"
+    # (with an optional trailing space) singles out the headless fetcher without touching
+    # any real browser. Observed with iOS 17 Messages against fem.encar.com's own logs.
+    "~*AppleWebKit/[0-9.]+ \(KHTML, like Gecko\)\s*$" 1;
 }
 
 upstream {{ app_name }}_backend {
