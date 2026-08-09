@@ -58,6 +58,11 @@ function AppRouter() {
         <Route path="purchases" element={<MyPurchasesPage />} />
         <Route path="payment/success" element={<PaymentResultPage outcome="success" />} />
         <Route path="payment/cancel" element={<PaymentResultPage outcome="cancel" />} />
+        {/* Pretty search paths: /bg/bmw and /bg/bmw/m2-g87. Static segments (car,
+            account, …) always outrank a param segment, so these can never shadow a
+            real page. */}
+        <Route path=":makeSlug" element={<SearchPage />} />
+        <Route path=":makeSlug/:modelSlug" element={<SearchPage />} />
       </Route>
       {/* Bare and legacy URLs keep working: same page, language added. */}
       <Route path="*" element={<LangRedirect />} />

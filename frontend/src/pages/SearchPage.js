@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { SlidersHorizontal, Loader2, RotateCcw, Bookmark, BookmarkCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -86,10 +86,19 @@ export default function SearchPage() {
   const { t, lang, currency, rates, cms, saveSearch, isSearchSaved } = useApp();
   const { requireAccount } = useGate();
   const { go } = useLangNav();
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  // Pretty search paths: /bg/bmw/m2-g87. The path segments are the same English slugs the
+  // query string used to carry, so they feed the same resolver.
+  const { makeSlug, modelSlug } = useParams();
   // Read the URL ONCE on mount; after that this component owns the state and writes
   // back. Re-reading on every param change would fight the effect below.
-  const initial = useMemo(() => paramsToState(searchParams), []);
+  const initial = useMemo(() => {
+    const st = paramsToState(searchParams);
+    if (makeSlug && !st.tax.make) st.tax.make = makeSlug;
+    if (modelSlug && !st.tax.model) st.tax.model = modelSlug;
+    return st;
+  }, []);
   // Everything this page painted the last time it stood on this exact URL, if it is still
   // in memory (i.e. the visitor came back rather than reloading).
   const restored = useMemo(() => visits.get(visitKey()) || null, []);
@@ -114,7 +123,7 @@ export default function SearchPage() {
   // A URL carrying slugs cannot be searched until they are translated back — unless we
   // already know the answer from the visit we are coming back to.
   const [resolving, setResolving] = useState(
-    () => !restored && hasResolvableTokens(searchParams)
+    () => !restored && (hasResolvableTokens(searchParams) || !!makeSlug)
   );
 
   const [facets, setFacets] = useState(null);
@@ -368,13 +377,31 @@ export default function SearchPage() {
     window.scrollTo(0, 0);
   }, []);
 
-  // Mirror the live search into the query string. `replace` so we do not push a history
-  // entry per keystroke - the entry that exists when a car is opened already carries
-  // these params, which is exactly what Back needs to restore.
+  // Mirror the live search into the URL. Make and model live in the PATH when their
+  // English slugs are known — /bg/bmw/m2-g87 outranks /bg?make=bmw&model=m2-g87 in a
+  // search result — and fall back to query params until a slug is learned. `replace` so
+  // we do not push a history entry per keystroke - the entry that exists when a car is
+  // opened already carries this URL, which is exactly what Back needs to restore.
   useEffect(() => {
     if (resolving) return;
-    setSearchParams(stateToParams({ filters, tax, sort, page }, slugFor), { replace: true });
-  }, [filters, tax, sort, page, setSearchParams, slugFor, resolving]);
+    const p = stateToParams({ filters, tax, sort, page }, slugFor);
+    let path = `/${lang}`;
+    const makeSeg = tax.make ? slugFor("make", tax.make) : "";
+    if (makeSeg) {
+      p.delete("make");
+      path += `/${encodeURIComponent(makeSeg)}`;
+      const modelSeg = tax.model ? slugFor("model", tax.model) : "";
+      if (modelSeg) {
+        p.delete("model");
+        path += `/${encodeURIComponent(modelSeg)}`;
+      }
+    }
+    const q = p.toString();
+    const next = q ? `${path}?${q}` : path;
+    if (`${window.location.pathname}${window.location.search}` !== next) {
+      navigate(next, { replace: true });
+    }
+  }, [filters, tax, sort, page, navigate, lang, slugFor, resolving]);
 
   // Snapshot the painted state against the URL it belongs to, so a Back to it hydrates
   // instantly. Declared AFTER the URL mirror above so `window.location.search` is already

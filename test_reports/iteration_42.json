@@ -1,0 +1,40 @@
+{
+  "summary": "Frontend-only regression of the new pretty SEO paths (/lang/make/model). 12/13 requested scenarios pass. Core flow (path rewrite on select, cold-load resolution, legacy-query redirect, chip removal, extra filters/pagination/sort in query, language switch preserving slugs, static routes not shadowed, back-to-results URL/results restore, save-search gate) all work. One functional bug: unknown make slug is NOT recovered gracefully. One minor: scroll position is not restored after 'Назад към резултатите'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "SearchPage / slug resolver",
+        "issue": "Unknown make slug (e.g. /bg/some-junk-make) is NOT dropped. Page ends at /bg?make=some-junk-make with a 'Марка: some-junk-make' chip, h1 'some-junk-make от Корея — 0 автомобила' and 0 results. Spec requires 'no crash, ends on /bg with the unfiltered catalogue' — i.e. when resolveSlugs returns no match for the make slug it should be dropped from tax.make AND the URL should be normalised back to /bg (or the language root) showing the full catalogue.",
+        "selector": "URL /bg/some-junk-make",
+        "priority": "HIGH"
+      },
+      {
+        "component": "CarDetailPage back-to-results",
+        "issue": "Pressing 'Назад към резултатите' restores the exact URL and full 16-row result set, but scroll position is reset to 0 (was 700 before opening the car). Spec asks for scroll position to be restored as well. pendingRestore/takeBackScroll appears not to be firing on this exit path.",
+        "selector": "[data-testid=\"back-to-results-button\"]",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "In SearchPage resolver / slugFor path-parse: if the makeSlug from the URL does not resolve to a known make, drop it from tax (set to '') AND ensure the URL mirror effect writes back /{lang} (no ?make=...). Right now the unresolved slug is kept as the raw make value, producing an empty-results page.",
+    "Wire scroll restoration on the in-page 'Назад към резултатите' button (CarDetailPage line ~315) so that returning to a pretty search URL rehydrates the last scroll offset (pendingRestore + takeBackScroll)."
+  ],
+  "critical_code_review_comments": [
+    "SearchPage.js is 808 lines — consider splitting the URL mirror, slug resolver and taste snapshot logic into hooks/utilities.",
+    "The URL mirror effect (lines ~385-404) correctly encodes the make/model into the path and drops sort=relevant, but has no guard for an unresolved makeSlug — the effect assumes tax.make is always canonical. That is the root cause of the junk-slug bug.",
+    "Model options still expose Korean values (e.g. '1시리즈 (E82)') as <option value>. Fine because they are hidden, but consider using slug values to keep DevTools/query-string friendly."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "92% (11/12 pretty-URL scenarios pass; junk-slug recovery fails, scroll restore minor)"},
+  "test_credentials": "not needed; save-search gate only verified appearance",
+  "seed_data_creation": "none",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Pretty-path routes are declared last under /:lang in App.js so static routes (/bg/car/:id, /bg/how-it-works, /bg/track, /bg/login) are NOT shadowed — verified. TaxonomySelects are native <select> with data-testid=taxonomy-make-select / taxonomy-model-select; select_option must be called with value= (not label=) because option text carries counts. Car cards use data-testid=car-row (not car-card) — click the row directly. Language menu: click [data-testid=header-language] then [data-testid=header-language-en]. Sort <select> lives at data-testid=sort-select and DOES drop 'relevant' from URL. Applied chips: [data-testid=applied-filter-<key>] with inner <button> to remove. Pagination testids: pagination-page-N / pagination-next. Junk make slug bug is still present; do not re-test until main agent patches resolver to drop unresolved make/model slugs.",
+  "rca_of_the_issue": "SearchPage.js line ~96-101 seeds initial tax.make/tax.model directly from the path params without validating against resolver output. When resolveSlugs returns no upstream match for 'some-junk-make', tax.make remains the raw slug string. The URL mirror effect (lines ~385-404) then computes slugFor('make','some-junk-make') which returns falsy, so it falls back to writing the raw value as ?make= — producing /bg?make=some-junk-make instead of clearing tax.make and normalising to /bg. Fix: after resolveSlugs finishes, if tax.make has no corresponding upstream/canonical value in the returned map, reset tax.make (and tax.model) to '' so the mirror effect strips them from the URL."
+}
