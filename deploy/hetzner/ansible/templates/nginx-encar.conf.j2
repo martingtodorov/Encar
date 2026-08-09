@@ -31,9 +31,16 @@ real_ip_header CF-Connecting-IP;
 # writes at runtime are invisible to them and a pasted link previews as nothing. These
 # clients are sent to /api/share/car/{id}, which carries the ad's OWN first photo at
 # 1200x630 in the HTML. A human is never touched by this.
+#
+# iMessage note: Apple's own crawler for a link pasted into Messages is NOT the "Applebot"
+# search bot - Messages fetches metadata with `com.apple.WebKit.Networking` (the system
+# HTTP client) and the head-only fetch that follows also carries that string. Without it
+# on the list, iMessage lands on the SPA shell and picks up whatever fallback og:image
+# lives in index.html (our logo), which is exactly the "preview is a logo not the car"
+# report from users. `Applebot-Extended` covers Apple's newer AI/preview crawler too.
 map $http_user_agent $encar_crawler {
     default 0;
-    "~*(facebookexternalhit|facebookcatalog|Facebot|Twitterbot|Slackbot|WhatsApp|Viber|TelegramBot|LinkedInBot|Discordbot|Pinterest|SkypeUriPreview|redditbot|vkShare|Applebot|Iframely|embedly|Snapchat|Instagram|Mastodon|Bluesky|Google-InspectionTool)" 1;
+    "~*(facebookexternalhit|facebookcatalog|Facebot|Twitterbot|Slackbot|WhatsApp|Viber|TelegramBot|LinkedInBot|Discordbot|Pinterest|SkypeUriPreview|redditbot|vkShare|Applebot|Applebot-Extended|com\.apple\.WebKit\.Networking|WebKit/[0-9.]+ .*Preview|Iframely|embedly|Snapchat|Instagram|Mastodon|Bluesky|Google-InspectionTool)" 1;
 }
 
 upstream {{ app_name }}_backend {

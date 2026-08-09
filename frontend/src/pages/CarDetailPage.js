@@ -230,12 +230,17 @@ export default function CarDetailPage() {
     lang,
     title: seoTitle ? `${seoTitle} \u00b7 Encar` : "Encar",
     description: facts ? `${facts} \u2014 ${t("seoCarDesc")}` : t("seoCarDesc"),
-    // The car photo is NOT written into the head from here on purpose: this hook runs after
-    // the app boots, and every social crawler (Facebook, Messenger, Viber, iMessage) reads the
-    // tags from the initial server response - which nginx routes to /api/share/car/{id},
-    // where the ad's own lead photo is the single og:image. A runtime write is invisible to
-    // them and, on Safari's iOS Share sheet, was the last route the fallback logo took into
-    // a preview when it raced the picture. The browser tab still gets its title from here.
+    // Two shared-preview paths need this og:image and they read it in different places:
+    //   * A social crawler (Messenger, Viber, Facebook, iMessage's own fetch) hits the URL
+    //     directly - nginx routes it to /api/share/car/{id}, which is SSR and has the right
+    //     picture baked into the initial HTML response. This hook is invisible to them.
+    //   * Safari's iOS Share sheet does NOT run a fresh crawler fetch. It reads whatever
+    //     og:image the CURRENT TAB'S DOM carries at the moment the user taps Share, and
+    //     hands that to Messages. Without this line the DOM keeps the shell fallback (the
+    //     site logo from index.html) and Messages then previews a logo instead of the car.
+    // The picture is our /api/og/{id}.jpg proxy - the same URL the SSR endpoint uses - so
+    // there is exactly one image address for a listing across every share path.
+    image: `${window.location.origin}/api/og/${id}.jpg`,
   });
 
   // Structured data: this is what earns a car a rich result with its price and mileage
