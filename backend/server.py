@@ -1997,12 +1997,19 @@ def _image_client():
     return _IMG_CLIENT
 
 
-def _img_cached(url):
+def _img_file(url):
     key = hashlib.sha256(url.encode()).hexdigest()[:32]
     folder = Path(os.environ["MEDIA_ROOT"]) / "imgcache"
     for hit in folder.glob(f"{key}.*"):
-        return hit.read_bytes(), f"image/{hit.suffix.lstrip('.')}"
+        return hit
     return None
+
+
+def _img_cached(url):
+    hit = _img_file(url)
+    if hit is None:
+        return None
+    return hit.read_bytes(), f"image/{hit.suffix.lstrip('.')}"
 
 
 async def _fetch_encar_image(url):
@@ -2047,6 +2054,28 @@ async def _encar_image(url):
     return await asyncio.shield(task)
 
 
+async def _preview_image_url(raw_image, base):
+    """The preview picture URL, with the picture already on disk by the time we answer.
+
+    A crawler asks for the HTML and then, within a moment, for the picture. Fetching it here
+    (rather than only in a background task racing that request) means the crawler's fetch is
+    local instead of a round trip to Encar's CDN in Korea, which is what made a preview arrive
+    without a picture now and then.
+    """
+    if not raw_image:
+        return ""
+    proxy = f"{base}/api/image-proxy?url={quote(raw_image, safe='')}"
+    hit = _img_file(raw_image)
+    if hit is None:
+        try:
+            # A crawler waits a moment for the picture, and this is the ONLY chance to get it
+            # on disk before it asks, so the fetch it makes is local instead of a trip to Korea.
+            await asyncio.wait_for(asyncio.shield(_encar_image(raw_image)), 6)
+        except (asyncio.TimeoutError, httpx.HTTPError, HTTPException, OSError) as e:
+            log.info("preview picture not ready for %s: %s", raw_image[:80], str(e)[:120])
+    return proxy
+
+
 async def _warm_image(url):
     try:
         await _encar_image(url)
@@ -2055,18 +2084,51 @@ async def _warm_image(url):
 
 
 def _binary(request: Request, data: bytes, kind: str, max_age: int) -> Response:
-    """A picture, answered so that a client which checks with HEAD first is satisfied.
+    """A picture, answered the way every strict client expects a picture to be answered.
 
-    Apple's Messages fetcher asks HEAD before it downloads a preview picture and takes the
-    405 FastAPI gives a GET-only route as "there is no picture here", falling back to the site
-    icon — that is why an iMessage preview showed our logo while Facebook, Viber and Instagram,
-    which go straight to GET, showed the car. FastAPI does NOT add HEAD to `@api.get`.
+    Two things were missing and both are why an iMessage preview fell back to the site icon
+    while Facebook, Viber and Instagram were happy — those three simply download the whole file.
+    (1) HEAD: FastAPI does not add it to `@api.get`, so a client checking the picture first got
+        405 and concluded there was none.
+    (2) Range: a byte-range request was answered with 200 and the WHOLE file, with no
+        `Accept-Ranges`, `ETag` or `Content-Range`. A client that asked for a range and is handed
+        something else has every reason to give up.
     """
+    etag = '"' + hashlib.sha256(data).hexdigest()[:32] + '"'
     headers = {"Cache-Control": f"public, max-age={max_age}",
-               "Content-Length": str(len(data))}
+               "Accept-Ranges": "bytes",
+               "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+
+    start, end = 0, len(data) - 1
+    ranged = False
+    asked = (request.headers.get("range") or "").strip().lower()
+    if asked.startswith("bytes=") and "," not in asked:
+        first, _, last = asked[6:].partition("-")
+        try:
+            if first:
+                start = int(first)
+                end = int(last) if last else end
+            elif last:                                  # "bytes=-500": the last 500 bytes
+                start = max(0, len(data) - int(last))
+        except ValueError:
+            start, end = 0, len(data) - 1
+        else:
+            end = min(end, len(data) - 1)
+            if start > end:
+                return Response(status_code=416, headers={
+                    **headers, "Content-Range": f"bytes */{len(data)}"})
+            ranged = start != 0 or end != len(data) - 1
+
+    body = data[start:end + 1]
+    headers["Content-Length"] = str(len(body))
+    if ranged:
+        headers["Content-Range"] = f"bytes {start}-{end}/{len(data)}"
+    status = 206 if ranged else 200
     if request.method == "HEAD":
-        return Response(status_code=200, media_type=kind, headers=headers)
-    return Response(content=data, media_type=kind, headers=headers)
+        return Response(status_code=status, media_type=kind, headers=headers)
+    return Response(content=body, status_code=status, media_type=kind, headers=headers)
 
 
 @api.api_route("/image-proxy", methods=["GET", "HEAD"])
@@ -2171,9 +2233,8 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     # through OUR domain: Encar's CDN answers a browser but can refuse an unknown crawler, and
     # a refused image means a preview with no picture at all.
     raw_image = image_url(photos[0], 1200, 630) if photos else ""
-    image = f"{_share_base(request)}/api/image-proxy?url={quote(raw_image, safe='')}" \
-        if raw_image else ""
     base = _share_base(request)
+    image = await _preview_image_url(raw_image, base)
     target = f"{base}/{lang}/car/{listing_id}"
 
     tags = [f'<meta name="description" content="{_attr(description)}">',
