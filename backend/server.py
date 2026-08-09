@@ -2082,13 +2082,11 @@ async def image_proxy(url: str, request: Request):
     host = urlparse(url).hostname or ""
     if not url.startswith("https://") or host not in ENCAR_IMAGE_HOSTS:
         raise HTTPException(400, "only Encar images can be served through here")
-    # A HEAD is a client CHECKING the picture, not downloading it (Apple's Messages does exactly
-    # this before it fetches a preview image). It must never sit waiting for Korea: answer at
-    # once and let the warm finish, so the GET that follows is served from disk.
-    if request.method == "HEAD" and _img_cached(url) is None:
-        asyncio.create_task(_warm_image(url))
-        return Response(status_code=200, media_type="image/jpeg",
-                        headers={"Cache-Control": "public, max-age=604800"})
+    # A HEAD must carry the REAL Content-Length: answering one instantly with a length of zero
+    # (which is what an empty body produces) reads to Apple as "a picture of nothing" and the
+    # preview fell back to the site icon EVERY time. So a HEAD fetches like a GET — the
+    # in-flight dedupe above means it shares the warm `share_car` already started, not a second
+    # trip to Korea.
     try:
         data, kind = await _encar_image(url)
     except httpx.HTTPError as e:
