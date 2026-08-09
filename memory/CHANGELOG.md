@@ -2,6 +2,25 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-09 (late night) — pretty search paths /bg/bmw/m2-g87 (VERIFIED, iteration_42)
+Make/model now live in the URL PATH; everything else stays in the query string.
+- `App.js`: `:makeSlug` and `:makeSlug/:modelSlug` routes declared last under `/:lang` —
+  static segments (car, account, track…) always outrank a param segment, verified.
+- `SearchPage`: path params overlay the initial state (query still wins if both present);
+  `resolving` also true when a makeSlug arrives; the URL mirror builds
+  `/{lang}/{makeSlug}/{modelSlug}?rest` via `slugFor` and `navigate(replace)`, falling back
+  to query params for any value whose slug is not yet known. Legacy `?make=…&model=…` URLs
+  self-redirect to the pretty path on mount.
+- Junk path slug (/bg/some-junk-make): the resolver echoes unknown tokens by DESIGN (old
+  raw-value links), so SearchPage now drops a PATH-seeded token that comes back unresolved —
+  lands on /{lang} with the full catalogue. (Query-seeded raw values keep working.)
+- Testing agent iteration_42: 12/13 pass; junk-slug fix applied + self-verified after; the
+  reported "scroll not restored on Назад към резултатите" was a Playwright artifact (its
+  auto-scroll-to-element before click zeroes scrollY in the nav state) — verified working
+  with a JS-dispatched click: 700 → car → back → 700.
+Canonical/hreflang follow the pathname automatically (lib/seo.js). Saved searches store
+query strings and reopen fine (mirror prettifies). Frontend-only deploy.
+
 ## 2026-08-09 (round 7) — direct-CDN experiment reverted: share-debug proved the proxy WORKS
 Live share-debug showed the full story: at 20:23Z and 20:40Z (og:image = /api/og/{id}.jpg)
 the phone fetched share-car AND then the image — UA `com.apple.WebKit.Networking/21624…

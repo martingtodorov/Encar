@@ -264,11 +264,21 @@ export default function SearchPage() {
           ...(r.regions || []).map((v, i) => ["region", v, (initial.filters.regions || [])[i]]),
         ].filter(([, value, slug]) => value && slug && value !== slug);
         learnSlugs(learned);
+        // The resolver echoes unknown tokens back so PRE-SLUG links with raw values keep
+        // working — but a PATH segment is always a slug, so one echoed back unchanged is a
+        // junk URL (/bg/some-junk-make). Dropped, and the URL mirror then writes /{lang}.
+        let make = r.make || "";
+        let model = r.model || "";
+        if (makeSlug && initial.tax.make === makeSlug && make === makeSlug) {
+          make = "";
+          model = "";
+        }
+        if (modelSlug && initial.tax.model === modelSlug && model === modelSlug) model = "";
         setTax({
-          make: r.make || "",
-          model: r.model || "",
-          badge: r.badge || "",
-          badgeDetail: r.badge_detail || "",
+          make,
+          model,
+          badge: make ? r.badge || "" : "",
+          badgeDetail: make ? r.badge_detail || "" : "",
         });
         setFilters((f) => ({
           ...f,

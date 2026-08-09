@@ -1,5 +1,9 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-09 (late night): pretty search paths /bg/{make-slug}/{model-slug} shipped and
+verified by testing agent (iteration_42, 12/13 → junk-slug fix applied and self-verified;
+scroll-restore complaint was a Playwright artifact). Legacy query URLs self-redirect. -->
+
 <!-- 2026-08-09 (round 7): round-5 direct-CDN og:image reverted — live share-debug proved
 Apple's fetcher (com.apple.WebKit.Networking) downloads /api/og/{id}.jpg fine, while the
 bare ci.encar.com fetch silently dies on the phone (no AAAA; owner on Vivacom IPv6).
