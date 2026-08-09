@@ -2161,6 +2161,23 @@ async def image_proxy(url: str, request: Request):
     return _binary(request, data, kind, 604800)
 
 
+@api.api_route("/og/{listing_id}.jpg", methods=["GET", "HEAD"])
+async def og_image(listing_id: str, request: Request):
+    """The share preview photo under a clean .jpg URL.
+
+    iMessage previews are built on the SENDER'S device, and Apple's fetcher has been seen
+    dropping an og:image whose URL is one long percent-encoded query string with no file
+    extension — exactly what /api/image-proxy?url=… is. A plain path ending in .jpg gives
+    it nothing to mistrust; the bytes underneath are the same cached Encar photo.
+    """
+    doc = await db.listings.find_one({"_id": listing_id}, {"photos": 1})
+    photos = (doc or {}).get("photos") or []
+    if not photos:
+        raise HTTPException(404, "that car has no photo")
+    data, kind = await _encar_image(image_url(photos[0], 1200, 630))
+    return _binary(request, data, kind, 604800)
+
+
 # Digit grouping exactly as Intl.NumberFormat does it for the three page locales
 # (bg-BG NBSP and only from 10 000 up, ro-RO full stop, en-GB comma). Kept here because a
 # preview and the rendered page must quote the same car identically.
@@ -2239,7 +2256,12 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     # a refused image means a preview with no picture at all.
     raw_image = image_url(photos[0], 1200, 630) if photos else ""
     base = _share_base(request)
-    image = await _preview_image_url(raw_image, base)
+    image = ""
+    if raw_image:
+        # Still warmed onto disk BEFORE the HTML is answered (the crawler asks for the
+        # picture a moment later), but the URL it is told to fetch is /api/og/{id}.jpg.
+        await _preview_image_url(raw_image, base)
+        image = f"{base}/api/og/{listing_id}.jpg"
     target = f"{base}/{lang}/car/{listing_id}"
 
     tags = [f'<meta name="description" content="{_attr(description)}">',
@@ -2264,7 +2286,10 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     html = ("<!doctype html><html><head><meta charset=\"utf-8\">"
             f"<title>{_attr(title)}</title>" + "".join(tags)
             + f'<link rel="canonical" href="{_attr(target)}">'
-            + f'<meta http-equiv="refresh" content="0;url={_attr(target)}">'
+            # No <meta http-equiv=refresh> here: an instant refresh pointing at the very URL
+            # the crawler just fetched reads as a redirect loop to some fetchers (Apple's own
+            # technote says metadata must stand WITHOUT redirects). Humans landing here are
+            # forwarded by the script below; crawlers never follow either.
             + "</head><body>"
             + f'<a href="{_attr(target)}">{_attr(title)}</a>'
             + f'<script>location.replace("{target}")</script>'
@@ -2368,7 +2393,6 @@ async def share_track(request: Request, ref: str = "", by: str = "bol", lang: st
     html = ("<!doctype html><html><head><meta charset=\"utf-8\">"
             f"<title>{_attr(title)}</title>" + "".join(tags)
             + f'<link rel="canonical" href="{_attr(target)}">'
-            + f'<meta http-equiv="refresh" content="0;url={_attr(target)}">'
             + "</head><body>"
             + f'<a href="{_attr(target)}">{_attr(title)}</a>'
             + f'<script>location.replace("{target}")</script>'

@@ -2,6 +2,34 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-09 — iMessage preview: three remaining protocol deviations removed
+Facebook/Meta previews confirmed working on live by the owner; iMessage still fell back to
+the site logo. Verified live (encareurope.com, behind Cloudflare) already runs the Range/206
+refactor — HEAD carries real Content-Length+ETag, bytes=0-1023 answers 206. Three deltas
+remained between our answers and what Apple's on-device fetcher (UA
+`facebookexternalhit/1.1 Facebot Twitterbot/1.0`, fetches from the SENDER'S iPhone, not an
+Apple server) tolerates:
+1. **`Range: bytes=0-` answered 200, not 206.** `_binary` deliberately downgraded a range
+   spanning the whole file to a plain 200; CFNetwork reads that as "server does not do
+   ranges" after `Accept-Ranges: bytes` was advertised on the HEAD. Now ANY valid Range
+   header gets 206 + Content-Range, whole file or not ("bytes=-" alone is not a range).
+2. **og:image was one long percent-encoded query string with no file extension**
+   (`/api/image-proxy?url=https%3A%2F%2Fci.encar.com%2F…`). New route
+   `GET/HEAD /api/og/{listing_id}.jpg` serves the SAME cached 1200×630 lead photo under a
+   clean .jpg path; `share_car` warms the photo exactly as before and points og:image /
+   twitter:image at the new URL. `/api/image-proxy` stays for the gallery.
+3. **`<meta http-equiv=refresh content="0;url=SAME_URL">` removed from both share pages**
+   (car + track). TN2444: metadata must stand without redirects; an instant self-refresh
+   reads as a redirect loop to strict fetchers. The JS `location.replace` + plain link keep
+   forwarding humans.
+Tested with curl on localhost AND the preview URL: og:image now `/api/og/{id}.jpg`, no
+http-equiv anywhere, GET 200 valid JPEG 1200×630, HEAD real length, bytes=0- → 206
+full-body Content-Range, bytes=0-1023 → 206, missing photo → 404.
+AWAITING DEPLOY: Save to GitHub → git pull → Ansible. When re-testing iMessage use a car URL
+never shared in that conversation before — Messages caches a failed preview per-URL.
+If it STILL fails after deploy, the next suspect is Cloudflare challenging Apple-device TLS
+fingerprints carrying a bot UA (Bot Fight Mode) — check CF Security Events, not nginx logs.
+
 ## 2026-06 — Desktop header nav + car detail gallery and sticky bar
 Verified (iteration_15): 100%, 46 UI assertions across 1600/1920/1280/390 widths.
 - **Desktop navigation is now inline in the header at all times.** On a wide screen there

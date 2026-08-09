@@ -1,5 +1,11 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-09: iMessage preview fix round 3 — bytes=0- now answers 206 (was 200), og:image
+moved to a clean `/api/og/{id}.jpg` URL (Apple mistrusts extension-less query-string image
+URLs), meta refresh removed from both share pages. Details in CHANGELOG.md top entry.
+Facebook confirmed working by owner; iMessage fix awaits owner deploy (GitHub → pull →
+Ansible). Re-test with a NEVER-before-shared car URL — Messages caches failed previews. -->
+
 <!-- 2026-06-09 (follow-up): the crawler car page now emits a plain `<meta name="description">`
 alongside `og:description` (same text), so if Google ever fetches /api/share/car/{id} it has a
 real snippet instead of inventing one. Chat apps read og:*, Google reads name="description" —
