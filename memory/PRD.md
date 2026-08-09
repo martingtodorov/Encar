@@ -1,5 +1,11 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-09 (round 5): owner says AutoScout24 previews work best on iMessage — copied
+their recipe. iMessage UA branch: og:image = bare ci.encar.com photo path (no query, 640×360,
+true width/height tags) + minimal AutoScout tag set. All images from our proxy now also carry
+Last-Modified / IMS→304 / ACAO:* / Content-Disposition: inline. Other crawlers untouched.
+Awaiting owner deploy + fresh-URL iMessage test. -->
+
 <!-- 2026-08-09 (round 4): copied mobile.bg's working recipe — their og photo host is plain
 nginx OUTSIDE Cloudflare. For requests whose UA is Apple Messages (facebookexternalhit +
 twitterbot/applewebkit in one string) share_car now emits og:image = direct ci.encar.com URL

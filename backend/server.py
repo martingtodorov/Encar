@@ -19,6 +19,7 @@ import hashlib
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
+from email.utils import formatdate, parsedate_to_datetime
 import uuid
 from pathlib import Path
 from urllib.parse import quote, urlparse
@@ -2125,7 +2126,7 @@ async def _warm_image(url):
         log.info("could not warm %s: %s", url[:80], str(e)[:120])
 
 
-def _binary(request: Request, data: bytes, kind: str, max_age: int) -> Response:
+def _binary(request: Request, data: bytes, kind: str, max_age: int, mtime=None) -> Response:
     """A picture, answered the way every strict client expects a picture to be answered.
 
     Two things were missing and both are why an iMessage preview fell back to the site icon
@@ -2135,13 +2136,26 @@ def _binary(request: Request, data: bytes, kind: str, max_age: int) -> Response:
     (2) Range: a byte-range request was answered with 200 and the WHOLE file, with no
         `Accept-Ranges`, `ETag` or `Content-Range`. A client that asked for a range and is handed
         something else has every reason to give up.
+    The header set mirrors AutoScout24's picture CDN (the delivery every chat app is happiest
+    with): Last-Modified, Access-Control-Allow-Origin: *, Content-Disposition: inline.
     """
     etag = '"' + hashlib.sha256(data).hexdigest()[:32] + '"'
     headers = {"Cache-Control": f"public, max-age={max_age}",
                "Accept-Ranges": "bytes",
+               "Access-Control-Allow-Origin": "*",
+               "Content-Disposition": "inline",
                "ETag": etag}
+    if mtime:
+        headers["Last-Modified"] = formatdate(mtime, usegmt=True)
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
+    ims = request.headers.get("if-modified-since")
+    if ims and mtime and "if-none-match" not in request.headers:
+        try:
+            if parsedate_to_datetime(ims).timestamp() >= int(mtime):
+                return Response(status_code=304, headers=headers)
+        except (TypeError, ValueError):
+            pass
 
     start, end = 0, len(data) - 1
     ranged = False
@@ -2201,7 +2215,8 @@ async def image_proxy(url: str, request: Request):
         data, kind = await _encar_image(url)
     except httpx.HTTPError as e:
         raise HTTPException(502, f"could not fetch that image: {str(e)[:120]}")
-    return _binary(request, data, kind, 604800)
+    hit = _img_file(url)
+    return _binary(request, data, kind, 604800, hit.stat().st_mtime if hit else None)
 
 
 @api.api_route("/og/{listing_id}.jpg", methods=["GET", "HEAD"])
@@ -2218,8 +2233,10 @@ async def og_image(listing_id: str, request: Request):
     photos = (doc or {}).get("photos") or []
     if not photos:
         raise HTTPException(404, "that car has no photo")
-    data, kind = await _encar_image(image_url(photos[0], 1200, 630))
-    return _binary(request, data, kind, 604800)
+    url = image_url(photos[0], 1200, 630)
+    data, kind = await _encar_image(url)
+    hit = _img_file(url)
+    return _binary(request, data, kind, 604800, hit.stat().st_mtime if hit else None)
 
 
 # Digit grouping exactly as Intl.NumberFormat does it for the three page locales
@@ -2303,17 +2320,18 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     base = _share_base(request)
     # Apple's Messages spoofs Facebook AND Twitter in ONE UA string ("… AppleWebKit …
     # facebookexternalhit/1.1 Facebot Twitterbot/1.0"); the real crawlers never mention each
-    # other. mobile.bg previews work on iPhones because their photos live on a plain static
-    # host OUTSIDE Cloudflare (mobistatic.focus.bg: Last-Modified, bytes=0- → 206) — so for
-    # Apple the og:image is Encar's own CDN URL, which serves any browser-looking client the
-    # same way (verified: 200 with no Referer, Last-Modified, 206 on bytes=0-). The proxy
+    # other. AutoScout24 — whose iMessage previews the owner confirms work best — hands the
+    # crawler a QUERY-LESS .jpg on a plain CDN host (prod.pictures.autoscout24.net:
+    # Last-Modified, 206 on bytes=0-, no bot filtering). Encar's own CDN behaves identically
+    # on the bare photo path (no impolicy query: 200 with no Referer, Last-Modified, 206) at
+    # 640x360 — so Apple gets THAT, bypassing both Cloudflare and this server. The proxy
     # stays for the DATACENTER crawlers (Facebook, Viber, Telegram) that Encar's CDN refuses.
     ua = (request.headers.get("user-agent") or "").casefold()
     imessage = "facebookexternalhit" in ua and ("twitterbot" in ua or "applewebkit" in ua)
-    image = ""
+    image, img_w, img_h = "", 1200, 630
     if raw_image:
         if imessage:
-            image = raw_image
+            image, img_w, img_h = raw_image.split("?")[0], 640, 360
         else:
             # Still warmed onto disk BEFORE the HTML is answered (the crawler asks for the
             # picture a moment later), but the URL it is told to fetch is /api/og/{id}.jpg.
@@ -2326,18 +2344,22 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
             f'<meta property="og:description" content="{_attr(description)}">',
             f'<meta property="og:url" content="{_attr(target)}">',
             '<meta property="og:type" content="website">',
-            '<meta property="og:site_name" content="Europe Encar">',
-            '<meta name="twitter:card" content="summary_large_image">',
-            f'<meta name="twitter:title" content="{_attr(title)}">',
-            f'<meta name="twitter:description" content="{_attr(description)}">']
+            '<meta property="og:site_name" content="Europe Encar">']
+    if not imessage:
+        tags += ['<meta name="twitter:card" content="summary_large_image">',
+                 f'<meta name="twitter:title" content="{_attr(title)}">',
+                 f'<meta name="twitter:description" content="{_attr(description)}">']
     if image:
+        # AutoScout's working page carries exactly og:image + width + height, nothing else —
+        # matched for Apple; the richer set stays for everyone it already works for.
         tags += [f'<meta property="og:image" content="{_attr(image)}">',
-                 f'<meta property="og:image:secure_url" content="{_attr(image)}">',
-                 '<meta property="og:image:type" content="image/jpeg">',
-                 '<meta property="og:image:width" content="1200">',
-                 '<meta property="og:image:height" content="630">',
-                 f'<meta property="og:image:alt" content="{_attr(title)}">',
-                 f'<meta name="twitter:image" content="{_attr(image)}">']
+                 f'<meta property="og:image:width" content="{img_w}">',
+                 f'<meta property="og:image:height" content="{img_h}">']
+        if not imessage:
+            tags += [f'<meta property="og:image:secure_url" content="{_attr(image)}">',
+                     '<meta property="og:image:type" content="image/jpeg">',
+                     f'<meta property="og:image:alt" content="{_attr(title)}">',
+                     f'<meta name="twitter:image" content="{_attr(image)}">']
     tags += _social_tags()
 
     html = ("<!doctype html><html><head><meta charset=\"utf-8\">"

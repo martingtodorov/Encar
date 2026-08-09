@@ -2,6 +2,27 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-09 (round 5) — iMessage branch now copies AutoScout24, not mobile.bg
+Owner: "autoscout works the best, scratch mobile". Inspected the AutoScout24 ad page + its
+picture delivery: og:image is a QUERY-LESS `…/1920x1080.jpg` on `prod.pictures.autoscout24.net`
+(CloudFront, outside the main site's bot protection) answering with Last-Modified, strong
+ETag, `Access-Control-Allow-Origin: *`, `Content-Disposition: inline`, `bytes=0-` → 206; the
+page carries a MINIMAL tag set (og:site_name/type/image/width/height/title/description — no
+twitter:*, no secure_url/image:type/alt).
+Matched both halves:
+1. **iMessage UA branch in `share_car`** now emits the bare Encar photo path with NO impolicy
+   query (`https://ci.encar.com/carpicture07/…_001.jpg` — the S3 original, 640×360, verified
+   Last-Modified + 206 + no Referer needed) with TRUE width/height 640/360, and the tag set is
+   trimmed to AutoScout's minimal profile for that branch only. Every other crawler keeps the
+   full rich set and `/api/og/{id}.jpg` at 1200×630 — verified byte-identical for real
+   facebookexternalhit / Twitterbot / Viber UAs.
+2. **`_binary` now sends the AutoScout header profile** for all proxied images: Last-Modified
+   (cache-file mtime, passed from og_image/image_proxy), If-Modified-Since → 304,
+   `Access-Control-Allow-Origin: *`, `Content-Disposition: inline`.
+Tested: iMessage UA → 10 minimal tags with clean CDN URL; FB UA → unchanged /api/og URL;
+/api/og HEAD carries Last-Modified/ACAO/inline; IMS in the future → 304; map/track.png → 200.
+AWAITING DEPLOY + fresh-URL iMessage test (share-debug from round 3½ is still in place).
+
 ## 2026-08-09 (round 4) — iMessage og:image now bypasses Cloudflare, copying mobile.bg
 Owner pointed at a mobile.bg ad whose iMessage preview works. Inspected their delivery:
 the page HTML sits behind an aggressive Cloudflare (403 to any datacenter client), but the
