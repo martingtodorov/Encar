@@ -2104,7 +2104,8 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     base = _share_base(request)
     target = f"{base}/{lang}/car/{listing_id}"
 
-    tags = [f'<meta property="og:title" content="{_attr(title)}">',
+    tags = [f'<meta name="description" content="{_attr(description)}">',
+            f'<meta property="og:title" content="{_attr(title)}">',
             f'<meta property="og:description" content="{_attr(description)}">',
             f'<meta property="og:url" content="{_attr(target)}">',
             '<meta property="og:type" content="website">',

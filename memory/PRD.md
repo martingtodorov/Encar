@@ -1,5 +1,11 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-06-09 (follow-up): the crawler car page now emits a plain `<meta name="description">`
+alongside `og:description` (same text), so if Google ever fetches /api/share/car/{id} it has a
+real snippet instead of inventing one. Chat apps read og:*, Google reads name="description" —
+both are present now, exactly as the rendered page has always done. The TRACK share page was
+deliberately left alone: a per-shipment page is not something we want indexed. -->
+
 <!-- 2026-06-09: SHARE PREVIEW PRICE NOW MATCHES THE PAGE BYTE FOR BYTE. `share_car` printed
 `f"{sale_eur:.0f} €"` and `f"{mileage:,}".replace(",", " ")`, so a five-figure car was quoted
 "69599 €" in a chat preview and "69 599 €" on the page (iteration_41 minor finding). New
