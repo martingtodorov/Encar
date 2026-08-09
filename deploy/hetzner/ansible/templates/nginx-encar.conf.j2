@@ -149,7 +149,19 @@ server {
         add_header Cache-Control "no-store";
     }
 
-    location = /sitemap.xml { try_files $uri =404; }
+    # Sitemap: a dynamic index in the backend that fans out into child sitemaps for the
+    # static pages, every make/model landing and (chunked in 40 000-URL blocks) every
+    # active listing. `robots.txt` is still the static file next to the build.
+    #
+    # Google fetches `/sitemap.xml`, follows to `/sitemap-listings-{n}.xml`, and expects
+    # both to end in .xml at the root; a `/api/…` path is fine as a proxy target but the
+    # public loc must not carry it, which is why every child <loc> the index writes uses
+    # the root path and gets rewritten here.
+    location ~ ^/sitemap(-[a-z]+(-[0-9]+)?)?\.xml$ {
+        proxy_pass http://{{ app_name }}_backend/api$uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
     location = /robots.txt  { try_files $uri =404; }
 
     # A car link pasted into Viber/Messenger/WhatsApp/Facebook: the crawler gets the share

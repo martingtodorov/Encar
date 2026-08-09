@@ -2474,6 +2474,184 @@ async def share_track(request: Request, ref: str = "", by: str = "bol", lang: st
     return HTMLResponse(html, headers={"Cache-Control": "public, max-age=21600"})
 
 
+# --- Sitemaps -----------------------------------------------------------------
+# Google reads a sitemap index and follows it to child sitemaps; a single flat
+# sitemap tops out at 50 000 URLs and 50 MB, and this catalogue is well past that.
+# The split by content type also means a fresh listing invalidates only the
+# listings sitemap it lives in, not the makes/models one - crawl budget stays on
+# the pages that actually changed.
+#
+# The three languages are declared as `xhtml:link rel="alternate" hreflang="…"`
+# WITHIN one <url> entry (Google's recommendation) instead of three separate
+# entries per listing; a file with 40 000 <url> elements each carrying three
+# alternates counts as 40 000 URLs, not 120 000, so a chunk holds three times
+# more real listings.
+
+# 40 000 keeps a good headroom under Google's 50 000 hard limit and produces
+# ~4 files for a 146k catalogue.
+_SITEMAP_CHUNK = 40_000
+_SITEMAP_TTL = 3600
+
+
+def _sitemap_headers():
+    return {"Content-Type": "application/xml; charset=utf-8",
+            "Cache-Control": f"public, max-age={_SITEMAP_TTL}"}
+
+
+def _sitemap_url(base: str, path_for: dict, lastmod: str,
+                 changefreq: str = "weekly", priority: str = "0.5") -> str:
+    """One <url> entry with an hreflang alternate for every language.
+
+    `path_for` maps a language code to its URL path (starting with `/`). The primary
+    <loc> is the English variant so a crawler that ignores alternates still walks the
+    canonical version; x-default points there too.
+    """
+    parts = [f"<loc>{_attr(base + path_for['en'])}</loc>"]
+    for code, path in path_for.items():
+        parts.append(f'<xhtml:link rel="alternate" hreflang="{code}" '
+                     f'href="{_attr(base + path)}"/>')
+    parts.append(f'<xhtml:link rel="alternate" hreflang="x-default" '
+                 f'href="{_attr(base + path_for["en"])}"/>')
+    parts.append(f"<lastmod>{lastmod}</lastmod>")
+    parts.append(f"<changefreq>{changefreq}</changefreq>")
+    parts.append(f"<priority>{priority}</priority>")
+    return "<url>" + "".join(parts) + "</url>"
+
+
+def _sitemap_wrap(urls: list) -> str:
+    return ('<?xml version="1.0" encoding="UTF-8"?>'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+            'xmlns:xhtml="http://www.w3.org/1999/xhtml">'
+            + "".join(urls) + "</urlset>")
+
+
+async def _active_listings_count() -> int:
+    return await db.listings.count_documents(
+        {"active": True, "duplicate": {"$ne": True}, "under_contract": {"$ne": True}})
+
+
+@api.get("/sitemap.xml")
+async def sitemap_index(request: Request):
+    """Points at every child sitemap. Google fetches this first."""
+    base = _share_base(request)
+    total = await _active_listings_count()
+    chunks = max(1, -(-total // _SITEMAP_CHUNK))  # ceil
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    entries = [
+        f"<sitemap><loc>{_attr(base)}/sitemap-static.xml</loc>"
+        f"<lastmod>{today}</lastmod></sitemap>",
+        f"<sitemap><loc>{_attr(base)}/sitemap-models.xml</loc>"
+        f"<lastmod>{today}</lastmod></sitemap>",
+    ]
+    for i in range(1, chunks + 1):
+        entries.append(
+            f"<sitemap><loc>{_attr(base)}/sitemap-listings-{i}.xml</loc>"
+            f"<lastmod>{today}</lastmod></sitemap>")
+    body = ('<?xml version="1.0" encoding="UTF-8"?>'
+            '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            + "".join(entries) + "</sitemapindex>")
+    return Response(body, headers=_sitemap_headers())
+
+
+@api.get("/sitemap-static.xml")
+async def sitemap_static(request: Request):
+    """Landings and evergreen pages: /, /how-it-works, /faq, /terms, /track, ..."""
+    base = _share_base(request)
+    langs = list(LANGS)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # (path_suffix, changefreq, priority). "" means the landing itself.
+    routes = [
+        ("", "hourly", "1.0"),
+        ("/how-it-works", "monthly", "0.8"),
+        ("/faq", "monthly", "0.7"),
+        ("/terms", "yearly", "0.3"),
+        ("/privacy", "yearly", "0.3"),
+        ("/cookies", "yearly", "0.3"),
+        ("/contact", "monthly", "0.4"),
+        ("/fees", "monthly", "0.5"),
+        ("/track", "weekly", "0.5"),
+    ]
+    urls = []
+    for suffix, freq, prio in routes:
+        path_for = {code: f"/{code}{suffix}" for code in langs}
+        urls.append(_sitemap_url(base, path_for, today, freq, prio))
+    return Response(_sitemap_wrap(urls), headers=_sitemap_headers())
+
+
+@api.get("/sitemap-models.xml")
+async def sitemap_models(request: Request):
+    """Every make landing (/bg/bmw) and every make/model landing (/bg/bmw/m2-g87)."""
+    base = _share_base(request)
+    langs = list(LANGS)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    urls = []
+    # Make landings (level 1)
+    async for row in db.taxonomy.find(
+            {"level": 1, "slug": {"$nin": [None, ""]}},
+            {"slug": 1, "count": 1}):
+        slug = row.get("slug")
+        if not slug:
+            continue
+        path_for = {code: f"/{code}/{slug}" for code in langs}
+        urls.append(_sitemap_url(base, path_for, today, "daily", "0.8"))
+    # Make + model landings (level 2). The make slug must be resolved alongside the
+    # model slug so the URL matches the router's /:lang/:makeSlug/:modelSlug shape.
+    make_slugs = {}
+    async for row in db.taxonomy.find(
+            {"level": 1, "slug": {"$nin": [None, ""]}},
+            {"value": 1, "slug": 1}):
+        make_slugs[row["value"]] = row["slug"]
+    async for row in db.taxonomy.find(
+            {"level": 2, "slug": {"$nin": [None, ""]}},
+            {"make": 1, "slug": 1, "count": 1}):
+        mslug = make_slugs.get(row.get("make"))
+        modelslug = row.get("slug")
+        if not mslug or not modelslug:
+            continue
+        path_for = {code: f"/{code}/{mslug}/{modelslug}" for code in langs}
+        urls.append(_sitemap_url(base, path_for, today, "daily", "0.7"))
+    return Response(_sitemap_wrap(urls), headers=_sitemap_headers())
+
+
+@api.get("/sitemap-listings-{n}.xml")
+async def sitemap_listings(n: int, request: Request):
+    """Chunk N of the active-listing sitemap.
+
+    Sorted by `_id` so the URL that shows up in chunk 3 today is very likely still
+    in chunk 3 tomorrow - a page's sitemap position rarely churns, which is what
+    Google's freshness signal cares about.
+    """
+    if n < 1:
+        raise HTTPException(404, "sitemap chunk numbers start at 1")
+    base = _share_base(request)
+    langs = list(LANGS)
+    total = await _active_listings_count()
+    chunks = max(1, -(-total // _SITEMAP_CHUNK))
+    if n > chunks:
+        raise HTTPException(404, "no such sitemap chunk")
+    skip = (n - 1) * _SITEMAP_CHUNK
+
+    urls = []
+    cursor = db.listings.find(
+        {"active": True, "duplicate": {"$ne": True}, "under_contract": {"$ne": True}},
+        {"_id": 1, "last_seen": 1}
+    ).sort([("_id", 1)]).skip(skip).limit(_SITEMAP_CHUNK)
+    async for row in cursor:
+        lid = row["_id"]
+        # last_seen is when the sync last confirmed the ad is live; that is the
+        # freshness signal Google wants, not the day the row was inserted.
+        lm = row.get("last_seen")
+        if isinstance(lm, datetime):
+            lastmod = lm.astimezone(timezone.utc).strftime("%Y-%m-%d")
+        else:
+            lastmod = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        path_for = {code: f"/{code}/car/{lid}" for code in langs}
+        urls.append(_sitemap_url(base, path_for, lastmod, "daily", "0.6"))
+    return Response(_sitemap_wrap(urls), headers=_sitemap_headers())
+
+
+
+
 @api.get("/car/{listing_id}")
 async def car_detail(listing_id: str, request: Request, lang: str = "bg",
                      refresh: bool = False):
