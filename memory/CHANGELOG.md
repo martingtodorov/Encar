@@ -2,6 +2,24 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-09 (evening) — H1 now carries model + submodel + trim; share-debug read
+- **CarDetailPage h1** now renders `seoTitle` (the deduped "model grade badge_detail" string
+  the document title already used) instead of the short `titleModel(car.title)`; the separate
+  grade·badge_detail subtitle <p> was removed (it would duplicate). `seoTitle` gained the same
+  parenthetical-filler filter the backend `_share_title` has — "(No detailed trim)" no longer
+  leaks into titles. Verified in browser: h1 "KG Mobility Beautiful Korando Gasoline 1.5 2WD
+  C5", doc title matches.
+- **share-debug (live) finally read**: the owner's iPhone DOES hit `share-car` with UA
+  "Mozilla/5.0 (Macintosh …) facebookexternalhit/1.1 Facebot Twitterbot/1.0" (Bulgarian ISP
+  IPv6, 4 cars at 20:48–20:50Z) — nginx UA-routing WORKS for iMessage; it receives the bot
+  HTML. NO og-image / image-proxy hits follow from that IP: with round-5 live the image URL
+  is ci.encar.com (fetch invisible to us). Owner still reports the logo — so the phone either
+  rejects/skips the Encar image or falls back to the apple-touch-icon. The SPA og.png is NOT
+  what iMessage reads for car ads (proven), so removing it would not fix cars and would break
+  the homepage's Facebook preview.
+- Open question for owner: remove og.png backup anyway? Also still unresolved: title-flicker
+  bug (not reproducible on preview or live with probes; may be settled by the longer h1).
+
 ## 2026-08-09 (round 5) — iMessage branch now copies AutoScout24, not mobile.bg
 Owner: "autoscout works the best, scratch mobile". Inspected the AutoScout24 ad page + its
 picture delivery: og:image is a QUERY-LESS `…/1920x1080.jpg` on `prod.pictures.autoscout24.net`

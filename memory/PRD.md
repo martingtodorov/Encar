@@ -1,5 +1,11 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-09 (evening): h1 on the car page = model+submodel+trim (seoTitle, with the
+"(No detailed trim)" filler filtered). share-debug proved iMessage RECEIVES the bot HTML
+(nginx UA map works) and never fetches our image endpoints — with round 5 the image lives on
+ci.encar.com so its fetch is invisible. og.png in the SPA shell is NOT what iMessage reads
+for car ads. Title-flicker bug: not reproducible by probes; possibly moot after h1 change. -->
+
 <!-- 2026-08-09 (round 5): owner says AutoScout24 previews work best on iMessage — copied
 their recipe. iMessage UA branch: og:image = bare ci.encar.com photo path (no query, 640×360,
 true width/height tags) + minimal AutoScout tag set. All images from our proxy now also carry

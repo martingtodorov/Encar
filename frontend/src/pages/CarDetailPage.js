@@ -204,6 +204,9 @@ export default function CarDetailPage() {
   // production years belong on the page, not in a search result or a chat bubble.
   const seoTitle = [titleModel(car?.title || ""), car?.grade, car?.badge_detail]
     .filter(Boolean)
+    // A part that is nothing but a parenthetical is Encar's own filler — "(No detailed
+    // trim)" — and belongs in no title. Same rule as the backend's _share_title.
+    .filter((p) => !/^\(.*\)$/.test(String(p).trim()))
     .reduce((acc, part) => (
       acc.toLowerCase().includes(String(part).toLowerCase()) ? acc : `${acc} ${part}`.trim()
     ), "");
@@ -403,15 +406,14 @@ export default function CarDetailPage() {
                 page's only h1, and Google crawls the mobile layout. */}
             <div className="flex-wrap items-start justify-between gap-4 lg:flex">
               <div className="min-w-0">
+                {/* The owner wants the full name — model, submodel AND trim — as the page's
+                    h1, the same deduped string the SEO title carries. */}
                 <h1
                   data-testid="detail-title"
                   className="sr-only text-2xl font-semibold leading-tight text-foreground sm:text-3xl lg:not-sr-only"
                 >
-                  {titleModel(car.title)}
+                  {seoTitle || titleModel(car.title)}
                 </h1>
-                <p className="mt-1 hidden text-[14px] text-muted-foreground lg:block">
-                  {[car.grade, car.badge_detail].filter(Boolean).join(" \u00b7 ")}
-                </p>
               </div>
               <div className="hidden shrink-0 items-center gap-3 lg:flex">
                 <div className="text-right">
