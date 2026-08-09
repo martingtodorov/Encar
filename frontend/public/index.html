@@ -5,26 +5,23 @@
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#000000" />
         <meta name="description" content="Browse every Encar listing in English, Bulgarian and Romanian with a final price that includes customs duty, VAT, sea freight and delivery." />
-        <!-- Link preview. Messenger, Viber, WhatsApp and Facebook never run our JavaScript, so
-             the og:* tags src/lib/seo.js writes at runtime are invisible to them: whatever is
-             HERE is the preview for every shared URL. og.png is our own logo on the brand
-             plate at 1200x630. A car link previewed with the ad's own photo needs the server
-             to answer the URL (nginx sends crawlers to /api/share/car/{id}); this is the
-             fallback and it must never be empty. -->
+        <!-- Link preview fallback. Messenger, Viber, WhatsApp and Facebook never run our
+             JavaScript, so the og:* tags src/lib/seo.js writes at runtime are invisible to
+             them. Crawlers hitting a car link are routed by nginx to /api/share/car/{id}
+             where the ad's own lead photo is written into a clean, Encar-style head - this
+             shell is only the fallback for pages we do not SSR (the landing and the search).
+             The og:image:* companion tags (secure_url/width/height/alt) and twitter:image
+             used to live here too, and because seo.js only upserted og:image at runtime the
+             companion tags kept pointing at the logo on a car page and leaked into iOS
+             Safari's share sheet. One og:image is the ONLY image tag; nothing companions it. -->
         <meta property="og:site_name" content="Europe Encar" />
         <meta property="og:type" content="website" />
         <meta property="og:title" content="Korean cars with a final landed price | Encar Europe" />
         <meta property="og:description" content="Browse every Encar listing in English, Bulgarian and Romanian with a final price that includes customs duty, VAT, sea freight and delivery." />
         <meta property="og:image" content="%REACT_APP_SITE_URL%/og.png" />
-        <meta property="og:image:secure_url" content="%REACT_APP_SITE_URL%/og.png" />
-        <meta property="og:image:type" content="image/png" />
-        <meta property="og:image:width" content="1200" />
-        <meta property="og:image:height" content="630" />
-        <meta property="og:image:alt" content="Europe Encar" />
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content="Korean cars with a final landed price | Encar Europe" />
         <meta name="twitter:description" content="Browse every Encar listing in English, Bulgarian and Romanian with a final price that includes customs duty, VAT, sea freight and delivery." />
-        <meta name="twitter:image" content="%REACT_APP_SITE_URL%/og.png" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />

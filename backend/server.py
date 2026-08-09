@@ -2338,24 +2338,22 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
         await _preview_image_url(raw_image, base)
         image = f"{base}/api/og/{listing_id}.jpg"
     target = f"{base}/{lang}/car/{listing_id}"
+    og_locale = {"bg": "bg_BG", "ro": "ro_RO", "en": "en_GB"}[lang]
 
+    # Encar's own detail head is the reference (see fem.encar.com/cars/detail/*): one og:title,
+    # one og:image, one og:description and og:url, plus site_name and locale. No twitter:*
+    # duplicates, no og:image:secure_url or width/height/alt companions - those companion tags
+    # were the last route the site logo took into a car preview when the SPA shell's defaults
+    # leaked through. The picture is a car photo or it is absent; nothing falls back to a logo.
     tags = [f'<meta name="description" content="{_attr(description)}">',
             f'<meta property="og:title" content="{_attr(title)}">',
             f'<meta property="og:description" content="{_attr(description)}">',
             f'<meta property="og:url" content="{_attr(target)}">',
             '<meta property="og:type" content="website">',
             '<meta property="og:site_name" content="Europe Encar">',
-            '<meta name="twitter:card" content="summary_large_image">',
-            f'<meta name="twitter:title" content="{_attr(title)}">',
-            f'<meta name="twitter:description" content="{_attr(description)}">']
+            f'<meta property="og:locale" content="{og_locale}">']
     if image:
-        tags += [f'<meta property="og:image" content="{_attr(image)}">',
-                 f'<meta property="og:image:secure_url" content="{_attr(image)}">',
-                 '<meta property="og:image:type" content="image/jpeg">',
-                 '<meta property="og:image:width" content="1200">',
-                 '<meta property="og:image:height" content="630">',
-                 f'<meta property="og:image:alt" content="{_attr(title)}">',
-                 f'<meta name="twitter:image" content="{_attr(image)}">']
+        tags.append(f'<meta property="og:image" content="{_attr(image)}">')
     tags += _social_tags()
 
     html = ("<!doctype html><html><head><meta charset=\"utf-8\">"

@@ -230,11 +230,12 @@ export default function CarDetailPage() {
     lang,
     title: seoTitle ? `${seoTitle} \u00b7 Encar` : "Encar",
     description: facts ? `${facts} \u2014 ${t("seoCarDesc")}` : t("seoCarDesc"),
-    // Sharing from Safari's share sheet hands Messages whatever og:image the LIVE page
-    // carries at that instant — and until the car loaded that used to be the og.png logo,
-    // which is exactly the preview owners kept seeing. The og image endpoint needs only the
-    // id from the URL, so the RIGHT picture is advertised from the very first render.
-    image: `${window.location.origin}/api/og/${id}.jpg`,
+    // The car photo is NOT written into the head from here on purpose: this hook runs after
+    // the app boots, and every social crawler (Facebook, Messenger, Viber, iMessage) reads the
+    // tags from the initial server response - which nginx routes to /api/share/car/{id},
+    // where the ad's own lead photo is the single og:image. A runtime write is invisible to
+    // them and, on Safari's iOS Share sheet, was the last route the fallback logo took into
+    // a preview when it raced the picture. The browser tab still gets its title from here.
   });
 
   // Structured data: this is what earns a car a rich result with its price and mileage
