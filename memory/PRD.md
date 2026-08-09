@@ -1,5 +1,11 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-09 (round 4): copied mobile.bg's working recipe — their og photo host is plain
+nginx OUTSIDE Cloudflare. For requests whose UA is Apple Messages (facebookexternalhit +
+twitterbot/applewebkit in one string) share_car now emits og:image = direct ci.encar.com URL
+(verified: serves devices without Referer, Last-Modified, 206 on bytes=0-); all other
+crawlers keep /api/og/{id}.jpg. Awaiting owner deploy + fresh-URL iMessage test. -->
+
 <!-- 2026-08-09 (later): round-3 fixes confirmed deployed on live but iMessage STILL fails.
 Added GET /api/share-debug (share_hits collection, TTL 7d) logging UA/Range/IP-prefix of
 every preview-related request — the sender's iPhone is the crawler and this is the only way

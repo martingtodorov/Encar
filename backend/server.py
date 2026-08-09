@@ -2301,12 +2301,24 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     # a refused image means a preview with no picture at all.
     raw_image = image_url(photos[0], 1200, 630) if photos else ""
     base = _share_base(request)
+    # Apple's Messages spoofs Facebook AND Twitter in ONE UA string ("… AppleWebKit …
+    # facebookexternalhit/1.1 Facebot Twitterbot/1.0"); the real crawlers never mention each
+    # other. mobile.bg previews work on iPhones because their photos live on a plain static
+    # host OUTSIDE Cloudflare (mobistatic.focus.bg: Last-Modified, bytes=0- → 206) — so for
+    # Apple the og:image is Encar's own CDN URL, which serves any browser-looking client the
+    # same way (verified: 200 with no Referer, Last-Modified, 206 on bytes=0-). The proxy
+    # stays for the DATACENTER crawlers (Facebook, Viber, Telegram) that Encar's CDN refuses.
+    ua = (request.headers.get("user-agent") or "").casefold()
+    imessage = "facebookexternalhit" in ua and ("twitterbot" in ua or "applewebkit" in ua)
     image = ""
     if raw_image:
-        # Still warmed onto disk BEFORE the HTML is answered (the crawler asks for the
-        # picture a moment later), but the URL it is told to fetch is /api/og/{id}.jpg.
-        await _preview_image_url(raw_image, base)
-        image = f"{base}/api/og/{listing_id}.jpg"
+        if imessage:
+            image = raw_image
+        else:
+            # Still warmed onto disk BEFORE the HTML is answered (the crawler asks for the
+            # picture a moment later), but the URL it is told to fetch is /api/og/{id}.jpg.
+            await _preview_image_url(raw_image, base)
+            image = f"{base}/api/og/{listing_id}.jpg"
     target = f"{base}/{lang}/car/{listing_id}"
 
     tags = [f'<meta name="description" content="{_attr(description)}">',

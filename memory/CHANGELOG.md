@@ -2,6 +2,24 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-09 (round 4) — iMessage og:image now bypasses Cloudflare, copying mobile.bg
+Owner pointed at a mobile.bg ad whose iMessage preview works. Inspected their delivery:
+the page HTML sits behind an aggressive Cloudflare (403 to any datacenter client), but the
+og photo lives on `mobistatic.focus.bg` — a PLAIN nginx static host OUTSIDE Cloudflare:
+HEAD with Last-Modified, `bytes=0-` → 206, long-lived cache headers. That is the working
+recipe: the sender's iPhone fetches the preview picture from a host with no bot filtering.
+Encar's own CDN (`ci.encar.com`, S3) turns out to behave EXACTLY like that host: verified
+200 with no Referer, Last-Modified, 206 on `bytes=0-`, 0.26s, and it answers even the
+spoofed iMessage UA. The proxy only ever existed because DATACENTER crawlers (Facebook)
+get refused — a real device does not.
+`share_car` now detects Apple Messages by its self-contradictory UA (contains
+`facebookexternalhit` AND (`twitterbot` OR `applewebkit`) — real crawlers never mention
+each other) and hands IT the direct `ci.encar.com` og:image; every other crawler keeps
+`/api/og/{id}.jpg` through our domain. Tested with 5 UAs: both iMessage variants → direct
+CDN, real facebookexternalhit / Twitterbot / Viber → proxied URL, byte-identical to before.
+AWAITING DEPLOY (Save to GitHub → pull → Ansible) and an iMessage test with a
+never-before-shared car URL.
+
 ## 2026-08-09 (later) — iMessage still failing AFTER the round-3 fixes: instrumentation added
 Verified on live (encareurope.com): the round-3 code IS deployed — og:image is
 `/api/og/{id}.jpg`, no meta refresh, `bytes=0-` → 206, and the share HTML answers correctly
