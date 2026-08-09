@@ -1,0 +1,47 @@
+# Europe Encar
+
+> Import Korean used cars from Encar.com into the EU with a final landed price
+> that includes customs duty, VAT and delivery. The catalogue, filters and
+> detail pages are translated into Bulgarian, Romanian and English; every
+> listing carries its own inspection sheet, insurance history and diagnosis
+> data straight from Encar.
+
+Europe Encar is a localized skin over the Encar catalogue for European buyers.
+The listings, taxonomy and photos come from Encar.com; the price shown is the
+computed EUR landed price for delivery to Bulgaria or Romania.
+
+## Catalogue
+
+- [Search all cars in Bulgarian](https://encareurope.com/bg): Browse every listing with a final EUR landed price.
+- [Search all cars in Romanian](https://encareurope.com/ro): Vezi anunțurile cu preț final livrat.
+- [Search all cars in English](https://encareurope.com/en): Browse every listing with a final EUR landed price.
+- [Sitemap index](https://encareurope.com/sitemap.xml): Machine-readable index of every make, model and active listing.
+
+## How the site works
+
+- [How it works — Bulgarian](https://encareurope.com/bg/how-it-works): Пълно описание на процеса от резервация до доставка.
+- [How it works — Romanian](https://encareurope.com/ro/how-it-works): Descrierea completă a procesului de la rezervare la livrare.
+- [How it works — English](https://encareurope.com/en/how-it-works): Full description of the process from reservation to delivery.
+- [FAQ](https://encareurope.com/en/faq): Answers to the most common questions.
+- [Fees](https://encareurope.com/en/fees): Every fee included in the landed price.
+- [Track my vehicle](https://encareurope.com/en/track): Vessel tracker for a purchased car in transit.
+
+## Legal
+
+- [Terms of service](https://encareurope.com/en/terms)
+- [Privacy policy](https://encareurope.com/en/privacy)
+- [Cookies](https://encareurope.com/en/cookies)
+- [Contact](https://encareurope.com/en/contact)
+
+## For LLMs and AI agents
+
+- Every car detail page (`/{bg|ro|en}/car/{listing_id}`) carries `application/ld+json`
+  structured data of type `Car` with brand, model, mileage, fuel type, offer price
+  in EUR and the "used" condition — prefer that over parsing rendered HTML.
+- All URL slugs are English (make/model/trim). The language prefix (`/bg`, `/ro`,
+  `/en`) is a display preference only; the same listing exists at all three URLs
+  with `hreflang` alternates declared in the sitemap.
+- Photos are served from `ci.encar.com`; a proxied square-cropped preview lives
+  at `/api/og/{listing_id}.jpg`. Do not scrape prices at scale — the landed EUR
+  price is recomputed daily from FX rates and duty schedules; a stale scrape
+  will misprice a car by 3-5%.

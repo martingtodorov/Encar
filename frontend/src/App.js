@@ -1,4 +1,5 @@
 import "@/App.css";
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AppProvider } from "@/context/AppContext";
@@ -18,7 +19,10 @@ import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
 import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import AccountPage from "@/pages/AccountPage";
 import AdminPage from "@/pages/AdminPage";
-import LegalPage from "@/pages/LegalPage";
+// Legal, FAQ and Fees carry ~170 KB of prose (terms, privacy, cookies, help copy) that
+// almost nobody reads on the first visit. Lazy-loaded so the search grid, the LCP page,
+// does not have to ship it. Lighthouse's biggest "unused JavaScript" saving lives here.
+const LegalPage = lazy(() => import("@/pages/LegalPage"));
 import PaymentResultPage from "@/pages/PaymentResultPage";
 import MyPurchasesPage from "@/pages/MyPurchasesPage";
 import AuthCallback from "@/pages/AuthCallback";
@@ -32,7 +36,12 @@ import AuthCallback from "@/pages/AuthCallback";
 function AppRouter() {
   const location = useLocation();
   if (location.hash?.includes("session_id=")) return <AuthCallback />;
+  // Suspense catches the lazy chunks (LegalPage today) while they download; without
+  // it, React 18 would throw a promise up and unmount the tree. Fallback is null on
+  // purpose - the legal pages are not first-paint content, so a blink is preferable
+  // to a spinner popping in for the ~50 ms the chunk takes to arrive.
   return (
+    <Suspense fallback={null}>
     <Routes>
       {/* Each language has its own address so all three can be indexed. */}
       <Route path="/:lang" element={<LangLayout />}>
@@ -67,6 +76,7 @@ function AppRouter() {
       {/* Bare and legacy URLs keep working: same page, language added. */}
       <Route path="*" element={<LangRedirect />} />
     </Routes>
+    </Suspense>
   );
 }
 

@@ -24,6 +24,11 @@
         <meta name="twitter:description" content="Browse every Encar listing in English, Bulgarian and Romanian with a final price that includes customs duty, VAT, sea freight and delivery." />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <!-- Every single car card and every car detail page loads its photos DIRECTLY
+             from Encar's CDN (ci.encar.com); a preconnect here saves the TLS handshake
+             and DNS round trip on the very first image request. Lighthouse flagged it
+             as one of the biggest LCP wins for the search grid. -->
+        <link rel="preconnect" href="https://ci.encar.com" crossorigin />
         <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
         <link rel="icon" href="%PUBLIC_URL%/favicon.ico" sizes="any" />
         <link rel="icon" type="image/png" href="%PUBLIC_URL%/favicon.png" sizes="256x256" />

@@ -757,6 +757,7 @@ export default function SearchPage() {
                   variant="outline"
                   disabled={!query || alreadySaved}
                   onClick={saveThis}
+                  aria-label={alreadySaved ? t("searchSaved") : t("saveThisSearch")}
                   className="h-11 gap-2 rounded-[10px] border border-input bg-background px-4 text-sm shadow-sm disabled:opacity-60"
                 >
                   {alreadySaved ? (

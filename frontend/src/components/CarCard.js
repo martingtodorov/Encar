@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Heart, Gauge, Calendar, Fuel, MapPin } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,7 +16,7 @@ import {
 
 // The Korean city is never shown: it is the one fact that cannot help a buyer in Europe
 // decide. `showRegion` is kept as a no-op prop so the callers need no change.
-export const CarCard = ({ car, onOpen, showRegion = true }) => {
+export const CarCard = ({ car, onOpen, showRegion = true, eager = false }) => {
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
   const { requireAccount } = useGate();
   const saved = isFavourite(car.id);
@@ -44,23 +45,30 @@ export const CarCard = ({ car, onOpen, showRegion = true }) => {
     .filter(Boolean)
     .join(" \u00b7 ");
 
+  const title = carTitle(car);
+  // The card is a real <a href>: a crawler can now walk the grid to every detail page
+  // (the search grid is where Google's crawl budget lands), a screen reader announces
+  // "link, Hyundai Palisade view details" instead of "button", and mouse users get the
+  // browser's own "open in new tab" middle-click. The overlay sits BEHIND the swiper
+  // and the two action buttons so their own click handlers still run - the whole point
+  // of the card-link pattern.
+  const href = `/${lang}/car/${car.id}`;
+  const handleCardClick = (e) => {
+    // `onOpen` carries the scroll position and current filters as router state so the
+    // back button reopens the same grid page instead of the top. A real <a href> is still
+    // the DOM element, so cmd/ctrl-click and middle-click open a new tab as expected.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+    e.preventDefault();
+    onOpen?.(car);
+  };
+
   return (
     <article
       data-testid="car-card"
       data-car-id={car.id}
       data-under-contract={car.under_contract ? "true" : "false"}
       {...warm}
-      role="button"
-      tabIndex={0}
-      aria-label={`${carTitle(car)} \u2014 ${t("viewDetails")}`}
-      onClick={() => onOpen?.(car)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onOpen?.(car);
-        }
-      }}
-      className="group relative flex cursor-pointer flex-col overflow-hidden rounded-[14px] border border-border bg-card shadow-sm transition-shadow duration-200 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="group relative flex flex-col overflow-hidden rounded-[14px] border border-border bg-card shadow-sm transition-shadow duration-200 hover:shadow-md focus-within:ring-2 focus-within:ring-ring"
     >
       {car.under_contract && (
         <span data-testid="car-card-contract-ribbon" className="ribbon">
@@ -69,16 +77,19 @@ export const CarCard = ({ car, onOpen, showRegion = true }) => {
       )}
 
       <div className="relative">
-        {/* Swipe through the photos without leaving the list; a tap anywhere opens the car. */}
-        <div data-testid="car-card-open" className="aspect-video w-full">
+        {/* Swipe through the photos without leaving the list; a tap on the picture opens
+            the car. The swiper handles its own arrows and stops their clicks from also
+            firing the card link below. */}
+        <div data-testid="car-card-open" className="relative z-10 aspect-video w-full">
           <PhotoSwiper
             images={car.images?.length ? car.images : [car.image]}
-            alt={carTitle(car)}
+            alt={title}
             testId="car-card-swiper"
             arrows
             ctaLabel={t("viewListing")}
             ctaHint={t("tapToOpen")}
             onCtaReached={warmNow}
+            eager={eager}
             // Swiping to the second photo is intent: nobody flicks past the cover shot of a
             // car they are not considering. The ad is fetched in the background from there
             // on (warmCar dedupes, so the extra calls cost nothing) and the tap is instant.
@@ -93,12 +104,13 @@ export const CarCard = ({ car, onOpen, showRegion = true }) => {
           data-testid="car-card-save-button"
           onClick={(e) => {
             e.stopPropagation();
+            e.preventDefault();
             if (!requireAccount("car")) return;
             toggleFavourite(car.id, car);
           }}
           aria-label={saved ? t("saved") : t("save")}
           aria-pressed={saved}
-          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="absolute right-2 top-2 z-20 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card shadow-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Heart
             className={`h-4 w-4 ${
@@ -118,7 +130,17 @@ export const CarCard = ({ car, onOpen, showRegion = true }) => {
           data-testid="car-card-title"
           className="line-clamp-1 text-[14px] font-semibold leading-tight text-foreground"
         >
-          {carTitle(car)}
+          {/* The overlay link is the ONLY interactive element covering the title/price
+              area - the card body sits underneath it. `stretched-link` style keeps the
+              anchor invisible and the click target the whole card without wrapping the
+              content in <a>, which would nest buttons inside a link (invalid HTML). */}
+          <Link
+            to={href}
+            onClick={handleCardClick}
+            aria-label={`${title} \u2014 ${t("viewDetails")}`}
+            className="absolute inset-0 z-0 focus:outline-none"
+          />
+          <span className="relative">{title}</span>
         </h3>
 
         {subtitle && (
@@ -174,9 +196,10 @@ export const CarCard = ({ car, onOpen, showRegion = true }) => {
             data-testid="car-card-details-button"
             onClick={(e) => {
               e.stopPropagation();
+              e.preventDefault();
               onOpen?.(car);
             }}
-            className="h-8 shrink-0 rounded-[8px] bg-[hsl(var(--primary))] px-2.5 text-[12px] font-medium text-primary-foreground transition-all hover:brightness-110"
+            className="relative z-10 h-8 shrink-0 rounded-[8px] bg-[hsl(var(--primary))] px-2.5 text-[12px] font-medium text-primary-foreground transition-all hover:brightness-110"
           >
             {t("viewDetails")}
           </Button>

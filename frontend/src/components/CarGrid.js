@@ -126,8 +126,8 @@ export const CarGrid = ({ items, loading, error, onRetry, onOpen, onClearFilters
     <div data-testid="car-grid">
       {!desktop && (
         <div className={GRID}>
-          {items.map((car) => (
-            <CarCard key={car.id} car={car} onOpen={onOpen} />
+          {items.map((car, i) => (
+            <CarCard key={car.id} car={car} onOpen={onOpen} eager={i === 0} />
           ))}
         </div>
       )}

@@ -94,6 +94,7 @@ export const PhotoSwiper = ({
   ctaLabel = "",
   ctaHint = "",
   onCtaReached,
+  eager = false,
   className = "",
 }) => {
   const photos = images.filter(Boolean);
@@ -290,6 +291,7 @@ export const PhotoSwiper = ({
                 src={src}
                 alt={alt}
                 testId={n === 0 ? `${testId}-image` : undefined}
+                eager={eager && n === 0}
               />
             ) : (
               <div className="h-full w-full bg-muted" aria-hidden="true" />
