@@ -44,7 +44,7 @@ import MechChecks from "@/components/MechChecks";
 import PostToMobileBg from "@/components/admin/PostToMobileBg";
 import { useSeo, useJsonLd } from "@/lib/seo";
 import { formatMileage, formatMoney, formatNumber, formatYearMonth,
-         stripGenerationYears } from "@/lib/format";
+         stripGenerationYears, titleModel } from "@/lib/format";
 
 // Panels stay in the site's palette: white card, grey tile, red only where something is
 // actually wrong. Coloured tiles (blue/amber/green) fought with the rest of the page, so any
@@ -200,7 +200,9 @@ export default function CarDetailPage() {
   // The SEO/preview title carries the trim: "Mercedes-Benz AMG GT 4-door 43 4MATIC+" says far
   // more in a search result or a chat bubble than the make and model alone. The H1 keeps its
   // shorter form. Parts already contained in the title are not repeated.
-  const seoTitle = [stripGenerationYears(car?.title || ""), car?.grade, car?.badge_detail]
+  // Brackets and "All New" are stripped for the title only: the factory code (PO536) and the
+  // production years belong on the page, not in a search result or a chat bubble.
+  const seoTitle = [titleModel(car?.title || ""), car?.grade, car?.badge_detail]
     .filter(Boolean)
     .reduce((acc, part) => (
       acc.toLowerCase().includes(String(part).toLowerCase()) ? acc : `${acc} ${part}`.trim()

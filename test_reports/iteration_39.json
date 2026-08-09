@@ -1,0 +1,19 @@
+{
+  "summary": "Verified share/OG title fixes (bracketed factory codes, production years, 'All New' prefix, submodel+trim inclusion, Cyrillic trim leakage) via new pytest suite hitting /api/share/car and /api/share/track against the preview URL, plus a Playwright browser check of /bg/car/42354550 and /bg/car/42254427. All 11 backend tests passed and both browser cases render correctly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_share_titles.py", "/app/test_reports/pytest/share_titles.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 3994 lines - consider modularising (share endpoints, image proxy, title helpers) into separate modules for maintainability.",
+    "_share_title correctly handles PO536/(2019-)/All New/Hangul/duplicate parts; a small improvement would be to also short-circuit when parts is empty at the end and fall back to raw manufacturer+model to avoid a completely empty preview title (currently the endpoint caller already falls back to 'Europe Encar')."
+  ],
+  "updated_files": ["/app/backend/tests/test_share_titles.py", "/app/test_reports/pytest/share_titles.xml"],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (2/2 pages)"},
+  "test_credentials": "none needed",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_share_titles.py covers Cayenne (42354550, no PO536/years), Tucson (42416001, All New stripped, upstream may return nulls so 'Tucson' presence is soft-skipped), Morning (42422490, (JA) stripped), Sportage (42254427, submodel+trim), AMG GT (42174617), no-Cyrillic (42072910), og:description/image proxy (42259236), track share (271191199/bol), and normal-vs-crawler UA routing on /bg/car/42354550. Browser verification confirms document.title='Porsche Cayenne 3.0 Coupe · Encar', og:title identical, og:image populated, H1 keeps '(PO536)' by design. For /bg/car/42254427 the visible subtitle reads 'Diesel 2WD TLX · Top Grade' (English) and og:title reads 'Kia Sportage R Diesel 2WD TLX Top Grade · Encar'.",
+  "rca of the issue": "N/A - all reported title bugs are fixed. _title_part() strips brackets and 'All New' prefix; _share_title() drops Hangul, purely-parenthetical filler and duplicate parts; CarDetailPage builds seoTitle from titleModel(car.title)+grade+badge_detail so the browser meta title mirrors the share endpoint. H1 intentionally keeps the years/generation code via stripGenerationYears usage on the visible heading only."
+}

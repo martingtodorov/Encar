@@ -1914,15 +1914,30 @@ def _attr(s):
 
 
 _HANGUL = re.compile(r"[\uac00-\ud7a3]")
-_YEAR_SPAN = re.compile(r"[(（]\s*\d{4}\s*[-–~]\s*\d{0,4}\s*[)）]")
+# Anything in brackets in a model name is either the production years or the factory's own
+# generation code — "Cayenne (PO536)", "5 Series (F10)", "Morning (JA)". Neither means anything
+# to a buyer reading a chat preview, and both push the trim out of a title that gets truncated.
+_BRACKETS = re.compile(r"\s*[(（][^)）]*[)）]")
+# Korean marketing calls a facelift "올 뉴": the English cache turns that into "All New Sorento"
+# and "The All-New Niro EV". The model is the Sorento and the Niro.
+_ALL_NEW = re.compile(r"^\s*(the\s+)?all[\s-]*new\s+", re.I)
+
+
+def _title_part(value):
+    """One piece of a preview title, with the noise the catalogue carries stripped out."""
+    value = _BRACKETS.sub("", str(value or ""))
+    value = _ALL_NEW.sub("", value)
+    return " ".join(value.split())
 
 
 def _share_title(doc):
     """Make, model, trim and sub-trim, as a link preview should read them.
 
-    Three rules learned from real ads:
-      * the generation YEARS are stripped — "(2018-2023)" is clutter in a chat bubble and
-        pushes the trim out of a title the app truncates anyway;
+    Rules learned from real ads:
+      * brackets go — the production years and the factory generation code ("(2019-)",
+        "(PO536)") are noise in a chat bubble and crowd out the trim;
+      * "All New" / "The All-New" goes — that is Korean marketing for a facelift, not part of
+        the model's name;
       * anything still in Hangul is dropped rather than shown: Encar's sub-trim is often
         untranslatable filler ("(세부등급 없음)" literally means "no sub-grade");
       * a sub-trim that merely repeats the trim is not printed twice.
@@ -1931,13 +1946,13 @@ def _share_title(doc):
         return ""
     parts = []
     for field in ("manufacturer", "model", "badge", "badge_detail"):
-        value = _YEAR_SPAN.sub("", str(doc.get(f"{field}_t") or doc.get(field) or "")).strip()
-        value = " ".join(value.split())
-        if not value or _HANGUL.search(value):
+        raw = str(doc.get(f"{field}_t") or doc.get(field) or "").strip()
+        # A part that is nothing BUT a parenthetical is Encar's own filler, translated or not:
+        # "(세부등급 없음)" comes back as "(No detailed trim)" and belongs in no title.
+        if raw.startswith("(") and raw.endswith(")"):
             continue
-        # A sub-trim that is nothing but a parenthetical is Encar's own filler, translated or
-        # not: "(세부등급 없음)" comes back as "(No detailed trim)" and belongs in no title.
-        if value.startswith("(") and value.endswith(")"):
+        value = _title_part(raw)
+        if not value or _HANGUL.search(value):
             continue
         if any(value.casefold() in p.casefold() for p in parts):
             continue
@@ -1952,6 +1967,14 @@ def _share_base(request: Request):
 
 
 ENCAR_IMAGE_HOSTS = ("ci.encar.com", "img.encar.com", "image.encar.com", "static.encar.com")
+# Facebook's debugger reports fb:app_id as missing on every URL. It is what ties a share back to
+# the owner's own Facebook app (so the insights are theirs); sharing works without it, and an
+# EMPTY one is worse than none, so the tag only appears once the id is configured.
+FB_APP_ID = os.environ.get("FB_APP_ID", "").strip()
+
+
+def _social_tags():
+    return [f'<meta property="fb:app_id" content="{_attr(FB_APP_ID)}">'] if FB_APP_ID else []
 
 
 async def _encar_image(url):
@@ -2051,6 +2074,7 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
                  '<meta property="og:image:height" content="630">',
                  f'<meta property="og:image:alt" content="{_attr(title)}">',
                  f'<meta name="twitter:image" content="{_attr(image)}">']
+    tags += _social_tags()
 
     html = ("<!doctype html><html><head><meta charset=\"utf-8\">"
             f"<title>{_attr(title)}</title>" + "".join(tags)
@@ -2161,6 +2185,7 @@ async def share_track(request: Request, ref: str = "", by: str = "bol", lang: st
             f'<meta name="twitter:title" content="{_attr(title)}">',
             f'<meta name="twitter:description" content="{_attr(copy[1])}">',
             f'<meta name="twitter:image" content="{_attr(image)}">']
+    tags += _social_tags()
     html = ("<!doctype html><html><head><meta charset=\"utf-8\">"
             f"<title>{_attr(title)}</title>" + "".join(tags)
             + f'<link rel="canonical" href="{_attr(target)}">'

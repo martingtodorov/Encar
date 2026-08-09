@@ -51,6 +51,24 @@ export function formatYearMonth(ym, formYear) {
  * the model's identity upstream, so it stays in filters, slugs and the taxonomy; it is only
  * dropped where the car itself is being named, because the car has one year, not a range.
  */
+/**
+ * A model name as a TITLE should read it: no brackets, no marketing prefix.
+ *
+ * The catalogue carries the production years and the factory's generation code in brackets
+ * ("Cayenne (2019-)", "Cayenne (PO536)", "5 Series (F10)"), and Korean marketing prefixes a
+ * facelift with "올 뉴", which the English cache renders as "All New Sorento" / "The All-New
+ * Niro". None of that means anything to somebody reading a search result or a chat preview, and
+ * all of it crowds out the trim in a title that gets truncated. The page's own H1 keeps the
+ * years — only titles are cleaned.
+ */
+export function titleModel(text) {
+  return String(text || "")
+    .replace(/\s*[(（][^)）]*[)）]/g, "")
+    .replace(/^\s*(the\s+)?all[\s-]*new\s+/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function stripGenerationYears(text) {
   return String(text || "")
     .replace(/[(（]\s*\d{4}\s*[-–~]\s*\d{0,4}\s*[)）]/g, "")
