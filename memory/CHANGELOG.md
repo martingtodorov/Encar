@@ -2,6 +2,29 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-09 (later) — iMessage still failing AFTER the round-3 fixes: instrumentation added
+Verified on live (encareurope.com): the round-3 code IS deployed — og:image is
+`/api/og/{id}.jpg`, no meta refresh, `bytes=0-` → 206, and the share HTML answers correctly
+even to the exact historical Apple UA (`Mozilla/5.0 (Macintosh …) facebookexternalhit/1.1
+Facebot Twitterbot/1.0`). Cloudflare does NOT cache the HTML (cf-cache-status: DYNAMIC on
+both bot and human variants), so a UA-variant cache collision is ruled out. Every
+server-side protocol theory is now exhausted; the blind spot is WHAT THE SENDER'S IPHONE
+ACTUALLY RECEIVES (iMessage previews are fetched by the sender's own device — no debugger
+tool exists for it).
+Added `_hit()` + `GET /api/share-debug`: every request to share-car / share-track /
+og-image / image-proxy is recorded in `share_hits` (TTL 7 days) with ts, method, UA, Range,
+If-None-Match, Accept and a 2-octet-truncated IP. Tested locally: rows appear, JSON clean.
+HOW TO USE after the owner deploys: owner shares a NEVER-before-shared car in iMessage,
+then `curl https://encareurope.com/api/share-debug` and read what the phone asked for.
+Decision tree: (a) no Apple-device rows at all → Cloudflare is blocking the phone's
+bot-UA request (Bot Fight Mode / WAF) → fix in CF dashboard, not code; (b) share-car row
+but no og-image row → the phone read the HTML but never asked for the picture → inspect
+the exact UA/headers it sent; (c) both rows present with 206 answered → LinkPresentation
+rejects the image content itself → try re-encoding (progressive vs baseline JPEG).
+The preview screenshot also disambiguates: car title = HTML read, image refused; generic
+"Korean cars…" title + big logo = the phone got the SPA (UA never matched at nginx);
+bare domain + small icon = HTML fetch blocked outright.
+
 ## 2026-08-09 — iMessage preview: three remaining protocol deviations removed
 Facebook/Meta previews confirmed working on live by the owner; iMessage still fell back to
 the site logo. Verified live (encareurope.com, behind Cloudflare) already runs the Range/206

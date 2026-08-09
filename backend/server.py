@@ -1966,6 +1966,48 @@ def _share_base(request: Request):
         or str(request.base_url).rstrip("/")
 
 
+def _hit(request: Request, endpoint: str, ref: str):
+    """One line per preview-related request, readable at GET /api/share-debug.
+
+    iMessage previews are fetched by the SENDER'S OWN phone, so no debugger tool can show
+    what it asked for and what it got — the only witness is this server. IPs are truncated
+    to two octets: enough to tell an Apple device (17.x) from Facebook (157.240.x / 69.171.x)
+    from the owner's own connection, and nothing more.
+    """
+    ip = (request.headers.get("cf-connecting-ip")
+          or request.headers.get("x-real-ip")
+          or (request.client.host if request.client else ""))
+    parts = ip.split(".")
+    coarse = f"{parts[0]}.{parts[1]}.x.x" if len(parts) == 4 else ip[:16]
+    row = {"_id": str(uuid.uuid4()),
+           "ts": datetime.now(timezone.utc),
+           "endpoint": endpoint, "ref": (ref or "")[:120],
+           "method": request.method,
+           "ua": (request.headers.get("user-agent") or "")[:300],
+           "range": request.headers.get("range") or "",
+           "inm": request.headers.get("if-none-match") or "",
+           "accept": (request.headers.get("accept") or "")[:120],
+           "ip": coarse}
+    asyncio.get_running_loop().create_task(_hit_write(row))
+
+
+async def _hit_write(row):
+    try:
+        await db.share_hits.insert_one(row)
+    except Exception as e:
+        log.info("share hit not recorded: %s", str(e)[:120])
+
+
+@api.get("/share-debug")
+async def share_debug(limit: int = 60):
+    """The last preview-related requests, newest first. UA + truncated IP only."""
+    rows = await db.share_hits.find({}, {"_id": 0}).sort("ts", -1) \
+        .to_list(max(1, min(limit, 200)))
+    for r in rows:
+        r["ts"] = r["ts"].isoformat() if hasattr(r["ts"], "isoformat") else str(r["ts"])
+    return {"hits": rows}
+
+
 ENCAR_IMAGE_HOSTS = ("ci.encar.com", "img.encar.com", "image.encar.com", "static.encar.com")
 # Facebook's debugger reports fb:app_id as missing on every URL. It is what ties a share back to
 # the owner's own Facebook app (so the insights are theirs); sharing works without it, and an
@@ -2149,6 +2191,7 @@ async def image_proxy(url: str, request: Request):
     host = urlparse(url).hostname or ""
     if not url.startswith("https://") or host not in ENCAR_IMAGE_HOSTS:
         raise HTTPException(400, "only Encar images can be served through here")
+    _hit(request, "image-proxy", url)
     # A HEAD must carry the REAL Content-Length: answering one instantly with a length of zero
     # (which is what an empty body produces) reads to Apple as "a picture of nothing" and the
     # preview fell back to the site icon EVERY time. So a HEAD fetches like a GET — the
@@ -2170,6 +2213,7 @@ async def og_image(listing_id: str, request: Request):
     extension — exactly what /api/image-proxy?url=… is. A plain path ending in .jpg gives
     it nothing to mistrust; the bytes underneath are the same cached Encar photo.
     """
+    _hit(request, "og-image", listing_id)
     doc = await db.listings.find_one({"_id": listing_id}, {"photos": 1})
     photos = (doc or {}).get("photos") or []
     if not photos:
@@ -2223,6 +2267,7 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     and forwards a human straight to the car.
     """
     lang = norm_lang(lang)
+    _hit(request, "share-car", listing_id)
     doc = await db.listings.find_one(
         {"_id": listing_id},
         {"photos": 1, "manufacturer": 1, "model": 1, "manufacturer_t": 1, "model_t": 1,
@@ -2358,6 +2403,7 @@ async def map_track_png(request: Request, ref: str = "", by: str = "bol"):
 async def share_track(request: Request, ref: str = "", by: str = "bol", lang: str = "bg"):
     """The Track page as a shareable link: the preview picture is the route on a real map."""
     lang = norm_lang(lang)
+    _hit(request, "share-track", ref)
     ref = (ref or "").strip().upper()[:40]
     by = by if by in ("container", "bol") else "bol"
     base = os.environ.get("PUBLIC_SITE_URL", "").strip().rstrip("/") \
@@ -4143,6 +4189,8 @@ async def on_startup():
     # The de-duplication fingerprints are useful for a day and kept a little longer only so a
     # late-running digest can still be computed; after that they are noise.
     await db.car_view_seen.create_index("at", expireAfterSeconds=40 * 86400)
+    # Preview-debug lines are evidence for a live investigation, not history.
+    await db.share_hits.create_index("ts", expireAfterSeconds=7 * 86400)
     await auth.ensure_owner(db)
     # The owner's merges, renames and year spans travel in the repo, so a fresh server has
     # the same dropdowns without anybody copying a database.

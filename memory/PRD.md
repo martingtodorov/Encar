@@ -1,5 +1,11 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-09 (later): round-3 fixes confirmed deployed on live but iMessage STILL fails.
+Added GET /api/share-debug (share_hits collection, TTL 7d) logging UA/Range/IP-prefix of
+every preview-related request — the sender's iPhone is the crawler and this is the only way
+to see what it does. Next: owner deploys, shares a fresh car in iMessage, we read
+share-debug. Decision tree in CHANGELOG.md top entry. -->
+
 <!-- 2026-08-09: iMessage preview fix round 3 — bytes=0- now answers 206 (was 200), og:image
 moved to a clean `/api/og/{id}.jpg` URL (Apple mistrusts extension-less query-string image
 URLs), meta refresh removed from both share pages. Details in CHANGELOG.md top entry.
