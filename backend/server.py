@@ -2001,8 +2001,23 @@ async def _encar_image(url):
     return r.content, kind
 
 
-@api.get("/image-proxy")
-async def image_proxy(url: str):
+def _binary(request: Request, data: bytes, kind: str, max_age: int) -> Response:
+    """A picture, answered so that a client which checks with HEAD first is satisfied.
+
+    Apple's Messages fetcher asks HEAD before it downloads a preview picture and takes the
+    405 FastAPI gives a GET-only route as "there is no picture here", falling back to the site
+    icon — that is why an iMessage preview showed our logo while Facebook, Viber and Instagram,
+    which go straight to GET, showed the car. FastAPI does NOT add HEAD to `@api.get`.
+    """
+    headers = {"Cache-Control": f"public, max-age={max_age}",
+               "Content-Length": str(len(data))}
+    if request.method == "HEAD":
+        return Response(status_code=200, media_type=kind, headers=headers)
+    return Response(content=data, media_type=kind, headers=headers)
+
+
+@api.api_route("/image-proxy", methods=["GET", "HEAD"])
+async def image_proxy(url: str, request: Request):
     """Serve an Encar photo from OUR domain.
 
     A link preview is fetched by Facebook's own servers, and a CDN that answers a browser
@@ -2018,8 +2033,7 @@ async def image_proxy(url: str):
         data, kind = await _encar_image(url)
     except httpx.HTTPError as e:
         raise HTTPException(502, f"could not fetch that image: {str(e)[:120]}")
-    return Response(content=data, media_type=kind,
-                    headers={"Cache-Control": "public, max-age=604800"})
+    return _binary(request, data, kind, 604800)
 
 
 # Digit grouping exactly as Intl.NumberFormat does it for the three page locales
@@ -2169,8 +2183,8 @@ def _default_stops():
     return out
 
 
-@api.get("/map/track.png")
-async def map_track_png(ref: str = "", by: str = "bol"):
+@api.api_route("/map/track.png", methods=["GET", "HEAD"])
+async def map_track_png(request: Request, ref: str = "", by: str = "bol"):
     """The shipment's route drawn on OpenStreetMap tiles, for link previews.
 
     Messenger, Viber and WhatsApp never run our JavaScript, so the Leaflet map cannot be the
@@ -2193,8 +2207,7 @@ async def map_track_png(ref: str = "", by: str = "bol"):
         if img is None:
             raise HTTPException(status_code=404, detail="no route to draw")
         data = mapshot.store(key, img)
-    return Response(content=data, media_type="image/png",
-                    headers={"Cache-Control": "public, max-age=21600"})
+    return _binary(request, data, "image/png", 21600)
 
 
 @api.get("/share/track", response_class=HTMLResponse)
