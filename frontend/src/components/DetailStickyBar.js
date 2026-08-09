@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Heart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PriceNote } from "@/components/PriceNote";
-import { stripGenerationYears } from "@/lib/format";
+import { titleModel } from "@/lib/format";
 import { useApp } from "@/context/AppContext";
 
 /**
@@ -48,7 +48,7 @@ export const DetailStickyBar = ({ car, price, saved, onToggleSave, showAfter = 3
             data-testid="sticky-title"
             className="truncate text-[16px] font-semibold leading-tight text-foreground"
           >
-            {stripGenerationYears(car.title)}
+            {titleModel(car.title)}
           </div>
           {subtitle ? (
             <div className="truncate text-[13px] text-muted-foreground">{subtitle}</div>

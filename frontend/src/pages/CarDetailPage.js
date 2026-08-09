@@ -44,7 +44,7 @@ import MechChecks from "@/components/MechChecks";
 import PostToMobileBg from "@/components/admin/PostToMobileBg";
 import { useSeo, useJsonLd } from "@/lib/seo";
 import { formatMileage, formatMoney, formatNumber, formatYearMonth,
-         stripGenerationYears, titleModel } from "@/lib/format";
+         titleModel } from "@/lib/format";
 
 // Panels stay in the site's palette: white card, grey tile, red only where something is
 // actually wrong. Coloured tiles (blue/amber/green) fought with the rest of the page, so any
@@ -399,7 +399,7 @@ export default function CarDetailPage() {
                   data-testid="detail-title"
                   className="sr-only text-2xl font-semibold leading-tight text-foreground sm:text-3xl lg:not-sr-only"
                 >
-                  {stripGenerationYears(car.title)}
+                  {titleModel(car.title)}
                 </h1>
                 <p className="mt-1 hidden text-[14px] text-muted-foreground lg:block">
                   {[car.grade, car.badge_detail].filter(Boolean).join(" \u00b7 ")}

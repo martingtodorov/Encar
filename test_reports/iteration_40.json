@@ -1,0 +1,21 @@
+{
+  "summary": "Re-verified all title/OG/H1 fixes on the preview URL for iteration 40. All 11 backend share-title tests pass, image proxy returns HTTP 200 image/jpeg, and the browser now renders a clean H1 for Cayenne (no PO536, no (2019-)). Independent read of GET /api/car/42354550?lang=bg confirms badge_detail is empty i.e. there IS no trim in the source data for that ad, refuting the owner's report that 'submodel and trim are missing'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_share_titles.py", "/app/test_reports/pytest/share_titles_iter40.xml"],
+  "action_items": [
+    "None. Explain to owner: for 42354550 the Encar source has gradeName='3.0 쿠페' (submodel) and gradeDetailName is NULL, so there is no trim to add. GET /api/car/42354550?lang=bg confirms grade='3.0 Coupe', badge='3.0 Coupe', badge_detail=''. og:title='Porsche Cayenne 3.0 Coupe' is the maximally complete title for this ad. When a trim exists (e.g. 42254427 badge_detail='Top Grade'), it IS appended: 'Kia Sportage R Diesel 2WD TLX Top Grade'."
+  ],
+  "critical_code_review_comments": [
+    "server.py still 3994 lines - consider modularising share/image-proxy/title helpers.",
+    "H1 change to titleModel() is correct; visible heading now matches OG title semantics (no factory codes/years)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (11/11)", "frontend": "100% (Cayenne + Sportage browser checks)"},
+  "test_credentials": "none needed",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "OBSERVED STRINGS on preview URL (2026-01):\n- /bg/car/42354550 crawler <title>='Porsche Cayenne 3.0 Coupe', og:title identical. Browser document.title='Porsche Cayenne 3.0 Coupe · Encar', og:title identical, H1='Porsche Cayenne', sticky bar='Porsche Cayenne / 3.0 Coupe / 69 599 €'. og:description='05/2020 · 12 500 km · €69 599'. og:image is /api/image-proxy?url=...42354550_001.jpg?...rw=1200&cw=1200&ch=630 - returns HTTP 200 image/jpeg 147429 bytes. og:image:type=image/jpeg, og:image:width=1200, og:image:height=630 all present.\n- API GET /api/car/42354550?lang=bg -> grade='3.0 Coupe', badge='3.0 Coupe', badge_detail='' (EMPTY - no trim exists in source, so nothing more can be added).\n- /bg/car/42254427 crawler <title>='Kia Sportage R Diesel 2WD TLX Top Grade' (submodel+trim), browser doc.title same + ' · Encar'.\n- /bg/car/42072910 crawler <title>='Kia Sportage 4th Gen Diesel 2.0 2WD Noblesse'.\n- /bg/car/42416001 crawler <title>='Hyundai Tucson Diesel 1.7 2WD Premium' (All New stripped).\n- /bg/car/42422490 crawler <title>='Kia Morning Luxury' ((JA) stripped).\nNo PO536 or (2019-) leaks anywhere in crawler HTML, browser <title>, og:title, H1 or sticky bar. Note: HEAD on /api/image-proxy returns 405 (endpoint is GET-only); GET returns 200 image/jpeg. Not a bug.",
+  "rca of the issue": "The owner's complaint that 'Cayenne still doesn't have submodel and trim in og title' is a false alarm. Cayenne 42354550 og:title IS 'Porsche Cayenne 3.0 Coupe' where '3.0 Coupe' is the translated submodel (grade). The trim field (badge_detail/gradeDetailName) is empty in the upstream Encar data for this ad, so there is nothing further to append. The system already correctly appends both when they exist (verified on 42254427 with 'Diesel 2WD TLX Top Grade')."
+}
