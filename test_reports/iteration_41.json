@@ -1,0 +1,61 @@
+{
+  "summary": "Verified crawler vs browser meta consistency for /bg/car/42254427 and Cayenne 42354550 across bg/ro/en, and regression items (All-New strip, PO536 strip, image proxy, track share). All titles and cleaning rules pass. Descriptions match verbatim for the Kia Sportage 42254427 case in bg/ro/en. However a real inconsistency was found for prices with 5+ digits: crawler backend uses `{:.0f} €` (no thousand separator) while browser Intl.NumberFormat(bg-BG) inserts a NBSP thousand separator, so the same car's price is quoted in two different formats between the share page and the rendered page.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /{lang}/car/{id} (share_car)", "issue": "Price in og:description is formatted without a thousand separator (`f\"{sale_eur:.0f} €\"`) while the browser prints the same price with a NBSP thousand separator via Intl.NumberFormat. Observed for /bg/car/42354550: crawler ogd = '05/2020 · 12 500 km · 69599 € — крайна цена до България с мито, ДДС и доставка.' vs browser ogd = '05/2020 · 12\\xa0500 km · 69\\xa0599\\xa0€ — крайна цена до България с мито, ДДС и доставка.'. Kia Sportage 42254427 (9199, 4 digits) happens to match because Intl produces no separator below 10000. Also crawler mileage uses regular space ('133 769') while browser uses NBSP ('133\\xa0769')."},
+      {"endpoint": "GET /{lang}/car/{id} (share_car)", "issue": "The crawler share HTML sets og:description but does NOT emit a <meta name=\"description\"> tag. The browser writes both. Not a facts-mismatch, but if Google fetches the share page it will only see og:description."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "observations": {
+    "sportage_42254427": {
+      "crawler_bg": {"title": "Kia Sportage R Diesel 2WD TLX Top Grade", "og:title": "Kia Sportage R Diesel 2WD TLX Top Grade", "og:description": "03/2013 · 133 769 km · 9199 € — крайна цена до България с мито, ДДС и доставка."},
+      "crawler_ro_ogd": "03/2013 · 133 769 km · 9199 € — preț final livrat, cu taxe vamale, TVA și transport incluse.",
+      "crawler_en_ogd": "03/2013 · 133 769 km · 9199 € — final landed price with duty, VAT and delivery included.",
+      "browser_bg": {"title": "Kia Sportage R Diesel 2WD TLX Top Grade · Encar", "og:title": "Kia Sportage R Diesel 2WD TLX Top Grade · Encar", "og:description": "03/2013 · 133\u00a0769 km · 9199\u00a0€ — крайна цена до България с мито, ДДС и доставка.", "big_price_on_page": "9199 €"},
+      "consistency": "TITLE identical (browser adds ' · Encar' suffix as intended). DESCRIPTION facts (year, mileage, price) identical; only whitespace differs (regular space vs NBSP)."
+    },
+    "cayenne_42354550": {
+      "crawler_bg_title": "Porsche Cayenne 3.0 Coupe",
+      "crawler_bg_ogd": "05/2020 · 12 500 km · 69599 € — крайна цена до България с мито, ДДС и доставка.",
+      "browser_bg_title": "Porsche Cayenne 3.0 Coupe · Encar",
+      "browser_bg_ogd": "05/2020 · 12\u00a0500 km · 69\u00a0599\u00a0€ — крайна цена до България с мито, ДДС и доставка.",
+      "api_grade": "3.0 Coupe",
+      "api_badge_detail": "",
+      "api_raw_title": "Porsche Cayenne (PO536)",
+      "notes": "'PO536' and '(2019-)' absent from all title/OG fields on both sides. Submodel '3.0 Coupe' present. badge_detail is empty on this ad -> confirms Encar provides no trim for this listing. Page H1 shows 'Porsche Cayenne' with subtitle '3.0 Coupe' (no brackets). PRICE FORMAT MISMATCH: crawler '69599 €' vs browser '69\u00a0599\u00a0€' — same value 69599, different formatting."
+    },
+    "all_new_regression": {
+      "42416001_crawler_title": "Hyundai Tucson Diesel 1.7 2WD Premium (no 'All New', no '(JA)') ✓",
+      "42422490_crawler_title": "Kia Morning Luxury (no 'All New') ✓"
+    },
+    "image_regression": {
+      "og_image_car_crawler": "/api/image-proxy?url=... returns 200 image/jpeg ✓",
+      "og_image_type": "image/jpeg ✓",
+      "og_image_width_height": "1200 x 630 ✓",
+      "track_share": "og:image = /api/map/track.png?ref=271191199&by=bol, returns 200 image/png ✓"
+    },
+    "browser_normal_ua": "Normal Chrome UA on /bg/car/42354550 receives the React app (H1 'Porsche Cayenne', subtitle '3.0 Coupe', 20 photos, big price 69 599 €, no PO536 anywhere) ✓"
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Align price formatting between backend share_car() and the frontend's Intl.NumberFormat output. Options: (a) change backend to format sale_eur with NBSP thousand separator (e.g. `f\"{int(sale_eur):,} €\".replace(',', '\\u00a0')`), or (b) change frontend to strip the thousand separator for prices in the description. The owner's complaint is that the two sides describe the same car identically — currently they diverge on prices ≥ 10000 (Cayenne 69599, Tucson 13199, plus mileage NBSP vs plain space).",
+    "Optionally emit <meta name=\"description\"> in the crawler share HTML for parity with the browser render."
+  ],
+  "critical_code_review_comments": [
+    "server.py share_car line ~2047-2051: mileage uses `,` -> ` ` (plain space) while price uses no separator at all. Both diverge from Intl.NumberFormat('bg-BG') which uses NBSP. Centralise this so backend and frontend produce byte-identical strings.",
+    "server.py 4004 lines — file is very large; consider splitting share/OG generation into a dedicated module for testability."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "95%", "frontend": "100%"},
+  "seed_data_creation": "",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Only the price/mileage whitespace formatting differs between crawler og:description and browser og:description. Facts (year 05/2020, mileage 12500, price 69599 on Cayenne; 03/2013, 133769, 9199 on Sportage) are correct on both sides. Cayenne badge_detail is empty in Encar's data — that is why only submodel '3.0 Coupe' appears (there is no trim to add). All 'PO536' / '(2019-)' / 'All New' / 'All-New' / '(JA)' cleanup passes.",
+  "rca_of_the_issue": "Backend `share_car` composes the price as `f\"{sale_eur:.0f} €\"` producing e.g. `69599 €`. Frontend uses `Intl.NumberFormat('bg-BG', {style:'currency', currency:'EUR', maximumFractionDigits:0})` which yields `69\u00a0599\u00a0€`. For sale_eur < 10000 the JS formatter emits no thousand separator, so the two sides accidentally match. For >= 10000 they diverge. Similarly backend mileage uses ASCII space, browser uses NBSP."
+}

@@ -59,7 +59,27 @@ if (!fs.existsSync(shell)) {
   process.exit(1);
 }
 
-const html = fs.readFileSync(shell, "utf8");
+/**
+ * CRA leaves `%REACT_APP_SITE_URL%` in index.html VERBATIM when the variable is not defined at
+ * build time, and that is exactly what shipped to encareurope.com once: every og:image pointed
+ * at "%REACT_APP_SITE_URL%/og.png", so Facebook could not fetch a picture for any page. The
+ * placeholder is resolved here as well as by CRA, and if there is genuinely no site URL to use
+ * the tags are REMOVED — a missing preview picture is recoverable, a malformed one is not.
+ */
+function resolve(source) {
+  if (!source.includes("%REACT_APP_SITE_URL%")) return source;
+  if (SITE) return source.split("%REACT_APP_SITE_URL%").join(SITE);
+  console.warn(
+    "gen-lang-html: REACT_APP_SITE_URL is not set, so og:image tags are being dropped." +
+      " Set it in the build environment (deploy_frontend.yml passes it) to get link previews."
+  );
+  return source.replace(
+    /\s*<meta (?:property|name)="(?:og:image[a-z:_]*|twitter:image)" content="[^"]*%REACT_APP_SITE_URL%[^"]*"\s*\/?>/g,
+    ""
+  );
+}
+
+const html = resolve(fs.readFileSync(shell, "utf8"));
 
 function retag(source, { lang, title, description }) {
   return source
@@ -121,9 +141,11 @@ if (!/<\/title>/.test(html)) {
   console.error("gen-lang-html: build/index.html has no <title> to anchor to");
   process.exit(1);
 }
-// Idempotent: a second run on an already patched shell must not inject the script twice.
-if (!html.includes("gen-lang-html")) {
-  fs.writeFileSync(shell, html.replace("</title>", `</title>${runtime}`));
-}
+// Idempotent: a second run on an already patched shell must not inject the script twice — but
+// the shell is written EITHER WAY, so a resolved %REACT_APP_SITE_URL% always lands on disk.
+fs.writeFileSync(
+  shell,
+  html.includes("gen-lang-html") ? html : html.replace("</title>", `</title>${runtime}`)
+);
 
 console.log(`gen-lang-html: wrote ${LANGS.map((l) => `build/${l}/index.html`).join(", ")}`);

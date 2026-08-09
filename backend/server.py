@@ -2046,9 +2046,19 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     facts = [f"{ym[4:6]}/{ym[:4]}" if len(ym) >= 6 else "",
              f"{(doc or {}).get('mileage'):,} km".replace(",", " ")
              if (doc or {}).get("mileage") else "",
-             f"€{(doc or {}).get('sale_eur'):,.0f}".replace(",", " ")
-             if (doc or {}).get("sale_eur") else ""]
+             # Same shape the page prints ("9199 €"), so a chat preview and the page itself do
+             # not quote one car's price in two different formats.
+             f"{(doc or {}).get('sale_eur'):.0f} €" if (doc or {}).get("sale_eur") else ""]
+    # The SAME description the page itself writes (see CarDetailPage `useSeo`): the facts, then
+    # the one thing that makes this site worth using. A shared link and a search result should
+    # not describe the same car differently.
+    blurb = {
+        "bg": "крайна цена до България с мито, ДДС и доставка.",
+        "ro": "preț final livrat, cu taxe vamale, TVA și transport incluse.",
+        "en": "final landed price with duty, VAT and delivery included.",
+    }[lang]
     description = " · ".join([f for f in facts if f])
+    description = f"{description} — {blurb}" if description else blurb
     # 1200x630 is what every chat app and social network crops to, and the picture is served
     # through OUR domain: Encar's CDN answers a browser but can refuse an unknown crawler, and
     # a refused image means a preview with no picture at all.

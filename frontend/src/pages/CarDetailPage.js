@@ -208,12 +208,20 @@ export default function CarDetailPage() {
       acc.toLowerCase().includes(String(part).toLowerCase()) ? acc : `${acc} ${part}`.trim()
     ), "");
 
+  // Title and description are built from the SAME cleaned name and the SAME facts the share
+  // page uses (backend `share_car`), so a Google snippet and a Messenger preview of one car
+  // never read differently.
+  const km = car?.mileage ?? car?.spec?.mileage ?? null;
+  const facts = [
+    car?.year_month ? formatYearMonth(car.year_month) : "",
+    km ? formatMileage(km, lang) : "",
+    q?.suggested_sale ? money(q.suggested_sale) : "",
+  ].filter(Boolean).join(" · ");
+
   useSeo({
     lang,
-    // The generation years belong on the page, not in a link preview: "(2018-2023)" reads as
-    // clutter in a chat bubble and pushes the trim out of a truncated title.
     title: seoTitle ? `${seoTitle} \u00b7 Encar` : "Encar",
-    description: seoTitle ? `${seoTitle} \u2014 ${t("seoCarDesc")}` : t("seoHomeDesc"),
+    description: facts ? `${facts} \u2014 ${t("seoCarDesc")}` : t("seoCarDesc"),
     image: photos[0]?.full,
   });
 
