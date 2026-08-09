@@ -1,5 +1,10 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-09 (round 7): round-5 direct-CDN og:image reverted — live share-debug proved
+Apple's fetcher (com.apple.WebKit.Networking) downloads /api/og/{id}.jpg fine, while the
+bare ci.encar.com fetch silently dies on the phone (no AAAA; owner on Vivacom IPv6).
+Everyone gets the proxied URL + full tags again; og_image logs its answered status. -->
+
 <!-- 2026-08-09 (round 6): SOLVED — owner's screenshot title "… · Encar" proved the iMessage
 preview comes from the LIVE SPA tags (Safari share sheet), where og:image was the og.png
 logo until the car loaded. CarDetailPage now advertises /api/og/{id}.jpg from first render.

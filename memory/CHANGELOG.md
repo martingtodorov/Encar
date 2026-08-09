@@ -2,6 +2,22 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-09 (round 7) — direct-CDN experiment reverted: share-debug proved the proxy WORKS
+Live share-debug showed the full story: at 20:23Z and 20:40Z (og:image = /api/og/{id}.jpg)
+the phone fetched share-car AND then the image — UA `com.apple.WebKit.Networking/21624…
+macOS/26.5.2` — i.e. Apple's fetcher happily downloads from OUR domain. After round 5 went
+live (og:image = bare ci.encar.com) the phone's image fetch became invisible and previews
+kept failing: the direct Encar fetch dies on the device (ci.encar.com has NO AAAA record;
+the owner's phone sits on Vivacom IPv6 — and whatever else Encar's edge dislikes about it).
+- `share_car`: iMessage special-casing REMOVED — every crawler gets `/api/og/{id}.jpg` and
+  the full tag set again (the round-3 shape Apple demonstrably consumed).
+- `og_image` now also logs what it ANSWERED ("og-image-resp": "{id} -> 200, 104301b
+  image/jpeg"), so /api/share-debug shows the whole exchange next time.
+Tested locally: iMessage UA → proxied og:image; Apple WebKit.Networking UA → 200 jpeg;
+both hits + response line visible in share-debug. Backend-only deploy needed.
+NOTE for next round if STILL failing with confirmed 200s: try re-encoding the JPEG
+(progressive vs baseline) and reading og-image-resp lines after the owner's test.
+
 ## 2026-08-09 (round 6) — the iMessage logo mystery SOLVED by the owner's screenshot
 The failing preview read "BMW M2 M2 Coupe **· Encar**" — that " · Encar" suffix exists ONLY
 in the frontend useSeo document title (the backend share page has no suffix). So the preview

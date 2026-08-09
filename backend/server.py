@@ -2236,11 +2236,16 @@ async def og_image(listing_id: str, request: Request):
     doc = await db.listings.find_one({"_id": listing_id}, {"photos": 1})
     photos = (doc or {}).get("photos") or []
     if not photos:
+        _hit(request, "og-image-resp", f"{listing_id} -> 404 no photo")
         raise HTTPException(404, "that car has no photo")
     url = image_url(photos[0], 1200, 630)
     data, kind = await _encar_image(url)
     hit = _img_file(url)
-    return _binary(request, data, kind, 604800, hit.stat().st_mtime if hit else None)
+    resp = _binary(request, data, kind, 604800, hit.stat().st_mtime if hit else None)
+    # What we ANSWERED, next to what was asked — reading /api/share-debug then shows the
+    # whole exchange with Apple's fetcher, not just its arrival.
+    _hit(request, "og-image-resp", f"{listing_id} -> {resp.status_code}, {len(data)}b {kind}")
+    return resp
 
 
 # Digit grouping exactly as Intl.NumberFormat does it for the three page locales
@@ -2319,28 +2324,19 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     description = f"{description} — {blurb}" if description else blurb
     # 1200x630 is what every chat app and social network crops to, and the picture is served
     # through OUR domain: Encar's CDN answers a browser but can refuse an unknown crawler, and
-    # a refused image means a preview with no picture at all.
+    # a refused image means a preview with no picture at all. Round 5 tried handing Apple the
+    # bare ci.encar.com URL (AutoScout-style) — share-debug then proved the phone fetches
+    # /api/og/{id}.jpg just fine (com.apple.WebKit.Networking hits at 20:23/20:40Z) while the
+    # direct CDN fetch silently failed on the device (ci.encar.com has no AAAA record and the
+    # owner's phone sits on Vivacom IPv6). So EVERY crawler gets the proxied URL again.
     raw_image = image_url(photos[0], 1200, 630) if photos else ""
     base = _share_base(request)
-    # Apple's Messages spoofs Facebook AND Twitter in ONE UA string ("… AppleWebKit …
-    # facebookexternalhit/1.1 Facebot Twitterbot/1.0"); the real crawlers never mention each
-    # other. AutoScout24 — whose iMessage previews the owner confirms work best — hands the
-    # crawler a QUERY-LESS .jpg on a plain CDN host (prod.pictures.autoscout24.net:
-    # Last-Modified, 206 on bytes=0-, no bot filtering). Encar's own CDN behaves identically
-    # on the bare photo path (no impolicy query: 200 with no Referer, Last-Modified, 206) at
-    # 640x360 — so Apple gets THAT, bypassing both Cloudflare and this server. The proxy
-    # stays for the DATACENTER crawlers (Facebook, Viber, Telegram) that Encar's CDN refuses.
-    ua = (request.headers.get("user-agent") or "").casefold()
-    imessage = "facebookexternalhit" in ua and ("twitterbot" in ua or "applewebkit" in ua)
-    image, img_w, img_h = "", 1200, 630
+    image = ""
     if raw_image:
-        if imessage:
-            image, img_w, img_h = raw_image.split("?")[0], 640, 360
-        else:
-            # Still warmed onto disk BEFORE the HTML is answered (the crawler asks for the
-            # picture a moment later), but the URL it is told to fetch is /api/og/{id}.jpg.
-            await _preview_image_url(raw_image, base)
-            image = f"{base}/api/og/{listing_id}.jpg"
+        # Still warmed onto disk BEFORE the HTML is answered (the crawler asks for the
+        # picture a moment later), but the URL it is told to fetch is /api/og/{id}.jpg.
+        await _preview_image_url(raw_image, base)
+        image = f"{base}/api/og/{listing_id}.jpg"
     target = f"{base}/{lang}/car/{listing_id}"
 
     tags = [f'<meta name="description" content="{_attr(description)}">',
@@ -2348,22 +2344,18 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
             f'<meta property="og:description" content="{_attr(description)}">',
             f'<meta property="og:url" content="{_attr(target)}">',
             '<meta property="og:type" content="website">',
-            '<meta property="og:site_name" content="Europe Encar">']
-    if not imessage:
-        tags += ['<meta name="twitter:card" content="summary_large_image">',
-                 f'<meta name="twitter:title" content="{_attr(title)}">',
-                 f'<meta name="twitter:description" content="{_attr(description)}">']
+            '<meta property="og:site_name" content="Europe Encar">',
+            '<meta name="twitter:card" content="summary_large_image">',
+            f'<meta name="twitter:title" content="{_attr(title)}">',
+            f'<meta name="twitter:description" content="{_attr(description)}">']
     if image:
-        # AutoScout's working page carries exactly og:image + width + height, nothing else —
-        # matched for Apple; the richer set stays for everyone it already works for.
         tags += [f'<meta property="og:image" content="{_attr(image)}">',
-                 f'<meta property="og:image:width" content="{img_w}">',
-                 f'<meta property="og:image:height" content="{img_h}">']
-        if not imessage:
-            tags += [f'<meta property="og:image:secure_url" content="{_attr(image)}">',
-                     '<meta property="og:image:type" content="image/jpeg">',
-                     f'<meta property="og:image:alt" content="{_attr(title)}">',
-                     f'<meta name="twitter:image" content="{_attr(image)}">']
+                 f'<meta property="og:image:secure_url" content="{_attr(image)}">',
+                 '<meta property="og:image:type" content="image/jpeg">',
+                 '<meta property="og:image:width" content="1200">',
+                 '<meta property="og:image:height" content="630">',
+                 f'<meta property="og:image:alt" content="{_attr(title)}">',
+                 f'<meta name="twitter:image" content="{_attr(image)}">']
     tags += _social_tags()
 
     html = ("<!doctype html><html><head><meta charset=\"utf-8\">"
