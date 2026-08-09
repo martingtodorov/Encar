@@ -249,7 +249,20 @@ def image_url(path, w=640, h=480):
         return None
     if path.startswith("http"):
         return path
-    return (f"{CDN}{path}?impolicy=widthRate&rw={w}&cw={w}&ch={h}&cg=Center")
+    # Two things Encar's CDN does that a naive URL gets wrong:
+    #   1. The picture lives under /carpicture/carpictureNN/... - the outer /carpicture/
+    #      folder is where the site's own detail page fetches from (see fem.encar.com
+    #      output). Skipping it still returns bytes, but the CDN then treats the request
+    #      as "unknown source" and slaps a full-frame 엔카 watermark across the photo.
+    #   2. `impolicy=widthRate` forces the width and lets the height float, which on a
+    #      typical portrait-cropped ad photo squishes the car; `heightRate&rh={h}` keeps
+    #      the aspect (see the /cars/detail source: heightRate&rh=768&cw=1280&ch=768).
+    #   3. Passing `wtmk=` explicitly asks for w_mark_04.png - a small transparent brand
+    #      plate in the corner. Without it, the CDN falls back to the giant default mark
+    #      that ruins every chat preview.
+    base = path if path.startswith("/carpicture/") else f"/carpicture{path}"
+    return (f"{CDN}{base}?impolicy=heightRate&rh={h}&cw={w}&ch={h}&cg=Center"
+            f"&wtmk={CDN}/wt_mark/w_mark_04.png")
 
 
 def vehicle_key(photos, fallback_id):
