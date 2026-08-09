@@ -2112,6 +2112,8 @@ def _binary(request: Request, data: bytes, kind: str, max_age: int) -> Response:
                 end = int(last) if last else end
             elif last:                                  # "bytes=-500": the last 500 bytes
                 start = max(0, len(data) - int(last))
+            else:                                       # "bytes=-": not a range at all
+                raise ValueError
         except ValueError:
             start, end = 0, len(data) - 1
         else:
@@ -2119,7 +2121,10 @@ def _binary(request: Request, data: bytes, kind: str, max_age: int) -> Response:
             if start > end:
                 return Response(status_code=416, headers={
                     **headers, "Content-Range": f"bytes */{len(data)}"})
-            ranged = start != 0 or end != len(data) - 1
+            # Apple's fetcher opens with "Range: bytes=0-" and reads a 200 answer as "this
+            # server does not do ranges" — it then drops the image. So EVERY valid Range
+            # request is answered 206 with a Content-Range, even one spanning the whole file.
+            ranged = True
 
     body = data[start:end + 1]
     headers["Content-Length"] = str(len(body))

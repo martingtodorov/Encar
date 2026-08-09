@@ -1597,3 +1597,25 @@ year labels; 249 pass across the full suite. `test_recommendations.py` had asser
 contract (`source == "popular"` for an empty profile) and was updated to the curated shelf.
 Pre-existing, NOT regressions: the Stripe checkout e2e modules error out because the Playwright
 browser binary is missing in this pod (`playwright install`).
+
+## 2026-08-09 — iMessage: "Range: bytes=0-" now answers 206, not 200
+- LIVE VERIFIED FIRST: the deployed server already returned 206 for partial ranges
+  (bytes=0-1023) and correct HEAD answers — the previous fix WAS deployed. The one remaining
+  deviation: `Range: bytes=0-` (the OPEN range Apple's CFNetwork opens every fetch with)
+  came back **200 + full body**, because `_binary` deliberately downgraded a range that spans
+  the whole file (`ranged = start != 0 or end != len-1`). Apple reads a 200 answer to a Range
+  request as "this server does not do ranges" and drops the image -> icon/logo fallback.
+- FIX in server.py `_binary`: ANY syntactically valid Range header is now answered 206 with
+  Content-Range, even one spanning the whole file. `bytes=-` (degenerate, no numbers) raises
+  ValueError and falls back to a plain 200. Verified locally: bytes=0- -> 206 full
+  Content-Range; bytes=0-1023 -> 206/1024; bytes=500-999 -> 206/500; no header -> 200;
+  If-None-Match -> 304; bytes=999999999- -> 416.
+- RULED OUT while investigating: meta refresh in the share HTML (TN3156: "Link previews do
+  not follow meta redirects" — metadata is read from the linked page itself); Cloudflare HTML
+  caching (cf-cache-status: DYNAMIC on both bot and human UA, so nginx UA-routing always runs);
+  UA mismatch (iMessage sends "...facebookexternalhit/1.1 Facebot Twitterbot/1.0", matched by
+  the nginx map — confirmed by fetching live with that exact UA).
+- NEEDS DEPLOYMENT by the owner (Save to GitHub -> git pull -> ansible). After deploy verify:
+  curl -s -o /dev/null -D - -H "Range: bytes=0-" 'https://encareurope.com/api/image-proxy?...'
+  must show HTTP/2 206 + content-range. Then test iMessage with a car link NEVER shared before
+  (iMessage caches previews per URL on the device).
