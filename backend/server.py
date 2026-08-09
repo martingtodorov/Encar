@@ -1977,6 +1977,57 @@ def _social_tags():
     return [f'<meta property="fb:app_id" content="{_attr(FB_APP_ID)}">'] if FB_APP_ID else []
 
 
+_IMG_CLIENT = None
+# One fetch per photo, however many callers want it at once. `share_car` warms the picture in
+# the background while it answers the HTML and the crawler asks for that same picture a moment
+# later, so without this the two race and BOTH pay a cold round trip to Korea — the preview
+# then arrived without an image now and then, which is exactly the intermittent failure.
+_IMG_INFLIGHT = {}
+
+
+def _image_client():
+    """A kept-alive client for Encar's CDN: a new one per photo paid a fresh TLS handshake
+    across the world every time."""
+    global _IMG_CLIENT
+    if _IMG_CLIENT is None:
+        _IMG_CLIENT = httpx.AsyncClient(
+            timeout=httpx.Timeout(10.0, connect=5.0), follow_redirects=True,
+            limits=httpx.Limits(max_keepalive_connections=8, keepalive_expiry=120),
+            headers={"Referer": "https://www.encar.com/", "User-Agent": "Mozilla/5.0"})
+    return _IMG_CLIENT
+
+
+def _img_cached(url):
+    key = hashlib.sha256(url.encode()).hexdigest()[:32]
+    folder = Path(os.environ["MEDIA_ROOT"]) / "imgcache"
+    for hit in folder.glob(f"{key}.*"):
+        return hit.read_bytes(), f"image/{hit.suffix.lstrip('.')}"
+    return None
+
+
+async def _fetch_encar_image(url):
+    key = hashlib.sha256(url.encode()).hexdigest()[:32]
+    folder = Path(os.environ["MEDIA_ROOT"]) / "imgcache"
+    last = ""
+    for attempt in (0, 1):
+        try:
+            r = await _image_client().get(url)
+            if not r.is_error:
+                kind = (r.headers.get("content-type") or "image/jpeg").split(";")[0]
+                subtype = kind.split("/")[-1] if kind.startswith("image/") else "jpeg"
+                folder.mkdir(parents=True, exist_ok=True)
+                (folder / f"{key}.{subtype}").write_bytes(r.content)
+                return r.content, kind
+            last = f"HTTP {r.status_code}"
+        except httpx.HTTPError as e:
+            last = str(e)[:120]
+        if attempt == 0:
+            await asyncio.sleep(0.4)
+    # Logged, because "the preview sometimes has no picture" is otherwise invisible to us.
+    log.warning("image-proxy could not fetch %s: %s", url[:110], last)
+    raise HTTPException(502, "the image host refused that request")
+
+
 async def _encar_image(url):
     """The bytes of an Encar photo, from disk if we have fetched it before.
 
@@ -1985,20 +2036,22 @@ async def _encar_image(url):
     is on the other side of the world, so every proxied photo is kept: the second fetch — the
     one the crawler makes — is local and instant.
     """
-    key = hashlib.sha256(url.encode()).hexdigest()[:32]
-    folder = Path(os.environ["MEDIA_ROOT"]) / "imgcache"
-    for hit in folder.glob(f"{key}.*"):
-        return hit.read_bytes(), f"image/{hit.suffix.lstrip('.')}"
-    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as client:
-        r = await client.get(url, headers={"Referer": "https://www.encar.com/",
-                                          "User-Agent": "Mozilla/5.0"})
-    if r.is_error:
-        raise HTTPException(r.status_code, "the image host refused that request")
-    kind = (r.headers.get("content-type") or "image/jpeg").split(";")[0]
-    subtype = kind.split("/")[-1] if kind.startswith("image/") else "jpeg"
-    folder.mkdir(parents=True, exist_ok=True)
-    (folder / f"{key}.{subtype}").write_bytes(r.content)
-    return r.content, kind
+    hit = _img_cached(url)
+    if hit:
+        return hit
+    task = _IMG_INFLIGHT.get(url)
+    if task is None:
+        task = asyncio.create_task(_fetch_encar_image(url))
+        _IMG_INFLIGHT[url] = task
+        task.add_done_callback(lambda t: _IMG_INFLIGHT.pop(url, None))
+    return await asyncio.shield(task)
+
+
+async def _warm_image(url):
+    try:
+        await _encar_image(url)
+    except (httpx.HTTPError, HTTPException, OSError) as e:
+        log.info("could not warm %s: %s", url[:80], str(e)[:120])
 
 
 def _binary(request: Request, data: bytes, kind: str, max_age: int) -> Response:
@@ -2029,6 +2082,13 @@ async def image_proxy(url: str, request: Request):
     host = urlparse(url).hostname or ""
     if not url.startswith("https://") or host not in ENCAR_IMAGE_HOSTS:
         raise HTTPException(400, "only Encar images can be served through here")
+    # A HEAD is a client CHECKING the picture, not downloading it (Apple's Messages does exactly
+    # this before it fetches a preview image). It must never sit waiting for Korea: answer at
+    # once and let the warm finish, so the GET that follows is served from disk.
+    if request.method == "HEAD" and _img_cached(url) is None:
+        asyncio.create_task(_warm_image(url))
+        return Response(status_code=200, media_type="image/jpeg",
+                        headers={"Cache-Control": "public, max-age=604800"})
     try:
         data, kind = await _encar_image(url)
     except httpx.HTTPError as e:
@@ -2149,12 +2209,7 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     # later, so fetching from Encar NOW means the picture is already on disk when it does.
     # Facebook's "images are processed asynchronously" notice is exactly that race.
     if raw_image:
-        async def warm():
-            try:
-                await _encar_image(raw_image)
-            except (httpx.HTTPError, HTTPException, OSError) as e:
-                log.info("could not warm %s: %s", raw_image[:80], str(e)[:120])
-        asyncio.create_task(warm())
+        asyncio.create_task(_warm_image(raw_image))
     # Chat apps cache previews hard; a day is long enough to be cheap and short enough
     # that a price change is picked up.
     return HTMLResponse(html, headers={"Cache-Control": "public, max-age=86400"})
