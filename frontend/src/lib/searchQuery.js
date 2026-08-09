@@ -44,7 +44,9 @@ export function stateToParams({ filters, tax, sort, page }, slugFor) {
       p.set(k, String(v));
     }
   });
-  if (sort) p.set("sort", sort);
+  // "relevant" is the default everywhere, so writing it into the query string says
+  // nothing and makes every shared/indexed URL uglier — only a deliberate choice travels.
+  if (sort && sort !== "relevant") p.set("sort", sort);
   if (page > 1) p.set("page", String(page));
   return p;
 }

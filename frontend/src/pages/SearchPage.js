@@ -129,10 +129,22 @@ export default function SearchPage() {
   const headerHidden = useScrollDirection(140);
 
   const seoHome = cms?.seo?.home || {};
+  // A make/model page is a landing page in its own right: "Обяви BMW M2 (G87) (2024-)"
+  // in the tab and the snippet instead of the generic home line. Labels come translated
+  // from TaxonomySelects; until they land the raw URL value stands in.
+  const selName = [taxLabels.make || tax.make, taxLabels.model || tax.model]
+    .filter(Boolean)
+    .join(" ");
+  const listPhrase = selName
+    ? { bg: `Обяви ${selName}`, ro: `Anunțuri ${selName}`, en: `${selName} listings` }[lang]
+      || `${selName} listings`
+    : "";
   useSeo({
     lang,
-    title: seoHome.title || t("seoHomeTitle"),
-    description: seoHome.description || t("seoHomeDesc"),
+    title: listPhrase ? `${listPhrase} | Encar` : seoHome.title || t("seoHomeTitle"),
+    description: listPhrase
+      ? `${listPhrase} — ${t("seoCarDesc")}`
+      : seoHome.description || t("seoHomeDesc"),
   });
 
 

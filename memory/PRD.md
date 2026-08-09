@@ -1,5 +1,9 @@
 # Encar Localised Skin — PRD
 
+<!-- 2026-08-09 (night): search page with make/model now titles itself "Обяви {make model
+(years)} | Encar" + matching description; sort=relevant no longer written to the URL.
+og.png backup logo NOT removed anywhere (owner confirmed concern). -->
+
 <!-- 2026-08-09 (evening): h1 on the car page = model+submodel+trim (seoTitle, with the
 "(No detailed trim)" filler filtered). share-debug proved iMessage RECEIVES the bot HTML
 (nginx UA map works) and never fetches our image endpoints — with round 5 the image lives on

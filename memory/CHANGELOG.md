@@ -2,6 +2,20 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-09 (night) — make/model SEO titles + sort=relevant dropped from URLs
+- `SearchPage` `useSeo` now builds a landing-page title/description when a make (and
+  optionally model) is selected: bg "Обяви BMW 1 Series (E82) (2008-2013) | Encar",
+  ro "Anunțuri …", en "… listings", description = same phrase + `seoCarDesc`. Labels come
+  from `taxLabels` (translated, with generation years), raw URL value stands in until they
+  load. No make selected → the old home title, untouched.
+- `stateToParams` no longer writes `sort` when it is "relevant" (the default everywhere) —
+  shared/indexed URLs are clean; a deliberate non-default sort still travels. Old URLs
+  carrying sort=relevant keep working (paramsToState unchanged) and self-clean on the next
+  state write.
+- Verified in browser: /bg?make=bmw → "Обяви BMW | Encar"; +model → full title with years;
+  sort absent in both; home title/og.png logo untouched (owner asked to confirm the logo
+  was NOT removed anywhere — it was not, on any page).
+
 ## 2026-08-09 (evening) — H1 now carries model + submodel + trim; share-debug read
 - **CarDetailPage h1** now renders `seoTitle` (the deduped "model grade badge_detail" string
   the document title already used) instead of the short `titleModel(car.title)`; the separate
