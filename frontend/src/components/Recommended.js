@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { CarCard } from "@/components/CarCard";
 import { useApp } from "@/context/AppContext";
 import { countRecoClick, getRecommendations } from "@/lib/api";
@@ -12,36 +12,51 @@ import { getTaste } from "@/lib/taste";
  * was missing on mobile. It always asks, and the backend answers with the most opened ads of
  * the fortnight when it has no signal to work with. Only a genuinely empty answer hides it.
  */
+
+// Module-level cache keyed by language, so React 18 StrictMode's double-mount in dev - and
+// any accidental re-mount in prod - reuses the answer from the first fetch instead of firing
+// a second, competing request. The second call was replacing the first's rendered cards mid-
+// stream, aborting every in-flight image download; users saw a shelf that looked "impossible
+// to load". A stale entry after a minute is still fine (the shelf is not personalised enough
+// to matter for that long), and any effect trigger after that goes to the wire.
+const RECO_CACHE = new Map();
+const RECO_TTL_MS = 60_000;
+
 export const Recommended = ({ onOpen }) => {
   const { t, lang } = useApp();
-  const [items, setItems] = useState([]);
-  // `null` while the fetch is in flight, [] after a genuinely empty answer, [...] on results.
-  // The distinction matters: hiding the shelf as soon as `items` is [] pushes the whole grid
-  // up 300 px when results arrive milliseconds later, and Lighthouse counted that jump as
-  // 0.166 CLS (biggest single layout shift on the page).
-  const [done, setDone] = useState(false);
+  const [items, setItems] = useState(() => RECO_CACHE.get(lang)?.items || []);
+  // `done=false` while the fetch is in flight, `true` once the answer is in. The distinction
+  // matters: hiding the shelf as soon as `items` is [] pushes the whole grid up 300 px when
+  // results arrive milliseconds later, and Lighthouse counted that jump as 0.166 CLS (biggest
+  // single layout shift on the page).
+  const [done, setDone] = useState(() => Boolean(RECO_CACHE.get(lang)));
   // Only the owner's hand-picked shelf is measured: a click on the popular list says nothing
   // about a choice the owner made.
-  const [curated, setCurated] = useState(false);
-  // The last language a fetch was successfully STARTED for. React 18's StrictMode double-
-  // fires effects in dev and, in prod, an AppContext re-render toggled the `lang` dependency
-  // briefly enough to run this twice back to back - the second response replaced the first,
-  // every card in the shelf remounted, and every in-flight image request from the first
-  // render was aborted mid-download. The visitor saw "impossible to load" images that were
-  // actually loaded fine and then thrown away. One request per language, once and for all.
-  const inflightLang = useRef(null);
+  const [curated, setCurated] = useState(() => RECO_CACHE.get(lang)?.curated || false);
 
   useEffect(() => {
-    if (!lang || inflightLang.current === lang) return;
-    inflightLang.current = lang;
+    if (!lang) return;
+    const cached = RECO_CACHE.get(lang);
+    if (cached && Date.now() - cached.at < RECO_TTL_MS) {
+      setItems(cached.items);
+      setCurated(cached.curated);
+      setDone(true);
+      return;
+    }
 
     let alive = true;
     setDone(false);
     getRecommendations({ ...getTaste(), lang, limit: 12 })
       .then((d) => {
+        const entry = {
+          items: d.items || [],
+          curated: d.source === "curated",
+          at: Date.now(),
+        };
+        RECO_CACHE.set(lang, entry);
         if (!alive) return;
-        setItems(d.items || []);
-        setCurated(d.source === "curated");
+        setItems(entry.items);
+        setCurated(entry.curated);
       })
       .catch(() => alive && setItems([]))
       .finally(() => alive && setDone(true));
