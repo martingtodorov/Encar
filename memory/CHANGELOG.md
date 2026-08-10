@@ -2,18 +2,41 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
-## 2026-08-10 — Breadcrumb navigation fixes
-- `/api/car/{id}` now returns `manufacturer_raw` and `model_raw` (the exact taxonomy
-  values stored on the listing). CarDetailPage breadcrumbs use these instead of the
-  display labels, so a click on "X5 (G05) (2019-)" filters correctly instead of
-  matching 0 cars (the year span in the label was never part of the taxonomy value).
-- `App.js` now keys `<SearchPage />` on the pathname across the three routes it can
-  serve. Without a key, going from `/bg/porsche/macan` to `/bg/porsche` did not
-  remount the component, so the model filter stayed and the URL mirror wrote the
-  model slug straight back into the URL.
-- Same principle covers makes that were renamed via `label_for` overrides: the
-  breadcrumb URL carries the raw stored value so `resolveSlugs` can map it to the
-  current taxonomy, regardless of how the make is displayed.
+## 2026-08-10 — Breadcrumb navigation fixes (merges + renames + display labels)
+- Root cause 1: CarDetailPage was sending `car.model` (the DISPLAY label like
+  "X5 (G05) (2019-)") to the search endpoint, which filters on taxonomy VALUE
+  ("X5 (G05)"). Result: 0 cars.
+- Root cause 2: For merged makes/models (e.g. "쉐보레(GM대우)" folded into "쉐보레"),
+  the breadcrumb pointed at the folded child value, so only that tiny slice of cars
+  showed up instead of the merged category.
+- Root cause 3: `apply_translations()` walked the whole payload and rewrote Korean
+  taxonomy values into their localised display, so the new `_raw` fields were being
+  changed back to "Chevrolet"/"Cayenne" before they left the API — the search
+  filter (which reads listings.manufacturer in Korean) then matched nothing.
+- Root cause 4: React Router did not remount `<SearchPage />` when the pretty URL
+  depth changed (`/bg/porsche/macan` → `/bg/porsche`), so the model filter stayed
+  and the URL mirror wrote the model slug straight back.
+
+Fixes:
+1. `/api/car/{id}` now returns `manufacturer_raw` and `model_raw` set to
+   `curate.root(level, listing.value)` — the merge-survivor Korean taxonomy value.
+2. `NO_TRANSLATE_KEYS` gained `manufacturer_raw` / `model_raw`, so
+   `apply_translations` leaves them intact.
+3. `curate.refresh(db)` is called at the top of `car_detail` so the merge chain is
+   available on every request.
+4. CarDetailPage breadcrumb links carry the raw values as `?make=...&model=...`;
+   SearchPage's URL mirror rewrites to the pretty `/{lang}/{makeSlug}/{modelSlug}`
+   form once it knows the slugs.
+5. `App.js` keys `<SearchPage />` on the pathname across all three routes it can
+   serve, so any change in URL depth resets state.
+6. SearchPage renders `<NotFoundPage />` when a pretty-URL make/model slug fails to
+   resolve, replacing the silent "back to home" behaviour.
+
+Verified in the preview:
+- BMW X5 G05 detail → "X5 (G05) (2019-)" breadcrumb → 588 cars.
+- Merged Chevrolet (GM Daewoo) Matiz detail → Chevrolet breadcrumb → 6 686 cars
+  (both GM Daewoo and Chevrolet), Matiz Creative → 80 cars.
+- Renamed Cayenne (PO536) detail → Cayenne (2019-) breadcrumb → 520 cars.
 
 ## 2026-08-10 — Launch checklist: 1, 2, 5, 8, 17, 19
 - **Custom 404 (#1):** New `NotFoundPage` (`/app/frontend/src/pages/NotFoundPage.js`). Wired

@@ -319,7 +319,13 @@ HANGUL = re.compile(r"[\uac00-\ud7a3]")
 # rows and the filters said "Diesel 2.0 2WD Noblesse". They are resolved from the ENGLISH
 # cache before the pass instead.
 NO_TRANSLATE_KEYS = {"description", "description_original", "vin", "vehicle_no", "id",
-                     "badge", "badge_detail", "grade"}
+                     "badge", "badge_detail", "grade",
+                     # The raw taxonomy values that drive breadcrumb links back to the
+                     # search page. Translating them into "Chevrolet" would break the
+                     # `curate.expand()` lookup that folds a merged make's cars back into
+                     # its parent — the search filter reads listings.manufacturer, which
+                     # is stored in Korean.
+                     "manufacturer_raw", "model_raw"}
 
 # How many never-before-seen Korean phrases one detail page will translate inline
 # before deferring the rest to the background. Generous, because these phrase sets are
@@ -2667,6 +2673,10 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     """
     lang = norm_lang(lang)
     listing = await db.listings.find_one({"_id": listing_id})
+    # Load taxonomy overrides so `curate.root(...)` can follow a merge chain when the
+    # canonical make/model is computed below. Without this the first request after a
+    # process restart would see an empty override cache and echo raw values back.
+    await curate.refresh(db)
     cached = None if refresh else await db.car_details.find_one({"_id": listing_id})
 
     if not cached:
@@ -2910,6 +2920,16 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
             insurance[dst] = round(v / krw_per_eur, 2) if (v and krw_per_eur) else None
         insurance["fx_krw_eur"] = krw_per_eur
 
+    # Raw taxonomy values, after merges. A model or make the owner has folded into
+    # another (e.g. "M2 쿠페 M 퍼포먼스 …" → "M2") must jump to the SURVIVING slice, so
+    # `curate.root(...)` follows the merge chain. Without this the breadcrumb link on a
+    # merged car filtered on the folded value alone — the tiny child slice, not the
+    # merged category the visitor actually wants.
+    listing_make = (listing or {}).get("manufacturer") or T(cat.get("manufacturerName")) or ""
+    listing_model = (listing or {}).get("model") or T(cat.get("modelName")) or ""
+    canonical_make = curate.root(1, listing_make) if listing_make else ""
+    canonical_model = curate.root(2, listing_model) if listing_model else ""
+
     payload = {
         "id": listing_id,
         "vehicle_id": cached.get("vehicle_id"),
@@ -2920,15 +2940,16 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
                                         curate.display(2, (listing or {}).get("model") or "",
                                                        T(cat.get("modelName")))])),
         "manufacturer": T(cat.get("manufacturerName")),
-        # Raw upstream taxonomy values as stored on the listing: these are what
-        # `/api/car-search` filters against, so the car page (and its breadcrumb links)
-        # can jump back to the exact `make + model` slice this car belongs to. Without
-        # them we would have to pass the display label (e.g. "X5 (G05) (2019-)"), which
-        # includes the year span and never matches the taxonomy value ("X5 (G05)").
-        "manufacturer_raw": (listing or {}).get("manufacturer") or T(cat.get("manufacturerName")),
+        # Raw upstream taxonomy values as stored on the listing, after any owner-configured
+        # merges. `/api/car-search` filters on these, so a breadcrumb built from them lands
+        # on the exact `make + model` slice the visitor expects. Passing the display label
+        # (e.g. "X5 (G05) (2019-)") would never match — the taxonomy value is "X5 (G05)" —
+        # and a merged model would show only the folded-away child rather than the whole
+        # surviving category.
+        "manufacturer_raw": canonical_make,
         "model": curate.display(2, (listing or {}).get("model") or "",
                                 T(cat.get("modelName"))),
-        "model_raw": (listing or {}).get("model") or T(cat.get("modelName")),
+        "model_raw": canonical_model,
         # Our own cached English trim FIRST, so the car page, the result rows and the filter
         # dropdown all spell it the same way ("4-Door 43 4MATIC+", not Encar's "4Door 43").
         "grade": (listing or {}).get("badge_t") or L((listing or {}).get("badge"))
