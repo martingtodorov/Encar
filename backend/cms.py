@@ -274,8 +274,11 @@ async def _translate_doc(payload: dict, lang: str):
     text = ""
     if os.environ.get("ANTHROPIC_API_KEY"):
         try:
+            # Default to Haiku, as everywhere else in the app: the owner pays Haiku token
+            # rates for the whole translation surface. `ANTHROPIC_MODEL` env var can still
+            # promote a page-save to Sonnet if a lawyer's document ever calls for it.
             resp = await tr._anthropic_client().messages.create(
-                model=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5"),
+                model=os.environ.get("ANTHROPIC_MODEL", tr.HAIKU_MODEL),
                 max_tokens=16000,
                 system=system,
                 messages=[{"role": "user", "content": body}],
