@@ -2717,11 +2717,15 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     photos = []
     for path in detail_photo_paths(detail):
         photos.append({
-            # 1280x720: the main gallery on the detail page and the fullscreen lightbox
-            # both use this URL, so a single fetch covers both views. A retina laptop
+            # 1280x720: the main gallery on the detail page uses this. A retina laptop
             # sees the picture at ~662x372 CSS px (roughly 1324x744 device px), so 720p
-            # is what the lightbox can actually display without upscaling.
+            # is enough for the inline view without upscaling.
             "full": image_url(path, 1280, 720),
+            # 1920x1080 is the fullscreen lightbox source. Modern laptops open the viewer
+            # at ~1600 wide, phones downscale it to their screen; 1080p is the ceiling
+            # that Lighthouse says the CDN can actually paint. `full` stays 720p so the
+            # inline gallery never pays for pixels it will not display.
+            "hires": image_url(path, 1920, 1080),
             # 500x280 sharpens the 224x126 CSS thumbnails on retina (they render around
             # 448x252 device px) without shipping a full gallery-sized picture per
             # thumbnail. 260x147 was visibly soft on the pinned desktop rail.
