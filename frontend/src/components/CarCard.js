@@ -91,6 +91,12 @@ export const CarCard = ({ car, onOpen, showRegion = true, eager = false, priorit
             onCtaReached={warmNow}
             eager={eager}
             priority={priority}
+            // The swiper sits at z-10 above the invisible Link overlay so its own arrows
+            // work; a tap ON the image would land on the swiper and never reach the link
+            // below. Wiring `onTap` back to the same handler makes the whole picture area
+            // clickable to open the car - the user reported the reco shelf card looked
+            // clickable but only the body was.
+            onTap={() => onOpen?.(car)}
             // Swiping to the second photo is intent: nobody flicks past the cover shot of a
             // car they are not considering. The ad is fetched in the background from there
             // on (warmCar dedupes, so the extra calls cost nothing) and the tap is instant.

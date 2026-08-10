@@ -121,6 +121,9 @@ export const CarRow = ({ car, onOpen, eager = false, priority = false }) => {
             onCtaReached={warmNow}
             eager={eager}
             priority={priority}
+            // Same reason as CarCard: swiper sits above the invisible Link overlay so its
+            // arrows work, and without an onTap the picture area was not opening the car.
+            onTap={() => onOpen?.(car)}
           />
         </div>
       </div>
