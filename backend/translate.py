@@ -25,6 +25,12 @@ CHUNK = 60
 # set TRANSLATE_CHUNK_PACE=0 on a paid key to run flat out.
 CHUNK_PACE = float(os.environ.get("TRANSLATE_CHUNK_PACE", "6"))
 MODEL = ("gemini", "gemini-3-flash-preview")
+# The Anthropic model to use for CAR-DETAIL page translations. Owner's directive: the
+# whole detail path (specs, options, panel labels, dealer descriptions) runs on Haiku
+# because it costs ~5× less than Sonnet for output tokens and the wording is factual,
+# not creative. Sonnet stays the default for label-set warm-up where a wrong marque
+# spelling would then propagate everywhere.
+HAIKU_MODEL = os.environ.get("ANTHROPIC_FAST_MODEL", "claude-haiku-4-5-20251001")
 
 # ── LLM circuit breaker ──────────────────────────────────────────────────────
 # Errors that cannot possibly be fixed by retrying (no credit, bad key, no quota at all).
@@ -165,11 +171,11 @@ def _anthropic_client():
     return _ANTHROPIC
 
 
-async def _anthropic_call(chunk, lang):
+async def _anthropic_call(chunk, lang, model=None):
     """Primary translator: Anthropic Claude with the project's own API key."""
     import anthropic
 
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
+    model = model or os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
     try:
         resp = await _anthropic_client().messages.create(
             model=model,
@@ -202,16 +208,18 @@ async def _emergent_call(chunk, lang):
     return await chat.send_message(UserMessage(text=_user_prompt(chunk, lang)))
 
 
-def _providers():
+def _providers(model=None):
     """Every provider we can use, in order of preference.
 
+    `model` overrides the Anthropic model for this call chain, so car-detail translations
+    can force Haiku while label-set warm-up keeps Sonnet as the default.
     A CHAIN, not a single choice. The old code picked one provider by which key was present
     and gave up there, so when the owner's Anthropic key expired every model name quietly
     stopped being translated even though a working Gemini key sat right next to it.
     """
     out = []
     if os.environ.get("ANTHROPIC_API_KEY"):
-        out.append((_anthropic_call, "anthropic"))
+        out.append((lambda chunk, lang: _anthropic_call(chunk, lang, model=model), "anthropic"))
     if os.environ.get("GEMINI_API_KEY"):
         out.append((_gemini_call, "gemini"))
     if os.environ.get("EMERGENT_LLM_KEY"):
@@ -219,9 +227,9 @@ def _providers():
     return out
 
 
-async def _llm_translate(chunk, lang):
+async def _llm_translate(chunk, lang, *, model=None):
     """Translate a list of strings in one call. Returns {source: translation}."""
-    chain = _providers()
+    chain = _providers(model=model)
     if not chain:
         log.error("no translation API key configured "
                   "(ANTHROPIC_API_KEY/GEMINI_API_KEY/EMERGENT_LLM_KEY)")
@@ -295,10 +303,12 @@ def _apply_overrides(out, sources, lang):
             out[src] = fixed
 
 
-async def translate_many(db, texts, lang):
+async def translate_many(db, texts, lang, *, model=None):
     """Cache-around-LLM batch translate. Returns {source: translated}.
 
-    Unknown/unsupported lang, or Korean itself, is a pass-through.
+    Unknown/unsupported lang, or Korean itself, is a pass-through. `model` (optional)
+    forces a specific Anthropic model — the car-detail page passes Haiku so nothing on a
+    listing view is ever billed at Sonnet rates.
     """
     if lang not in LANGS:
         return {t: t for t in texts}
@@ -332,7 +342,7 @@ async def translate_many(db, texts, lang):
         # the limit through 429s and backoff.
         if i and CHUNK_PACE:
             await asyncio.sleep(CHUNK_PACE)
-        got = await _llm_translate(chunk, lang)
+        got = await _llm_translate(chunk, lang, model=model)
         if not got and _breaker_open():
             # provider is down/out of credit - stop hammering it, keep what we have
             log.warning("translate: provider unavailable, stopping after %s/%s",
@@ -404,19 +414,14 @@ DESC_SYSTEM = (
 async def stream_description(db, text, lang):
     """Yield a dealer description translation in pieces, then cache the whole thing.
 
-    A description runs to several hundred output tokens, and generation speed is the hard
-    floor: waiting for the complete answer means the visitor watches a spinner for 10-20
-    seconds. Streaming puts the first words on screen in about a second. Total time is
-    unchanged - it just stops being dead time.
-
-    Uses the fast model: this is a sales blurb, not data that other prices depend on.
-    Plain prose rather than the batch JSON envelope, so there is nothing to parse before
-    text can be shown.
+    Legacy single-shot streamer. Kept for symmetry with the callers, but the new default
+    path is `translate_description_segmented` — it splits the text into lines, serves
+    everything already cached without touching the LLM, and only batches the truly new
+    lines. See that function for the cost story.
     """
-    model = os.environ.get("ANTHROPIC_FAST_MODEL", "claude-haiku-4-5-20251001")
     parts = []
     async with _anthropic_client().messages.stream(
-        model=model,
+        model=HAIKU_MODEL,
         max_tokens=4000,
         temperature=0.2,   # accuracy over flair: this is a spec sheet in prose
         system=DESC_SYSTEM.format(lang=LANGS[lang], rules=DESC_RULES.get(lang, "")),
@@ -433,6 +438,113 @@ async def stream_description(db, text, lang):
             {"$set": {"_id": cache_key(text, lang), "source": text,
                       "lang": lang, "target": full}},
             upsert=True)
+
+
+# Split a description on line breaks. Blank lines are preserved so the reassembled
+# translation looks like the original — dealer boilerplate lives on a rhythm of empty
+# lines and separators, and squashing them collapses a paragraph into one wall of text.
+_LINE_SPLIT = re.compile(r"(\r\n|\n|\r)")
+
+# Purely decorative dealer separator lines (─── ▒▒▒ 〓〓〓 ---- === ===): no words to
+# translate, waste of a cache slot and of the LLM. Copied through as-is.
+_DECORATIVE = re.compile(r"^[\s\-\=\_\.\*\#\~\▒\█\▓\░\◆\◇\◈\■\□\●\○\▶\▷\◀\◁\★\☆"
+                         r"\〓\═\╬\┃\━\〰\・\·]+$")
+
+
+def _segments(text):
+    """Split a description into segments a cache can address one line at a time.
+
+    Returns a list of (kind, value) pairs:
+      ("break", "\n")             — preserved verbatim in the output
+      ("blank", "   ")            — whitespace-only lines, preserved verbatim
+      ("deco",  "▒▒▒▒▒▒▒")        — copy-through decoration, never sent to the LLM
+      ("skip",  "1234-56-7890")   — has no Korean characters, so nothing to translate
+      ("todo",  "무사고 차량입니다")   — a real Korean line that needs a translation
+    """
+    out = []
+    for piece in _LINE_SPLIT.split(text or ""):
+        if not piece:
+            continue
+        if piece in ("\n", "\r", "\r\n"):
+            out.append(("break", piece))
+            continue
+        if not piece.strip():
+            out.append(("blank", piece))
+            continue
+        if _DECORATIVE.match(piece):
+            out.append(("deco", piece))
+            continue
+        if not _has_hangul(piece):
+            out.append(("skip", piece))
+            continue
+        out.append(("todo", piece))
+    return out
+
+
+async def translate_description_segmented(db, text, lang, *, on_progress=None):
+    """Translate a dealer description one line at a time, driven by the cache.
+
+    Each line is stored in `db.translations` under its own hash: the second time a
+    dealer sells a car with the same "무사고 차량입니다" boilerplate line, that line
+    costs zero tokens. Only lines with no cache hit are batched through Haiku in ONE
+    call at the end.
+
+    `on_progress(text, done)` is called after every cache hit and after the LLM batch,
+    so a caller can push incremental output to a stream. `done=True` on the last event.
+    Returns the full translated text.
+    """
+    if not text or not text.strip():
+        return text
+    segs = _segments(text)
+
+    # 1) Cache lookup for every "todo" segment in ONE indexed Mongo call.
+    todo_lines = [s for kind, s in segs if kind == "todo"]
+    tmap = await translate_cached_only(db, todo_lines, lang) if todo_lines else {}
+
+    # 2) Anything already cached AND anything decorative or Latin is served instantly.
+    out = []
+    def emit(text_piece):
+        out.append(text_piece)
+        if on_progress:
+            on_progress(text_piece, False)
+
+    # 3) Batched Haiku call for the misses, ONE request per description.
+    missing = [line for line in todo_lines if line not in tmap]
+    if missing:
+        got = await _llm_translate(list(dict.fromkeys(missing)), lang, model=HAIKU_MODEL)
+        # Persist each newly translated line individually so the very next visitor to a
+        # DIFFERENT car that shares this line pays nothing.
+        if got:
+            from pymongo import UpdateOne
+            docs = [
+                {"_id": cache_key(src, lang), "source": src, "lang": lang, "target": tr}
+                for src, tr in got.items() if tr and _looks_translated(src, tr)
+            ]
+            if docs:
+                await db.translations.bulk_write(
+                    [UpdateOne({"_id": d["_id"]}, {"$set": d}, upsert=True) for d in docs],
+                    ordered=False)
+            tmap.update({k: v for k, v in got.items() if v})
+
+    # 4) Stitch back together, preserving line breaks and decorative bars verbatim.
+    for kind, value in segs:
+        if kind in ("break", "blank", "deco", "skip"):
+            emit(value)
+        else:
+            emit(tmap.get(value) or value)
+
+    full = "".join(out)
+    # Cache the whole answer too, so a re-visit of the same URL does one Mongo GET
+    # rather than reassembling from segments.
+    if full.strip() and full != text:
+        await db.translations.update_one(
+            {"_id": cache_key(text, lang)},
+            {"$set": {"_id": cache_key(text, lang), "source": text,
+                      "lang": lang, "target": full}},
+            upsert=True)
+    if on_progress:
+        on_progress("", True)
+    return full
 
 
 def _has_hangul(s):
@@ -528,14 +640,18 @@ async def translate_cached_only(db, texts, lang):
     return out
 
 
-def schedule_translation(db, texts, lang):
-    """Fire-and-forget fill of cache misses, so the NEXT view is translated."""
+def schedule_translation(db, texts, lang, *, model=None):
+    """Fire-and-forget fill of cache misses, so the NEXT view is translated.
+
+    `model` (optional) forces a specific Anthropic model — the detail page passes Haiku
+    so a background fill of a spec sheet never burns Sonnet-priced tokens.
+    """
     if lang not in LANGS or not texts:
         return
 
     async def _job():
         try:
-            await translate_many(db, texts, lang)
+            await translate_many(db, texts, lang, model=model)
         except Exception as e:
             log.warning("background translation failed: %s", str(e)[:160])
 

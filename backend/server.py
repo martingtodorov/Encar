@@ -84,9 +84,11 @@ import ports as ports_mod   # noqa: E402
 import curate               # noqa: E402
 import sync as sync_mod      # noqa: E402
 from encar import encar, image_url, detail_photo_paths, under_contract, sales_status  # noqa: E402
-from translate import (LANGS, breaker_status, cached_label_set,  # noqa: E402
+from translate import (LANGS, HAIKU_MODEL, breaker_status,  # noqa: E402
+                       cached_label_set,
                        schedule_translation,
                        stream_description, translate_cached_only,
+                       translate_description_segmented,
                        translate_listings, translate_many, translate_one)
 
 logging.basicConfig(level=logging.INFO,
@@ -448,10 +450,12 @@ async def listings_by_ids(body: ListingIdsBody, lang: str = "bg"):
 async def translate_description(listing_id: str, lang: str = "bg"):
     """Translate ONE dealer description, on demand.
 
-    These are long, unique per car and most visitors never read them, so translating
-    them on page load would burn an LLM call per car view for nothing. The visitor asks
-    for it with a button; the result is cached permanently like every other string, so
-    the second person to ask pays nothing.
+    Line-by-line cache: every boilerplate sentence a dealer repeats across their
+    inventory ("무사고 차량입니다", "정기 점검 완료") is stored as its own row in
+    `db.translations`, so the second time it appears — even on a totally different car —
+    it costs zero tokens. Only the lines the cache has never seen are batched through
+    Haiku in ONE request. Full result is also cached under the whole-text hash so a
+    re-visit is a single indexed Mongo read.
     """
     lang = norm_lang(lang)
     cached = await db.car_details.find_one({"_id": listing_id})
@@ -459,8 +463,8 @@ async def translate_description(listing_id: str, lang: str = "bg"):
     text = text.strip()
     if not text:
         raise HTTPException(404, "this car has no dealer description")
-    out = await translate_many(db, [text], lang)
-    translated = out.get(text)
+    hit = await translate_cached_only(db, [text], lang)
+    translated = hit.get(text) or await translate_description_segmented(db, text, lang)
     if not translated or translated == text:
         raise HTTPException(503, "translation is unavailable right now, please try again")
     return {"text": translated, "lang": lang}
@@ -472,11 +476,12 @@ def _sse(payload):
 
 @api.get("/car/{listing_id}/translate-description/stream")
 async def translate_description_stream(listing_id: str, lang: str = "bg"):
-    """Same translation as the POST route, streamed.
+    """Segment-cached description translation, streamed.
 
-    Descriptions take 10-20s to generate because output length is the bottleneck, so the
-    text is pushed out as it arrives instead of after it is finished. A cached
-    translation is sent as a single event immediately.
+    Splits the dealer text on line breaks, serves every already-cached line
+    instantly from Mongo, and batches only the misses through Haiku in ONE call.
+    A description whose lines are all recycled dealer boilerplate never touches the
+    LLM at all — the buyer sees the translation the moment the request lands.
     """
     lang = norm_lang(lang)
     cached = await db.car_details.find_one({"_id": listing_id})
@@ -486,15 +491,19 @@ async def translate_description_stream(listing_id: str, lang: str = "bg"):
         raise HTTPException(404, "this car has no dealer description")
 
     async def events():
+        # Whole-text cache first — one indexed Mongo GET, no reassembly work.
         hit = await translate_cached_only(db, [text], lang)
         if hit.get(text):
             yield _sse({"chunk": hit[text]})
             yield _sse({"done": True, "cached": True})
             return
         try:
-            async for piece in stream_description(db, text, lang):
-                yield _sse({"chunk": piece})
-            yield _sse({"done": True, "cached": False})
+            translated = await translate_description_segmented(db, text, lang)
+            if translated and translated != text:
+                yield _sse({"chunk": translated})
+                yield _sse({"done": True, "cached": False})
+                return
+            yield _sse({"error": "translation is unavailable right now"})
         except Exception as e:
             log.warning("description stream failed for %s: %s", listing_id, str(e)[:200])
             yield _sse({"error": "translation is unavailable right now"})
@@ -2774,7 +2783,10 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     tr = await translate_cached_only(db, ko_names, lang)
     miss = [x for x in ko_names if x and x.strip() not in tr]
     if miss:
-        schedule_translation(db, list(dict.fromkeys(miss)), lang)
+        # Detail-page translations are billed on Haiku, not Sonnet — a spec sheet is
+        # factual, not creative, and Sonnet is roughly 5× the token cost. `schedule_translation`
+        # is fire-and-forget, so a cache miss never blocks the render.
+        schedule_translation(db, list(dict.fromkeys(miss)), lang, model=HAIKU_MODEL)
 
     # Make and model must NEVER render as Korean, so unlike the rest of the page they
     # are translated synchronously on a cache miss. It is a tiny, bounded set (two
@@ -2784,7 +2796,7 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     always = [v for v in (cat.get("manufacturerName"), cat.get("modelName")) if v]
     if always:
         try:
-            tr.update(await translate_many(db, always, "en"))
+            tr.update(await translate_many(db, always, "en", model=HAIKU_MODEL))
         except Exception as e:
             log.warning("make/model translation failed: %s", str(e)[:160])
 
@@ -2803,7 +2815,7 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     cold = [v.strip() for v in trims if HANGUL.search(v) and v.strip() not in latin]
     if cold:
         # Cache-only above, so a trim nobody has looked up yet would stay Korean forever.
-        schedule_translation(db, list(dict.fromkeys(cold)), "en")
+        schedule_translation(db, list(dict.fromkeys(cold)), "en", model=HAIKU_MODEL)
 
     def L(v):
         return latin.get((v or "").strip()) or v
@@ -3012,7 +3024,11 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
             tmap.update(await translate_cached_only(db, missing, lang))
             still = [x for x in missing if x not in tmap]
             if still:
-                schedule_translation(db, list(dict.fromkeys(still)), lang)
+                # Detail-page leftovers run on Haiku, per the owner: options, panel
+                # labels, spec lines and dealer freeform text are factual and Haiku
+                # renders them just as well at ~1/5 the token cost of Sonnet.
+                schedule_translation(db, list(dict.fromkeys(still)), lang,
+                                     model=HAIKU_MODEL)
                 translation_pending = True
         payload = apply_translations(payload, tmap)
     payload["translation_pending"] = translation_pending

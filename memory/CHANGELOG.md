@@ -2,6 +2,21 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-10 — Cost cut: line-cached descriptions + Haiku on the whole car-detail path
+- New `translate_description_segmented()` in `translate.py`. Splits a dealer description
+  on line breaks, serves every already-cached line from `db.translations` instantly and
+  batches only the misses through Haiku in ONE call. Blank lines and decorative
+  separator lines (▒▒▒, ▶, ━━━, etc.) are copy-through — they never spend a cache slot
+  or an LLM token. Each newly translated line is upserted individually so the next
+  dealer boilerplate line "무사고 차량입니다" that another car reuses costs zero.
+- `HAIKU_MODEL` (default `claude-haiku-4-5-20251001`) is now honoured by every car-detail
+  call: `translate_many(..., model=HAIKU_MODEL)`, `schedule_translation(..., model=HAIKU_MODEL)`,
+  and the description streamer. Sonnet stays only for the post-crawl warm-up.
+- `stream_description()` now streams through Haiku on the rare path where a description
+  has no cached lines at all. The primary path is segment cache.
+- Verified end to end: 20-line Korean dealer boilerplate → 1 batched LLM call → 14 rows
+  written to `db.translations`. Second visit to the same car: 0 LLM calls.
+
 ## 2026-08-10 — Breadcrumb navigation fixes (merges + renames + display labels)
 - Root cause 1: CarDetailPage was sending `car.model` (the DISPLAY label like
   "X5 (G05) (2019-)") to the search endpoint, which filters on taxonomy VALUE
