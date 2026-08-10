@@ -15,6 +15,25 @@ Encar (uses the visitor's IP), with:
 * mobile.bg bot integration
 
 ## Recently completed (this session)
+* **HTML Sitemap page (`/bg/sitemap`, `/en/sitemap`)** (2026-02-10).
+  One indexable page listing every make and every model as real `<Link>` anchors so
+  Googlebot can walk the whole catalogue in a single hop, distributing internal PageRank
+  without executing JS. Owner asked for BG and EN only — Romanian version is intentionally
+  404'd and its footer link is hidden.
+  * Backend: `/api/sitemap/index?lang=bg|en` — flattens `taxonomy` (levels 1 + 2) into
+    `{makes:[{value, slug, label, count, models:[{value, slug, label, count}]}]}`. Uses
+    the permanent `cached_label_set` for make labels and `translate_cached_only` for
+    model labels (both proper nouns, always Latin), so no LLM call is made at request
+    time. Rejects RO with 400.
+  * Frontend: `pages/SitemapPage.js` renders 3-column model grids under each make,
+    plus a total count line ("62 makes · 1263 models"). Route registered at
+    `/:lang/sitemap`. Guarded to return `<NotFoundPage />` for RO. Adds `navSitemap`
+    / `sitemapTitle` / `sitemapIntro` / `sitemapCounts` to `i18n_pages.js`.
+  * Footer: `content/company.js` gets a `langs: ["bg", "en"]` allow-list on the sitemap
+    link; `SiteFooter.js` skips rows whose `langs` list excludes the current language.
+  * XML sitemap: `/api/sitemap-static.xml` now includes `/bg/sitemap` and `/en/sitemap`
+    with reciprocal hreflang alternates so Google discovers the new HTML sitemap.
+
 * **Traffic counter — accurate weekly/monthly unique visitors** (2026-02-08).
   Discovered that daily-rotating salt made the week/month "unique visitors" numbers over-count
   a returning visitor once per day (up to 7× for week, 30× for month). Fixed by adding a

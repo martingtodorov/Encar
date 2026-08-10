@@ -2593,6 +2593,22 @@ async def sitemap_static(request: Request):
     for suffix, freq, prio in routes:
         path_for = {code: f"/{code}{suffix}" for code in langs}
         urls.append(_sitemap_url(base, path_for, today, freq, prio))
+
+    # The HTML sitemap lives only in bg and en (owner request). One <url> entry
+    # per language, with reciprocal hreflang alternates - no x-default because
+    # neither language is a fallback for the other.
+    sitemap_langs = [c for c in ("bg", "en") if c in langs]
+    for code in sitemap_langs:
+        loc = f"{base}/{code}/sitemap"
+        parts = [f"<loc>{_attr(loc)}</loc>"]
+        for c in sitemap_langs:
+            parts.append(
+                f'<xhtml:link rel="alternate" hreflang="{c}" '
+                f'href="{_attr(base + "/" + c + "/sitemap")}"/>')
+        parts.append(f"<lastmod>{today}</lastmod>")
+        parts.append("<changefreq>weekly</changefreq>")
+        parts.append("<priority>0.6</priority>")
+        urls.append("<url>" + "".join(parts) + "</url>")
     return Response(_sitemap_wrap(urls), headers=_sitemap_headers())
 
 
@@ -2629,6 +2645,72 @@ async def sitemap_models(request: Request):
         path_for = {code: f"/{code}/{mslug}/{modelslug}" for code in langs}
         urls.append(_sitemap_url(base, path_for, today, "daily", "0.7"))
     return Response(_sitemap_wrap(urls), headers=_sitemap_headers())
+
+
+@api.get("/sitemap/index")
+async def sitemap_index_json(lang: str = "bg"):
+    """Every make and its models, flat JSON for the HTML sitemap page.
+
+    The HTML sitemap ships all 200+ makes and their models as real anchors so
+    Googlebot (and visitors) can walk the whole catalogue from one page.
+    Only Bulgarian and English are exposed - Romanian is intentionally omitted.
+
+    Makes and models are proper nouns and stay in Latin script regardless of
+    `lang`, but the response is language-scoped so the page can build correctly
+    prefixed URLs (/bg/... vs /en/...).
+    """
+    lang = norm_lang(lang)
+    if lang not in ("bg", "en"):
+        raise HTTPException(400, "sitemap is available only in bg and en")
+
+    # Curation may merge makes; the taxonomy collection is what the dropdowns
+    # (and the make/model routes) read, so it is also the right source here.
+    await curate.refresh(db)
+
+    # Level 1: makes. Sorted alphabetically by slug so the page groups A..Z.
+    makes: list[dict] = []
+    make_slug_by_value: dict[str, str] = {}
+    async for row in db.taxonomy.find(
+            {"level": 1, "slug": {"$nin": [None, ""]}},
+            {"value": 1, "slug": 1, "count": 1}).sort([("value", 1)]):
+        makes.append({
+            "value": row["value"],
+            "slug": row["slug"],
+            "count": row.get("count") or 0,
+            "models": [],
+        })
+        make_slug_by_value[row["value"]] = row["slug"]
+
+    # Level 2: models. One aggregation, then grouped by make in Python so the
+    # per-make lists are sorted alphabetically without hitting the DB again.
+    models_by_make: dict[str, list[dict]] = {}
+    all_model_values: list[str] = []
+    async for row in db.taxonomy.find(
+            {"level": 2, "slug": {"$nin": [None, ""]}},
+            {"make": 1, "value": 1, "slug": 1, "count": 1}).sort([("value", 1)]):
+        mk = row.get("make")
+        if not mk or mk not in make_slug_by_value:
+            continue
+        models_by_make.setdefault(mk, []).append({
+            "value": row["value"],
+            "slug": row["slug"],
+            "count": row.get("count") or 0,
+        })
+        all_model_values.append(row["value"])
+
+    # Makes and models are proper nouns and render in English regardless of `lang`.
+    # The same permanent cache the taxonomy dropdowns use so no provider is touched.
+    make_labels = await cached_label_set(
+        db, "tax:en:1:|||filters", list(make_slug_by_value.keys()), "en")
+    model_labels = await translate_cached_only(db, all_model_values, "en")
+
+    for m in makes:
+        m["label"] = make_labels.get(m["value"], m["value"])
+        for mo in models_by_make.get(m["value"], []):
+            mo["label"] = model_labels.get(mo["value"], mo["value"])
+        m["models"] = models_by_make.get(m["value"], [])
+
+    return {"lang": lang, "makes": makes}
 
 
 @api.get("/sitemap-listings-{n}.xml")

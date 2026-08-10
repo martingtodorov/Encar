@@ -13,6 +13,7 @@ import SavedCarsPage from "@/pages/SavedCarsPage";
 import SavedSearchesPage from "@/pages/SavedSearchesPage";
 import HowItWorksPage from "@/pages/HowItWorksPage";
 import TrackPage from "@/pages/TrackPage";
+import SitemapPage from "@/pages/SitemapPage";
 import LoginPage from "@/pages/LoginPage";
 import VerifyEmailPage from "@/pages/VerifyEmailPage";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
@@ -56,6 +57,7 @@ function AppRouter() {
         <Route path="searches" element={<SavedSearchesPage />} />
         <Route path="how-it-works" element={<HowItWorksPage />} />
         <Route path="track" element={<TrackPage />} />
+        <Route path="sitemap" element={<SitemapPage />} />
         <Route path="track/:ref" element={<TrackPage />} />
         <Route path="login" element={<LoginPage />} />
         <Route path="verify-email" element={<VerifyEmailPage />} />

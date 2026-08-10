@@ -62,6 +62,7 @@ export const FOOTER_COLUMNS = [
       { to: "/how-it-works", key: "navHowItWorks" },
       { to: "/fees", key: "navFees" },
       { to: "/contact", key: "legalContact" },
+      { to: "/sitemap", key: "navSitemap", langs: ["bg", "en"] },
     ],
   },
   {

@@ -134,6 +134,12 @@ export async function getFilters(lang) {
   return data;
 }
 
+/** Every make + its models, for the HTML sitemap page. bg and en only. */
+export async function getSitemapIndex(lang) {
+  const { data } = await http.get("/sitemap/index", { params: { lang } });
+  return data;
+}
+
 /** Cascading Make -> Model -> Submodel -> Trim. Served from a precomputed tree. */
 /** English slugs from the URL -> the Korean values the search endpoint speaks. */
 export async function resolveSlugs(params) {
