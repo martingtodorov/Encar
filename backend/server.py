@@ -4376,6 +4376,78 @@ async def admin_shipment_remove(ref: str, request: Request,
     return {"removed": bool(doc)}
 
 
+@api.get("/admin/dictionary/stats")
+async def admin_dictionary_stats(request: Request,
+                                 x_admin_token: str = Header(default="")):
+    """Counts by field type × language. This is the self-learning translation dictionary.
+
+    Every make, model, badge, spec value, fuel and dealer boilerplate line we have ever
+    translated lives in `db.translations` keyed by (source, language) with an added
+    `type` tag. A high hit-rate here means we are close to zero LLM spend.
+    """
+    await _require_admin(request, x_admin_token)
+    total = await db.translations.count_documents({})
+    by_type = []
+    async for d in db.translations.aggregate([
+        {"$group": {"_id": {"type": "$type", "lang": "$lang"}, "n": {"$sum": 1}}},
+        {"$sort": {"n": -1}},
+    ]):
+        by_type.append({"type": d["_id"].get("type") or "misc",
+                        "lang": d["_id"].get("lang") or "?",
+                        "count": d["n"]})
+    return {"total": total, "rows": by_type}
+
+
+@api.get("/admin/dictionary")
+async def admin_dictionary_browse(request: Request,
+                                  type: str = "", lang: str = "",
+                                  q: str = "", limit: int = 100, offset: int = 0,
+                                  x_admin_token: str = Header(default="")):
+    """Browse the translation dictionary. Filter by `type` (model, badge, fuel_type, …),
+    `lang` (bg/ro/en) and a substring `q` matched against source OR target.
+    """
+    await _require_admin(request, x_admin_token)
+    limit = max(1, min(500, limit))
+    query = {}
+    if type:
+        query["type"] = type
+    if lang:
+        query["lang"] = lang
+    if q:
+        rx = {"$regex": re.escape(q), "$options": "i"}
+        query["$or"] = [{"source": rx}, {"target": rx}]
+    total = await db.translations.count_documents(query)
+    items = []
+    async for d in db.translations.find(query, projection={
+        "_id": 0, "source": 1, "target": 1, "type": 1, "lang": 1
+    }).sort([("type", 1), ("source", 1)]).skip(offset).limit(limit):
+        items.append(d)
+    return {"total": total, "items": items, "offset": offset, "limit": limit}
+
+
+@api.put("/admin/dictionary/{lang}/{source_hash}")
+async def admin_dictionary_edit(lang: str, source_hash: str, body: dict,
+                                request: Request,
+                                x_admin_token: str = Header(default="")):
+    """Correct a translation the LLM got wrong. The dictionary is the source of truth,
+    so an override lands here and every page that reads the cache picks it up on next load.
+    """
+    await _require_admin(request, x_admin_token)
+    target = (body.get("target") or "").strip()
+    if not target:
+        raise HTTPException(400, "target is required")
+    row = await db.translations.find_one({"_id": source_hash})
+    if not row:
+        raise HTTPException(404, "no such dictionary entry")
+    await db.translations.update_one(
+        {"_id": source_hash},
+        {"$set": {"target": target,
+                  "edited_at": datetime.now(timezone.utc).isoformat(),
+                  "edited_by": "admin"}}
+    )
+    return {"updated": True}
+
+
 @api.get("/csrf")
 async def csrf_token(request: Request, response: Response):
     """Hand the caller the token their next unsafe request has to carry.

@@ -305,8 +305,12 @@ def _apply_overrides(out, sources, lang):
             out[src] = fixed
 
 
-async def translate_many(db, texts, lang, *, model=None):
+async def translate_many(db, texts, lang, *, model=None, type=None):
     """Cache-around-LLM batch translate. Returns {source: translated}.
+
+    `type` (optional, e.g. "fuel", "model", "feature", "description_line") tags every
+    row this call writes to `db.translations` so the dictionary can be reviewed and
+    audited by column. Callers pass it when the field they are translating is known.
 
     Unknown/unsupported lang, or Korean itself, is a pass-through. `model` (optional)
     forces a specific Anthropic model — the car-detail page passes Haiku so nothing on a
@@ -337,6 +341,29 @@ async def translate_many(db, texts, lang, *, model=None):
         return out
 
     from pymongo import UpdateOne
+
+    # Latin-only strings — proper nouns like "BMW", "M2 (F87)", "GMC", "Grandeur HG" —
+    # ARE their own translation in every language, so asking a provider to translate
+    # them just spends tokens to be told back what we sent. Persist them as identity
+    # rows and short-circuit the LLM call entirely. Massive savings on the search page
+    # because every make and every English trim was billing one identity round-trip on
+    # first sight.
+    identity = [t for t in todo if not _has_hangul(t)]
+    if identity:
+        docs = [{"_id": cache_key(t, lang), "source": t, "lang": lang, "target": t,
+                 **({"type": type} if type else {})}
+                for t in identity]
+        await db.translations.bulk_write(
+            [UpdateOne({"_id": d["_id"]}, {"$set": d}, upsert=True) for d in docs],
+            ordered=False)
+        for t in identity:
+            out[t] = t
+        identity_set = set(identity)
+        todo = [t for t in todo if t not in identity_set]
+        log.info("translate_many[%s]: identity-cached %s Latin values (skipped LLM)",
+                 lang, len(identity))
+    if not todo:
+        return out
     for i in range(0, len(todo), CHUNK):
         chunk = todo[i:i + CHUNK]
         # Proactive pacing between chunks. Free Gemini tiers allow only a handful of
@@ -358,7 +385,8 @@ async def translate_many(db, texts, lang, *, model=None):
             if tr:
                 out[src] = tr
                 docs.append({"_id": cache_key(src, lang), "source": src,
-                             "lang": lang, "target": tr})
+                             "lang": lang, "target": tr,
+                             **({"type": type} if type else {})})
             else:
                 out[src] = src  # graceful: show Korean rather than a blank
         if docs:
@@ -519,7 +547,8 @@ async def translate_description_segmented(db, text, lang, *, on_progress=None):
         if got:
             from pymongo import UpdateOne
             docs = [
-                {"_id": cache_key(src, lang), "source": src, "lang": lang, "target": tr}
+                {"_id": cache_key(src, lang), "source": src, "lang": lang, "target": tr,
+                 "type": "description_line"}
                 for src, tr in got.items() if tr and _looks_translated(src, tr)
             ]
             if docs:
@@ -542,7 +571,7 @@ async def translate_description_segmented(db, text, lang, *, on_progress=None):
         await db.translations.update_one(
             {"_id": cache_key(text, lang)},
             {"$set": {"_id": cache_key(text, lang), "source": text,
-                      "lang": lang, "target": full}},
+                      "lang": lang, "target": full, "type": "description_full"}},
             upsert=True)
     if on_progress:
         on_progress("", True)
@@ -642,18 +671,19 @@ async def translate_cached_only(db, texts, lang):
     return out
 
 
-def schedule_translation(db, texts, lang, *, model=None):
+def schedule_translation(db, texts, lang, *, model=None, type=None):
     """Fire-and-forget fill of cache misses, so the NEXT view is translated.
 
     `model` (optional) forces a specific Anthropic model — the detail page passes Haiku
-    so a background fill of a spec sheet never burns Sonnet-priced tokens.
+    so a background fill of a spec sheet never burns Sonnet-priced tokens. `type` tags
+    the entries in the self-learning dictionary.
     """
     if lang not in LANGS or not texts:
         return
 
     async def _job():
         try:
-            await translate_many(db, texts, lang, model=model)
+            await translate_many(db, texts, lang, model=model, type=type)
         except Exception as e:
             log.warning("background translation failed: %s", str(e)[:160])
 
@@ -703,12 +733,12 @@ async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "b
 
     lazy_texts = [r.get(f) for r in rows for f in lazy_fields if r.get(f)]
     tmap = (await translate_cached_only(db, lazy_texts, lang) if background
-            else await translate_many(db, lazy_texts, lang))
+            else await translate_many(db, lazy_texts, lang, type="spec"))
 
     always_texts = [r.get(f) for r in rows for f in always_fields if r.get(f)]
     if always_texts:
         try:
-            tmap = {**tmap, **await translate_many(db, always_texts, lang)}
+            tmap = {**tmap, **await translate_many(db, always_texts, lang, type="always")}
         except Exception as e:
             log.warning("submodel translation failed: %s", str(e)[:160])
 
@@ -717,7 +747,7 @@ async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "b
     latin_texts = [r.get(f) for r in rows for f in latin_fields if r.get(f)]
     if latin_texts:
         try:
-            lmap = await translate_many(db, latin_texts, LATIN_LANG)
+            lmap = await translate_many(db, latin_texts, LATIN_LANG, type="latin")
         except Exception as e:
             log.warning("make/model translation failed: %s", str(e)[:160])
 
@@ -735,7 +765,7 @@ async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "b
                 misses.append(key)
 
     if background and misses:
-        schedule_translation(db, list(dict.fromkeys(misses)), lang)
+        schedule_translation(db, list(dict.fromkeys(misses)), lang, type="spec")
     return rows
 
 
@@ -770,7 +800,7 @@ async def warm_translations(db, langs=None, per_field=600):
             cached = await translate_cached_only(db, values, lang)
             todo = [v for v in values if v not in cached]
             if todo:
-                await translate_many(db, todo, lang)
+                await translate_many(db, todo, lang, type=field)
             stats[f"{field}:{lang}"] = {"values": len(values), "translated": len(todo)}
     log.info("translation warm-up done: %s", stats)
     return stats
