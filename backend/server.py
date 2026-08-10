@@ -2717,14 +2717,15 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     photos = []
     for path in detail_photo_paths(detail):
         photos.append({
-            # 800x450 covers the on-screen 662x372 gallery at any device pixel ratio the
-            # site actually sees (mid-tier phones and laptops render close to 1x here).
-            # 1280x720 shipped 3x more bytes than Lighthouse could measure a benefit for.
-            "full": image_url(path, 800, 450),
-            # 260x147 is a tight fit for the 224x126 CSS thumbnail rail; 640x360 was 3x
-            # oversized and was the single biggest byte drop on the audit (~30 KB per
-            # thumbnail across 20+ pictures).
-            "thumb": image_url(path, 260, 147),
+            # 1280x720: the main gallery on the detail page and the fullscreen lightbox
+            # both use this URL, so a single fetch covers both views. A retina laptop
+            # sees the picture at ~662x372 CSS px (roughly 1324x744 device px), so 720p
+            # is what the lightbox can actually display without upscaling.
+            "full": image_url(path, 1280, 720),
+            # 500x280 sharpens the 224x126 CSS thumbnails on retina (they render around
+            # 448x252 device px) without shipping a full gallery-sized picture per
+            # thumbnail. 260x147 was visibly soft on the pinned desktop rail.
+            "thumb": image_url(path, 500, 280),
         })
 
     # ── options resolved from the dictionaries and grouped by category ───────────
