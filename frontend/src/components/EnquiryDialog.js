@@ -25,7 +25,7 @@ import http from "@/lib/api";
  * Deliberately usable as a GUEST: requiring an account before a buyer can ask a
  * question would lose the enquiry. Signing in only pre-fills the contact fields.
  */
-export const EnquiryDialog = ({ car, title }) => {
+export const EnquiryDialog = ({ car, title, trigger }) => {
   const { t, lang } = useApp();
   const { user } = useAuth();
 
@@ -78,13 +78,15 @@ export const EnquiryDialog = ({ car, title }) => {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button
-          data-testid="enquiry-open-button"
-          className="h-12 w-full justify-center gap-2 rounded-[12px] bg-[hsl(var(--primary))] text-[15px] font-semibold text-primary-foreground hover:brightness-110"
-        >
-          <MessageSquarePlus className="h-[18px] w-[18px]" aria-hidden="true" />
-          {t("sendEnquiry")}
-        </Button>
+        {trigger || (
+          <Button
+            data-testid="enquiry-open-button"
+            className="h-12 w-full justify-center gap-2 rounded-[12px] bg-[hsl(var(--primary))] text-[15px] font-semibold text-primary-foreground hover:brightness-110"
+          >
+            <MessageSquarePlus className="h-[18px] w-[18px]" aria-hidden="true" />
+            {t("sendEnquiry")}
+          </Button>
+        )}
       </DialogTrigger>
 
       <DialogContent data-testid="enquiry-dialog" className="max-w-[440px] bg-card">
