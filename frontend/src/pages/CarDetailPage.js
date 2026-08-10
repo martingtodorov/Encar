@@ -932,13 +932,9 @@ export default function CarDetailPage() {
 
           <div className="flex flex-col gap-1.5 bg-black py-1.5">
             {photos.map((p, i) => (
-              <div key={p.hires || p.full || i} className="w-full bg-black">
-                {/* Lightbox is the ONE place we ship 1080p: the fullscreen viewer can
-                    paint every pixel, and once the user opened the gallery they clearly
-                    care about the photos. Falls back to `full` (720p) on older listings
-                    that were cached before the `hires` field existed. */}
+              <div key={p.full || i} className="w-full bg-black">
                 <ImageWithFallback
-                  src={p.hires || p.full}
+                  src={p.full}
                   alt={car?.title || ""}
                   fit="contain"
                   testId={i === 0 ? "detail-lightbox-photo" : undefined}
@@ -953,9 +949,7 @@ export default function CarDetailPage() {
           drag and trackpad swipe. The phone keeps the vertical column above. */}
       {shot !== null && (
         <Lightbox
-          // 1080p in the fullscreen desktop viewer too (same reason as the mobile
-          // grid above); the thumbnail rail keeps the small 500x280 crops.
-          images={photos.map((p) => p.hires || p.full)}
+          images={photos.map((p) => p.full)}
           thumbnails={photos.map((p) => p.thumb)}
           index={shot}
           label={car?.title || ""}
