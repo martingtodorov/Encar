@@ -41,12 +41,16 @@ function AppRouter() {
   // it, React 18 would throw a promise up and unmount the tree. Fallback is null on
   // purpose - the legal pages are not first-paint content, so a blink is preferable
   // to a spinner popping in for the ~50 ms the chunk takes to arrive.
+  // A key on SearchPage forces a fresh mount whenever the pretty URL depth changes,
+  // so a jump from `/bg/porsche/macan` to `/bg/porsche` clears the model filter (React
+  // would otherwise reconcile both routes to the same instance and keep the old state).
+  const searchKey = location.pathname;
   return (
     <Suspense fallback={null}>
     <Routes>
       {/* Each language has its own address so all three can be indexed. */}
       <Route path="/:lang" element={<LangLayout />}>
-        <Route index element={<SearchPage />} />
+        <Route index element={<SearchPage key={searchKey} />} />
         <Route path="car/:id" element={<CarDetailPage />} />
         <Route path="saved" element={<SavedCarsPage />} />
         <Route path="searches" element={<SavedSearchesPage />} />
@@ -71,8 +75,8 @@ function AppRouter() {
         {/* Pretty search paths: /bg/bmw and /bg/bmw/m2-g87. Static segments (car,
             account, …) always outrank a param segment, so these can never shadow a
             real page. */}
-        <Route path=":makeSlug" element={<SearchPage />} />
-        <Route path=":makeSlug/:modelSlug" element={<SearchPage />} />
+        <Route path=":makeSlug" element={<SearchPage key={searchKey} />} />
+        <Route path=":makeSlug/:modelSlug" element={<SearchPage key={searchKey} />} />
         {/* Anything else under /:lang is a genuine 404. `noindex` on the page keeps a
             mistyped URL out of the index while nginx serves the SPA shell (HTTP 200).
             A hard 404 status still needs a nginx `location = /404` — the SPA can only

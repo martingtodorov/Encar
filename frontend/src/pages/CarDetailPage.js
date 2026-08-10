@@ -319,19 +319,28 @@ export default function CarDetailPage() {
           between the car bar and the first photo. */}
       <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-[72px] sm:px-6 lg:pt-2">
         {/* Breadcrumbs: Home > Make > Model > (car title). Rendered only after the car
-            loads so a shared link never flashes a bare "Home" chip on its own. Each label
-            is what the visitor's language expects, so the JSON-LD BreadcrumbList uses the
-            translated brand/model names. */}
+            loads so a shared link never flashes a bare "Home" chip on its own. The Make
+            and Model links carry the RAW upstream taxonomy value as query params — the
+            search endpoint filters on those exact values, so passing the localised
+            display label (e.g. "X5 (G05) (2019-)") would match nothing. SearchPage then
+            rewrites the URL to the pretty `/{lang}/{makeSlug}/{modelSlug}` form. */}
         {car && (
           <Breadcrumbs
             testId="car-breadcrumbs"
             items={[
               { label: t("breadcrumbHome"), to: `/${lang}` },
-              ...(car.manufacturer_t || car.manufacturer
-                ? [{ label: car.manufacturer_t || car.manufacturer, to: `/${lang}` }]
+              ...(car.manufacturer_raw || car.manufacturer
+                ? [{
+                    label: car.manufacturer_t || car.manufacturer,
+                    to: `/${lang}?make=${encodeURIComponent(car.manufacturer_raw || car.manufacturer)}`,
+                  }]
                 : []),
-              ...(car.model_t || car.model
-                ? [{ label: car.model_t || car.model, to: `/${lang}` }]
+              ...(car.model_raw || car.model
+                ? [{
+                    label: car.model_t || car.model,
+                    to: `/${lang}?make=${encodeURIComponent(car.manufacturer_raw || car.manufacturer || "")}`
+                        + `&model=${encodeURIComponent(car.model_raw || car.model)}`,
+                  }]
                 : []),
               { label: car.title || `#${id}` },
             ]}

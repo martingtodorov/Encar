@@ -2,6 +2,19 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-10 — Breadcrumb navigation fixes
+- `/api/car/{id}` now returns `manufacturer_raw` and `model_raw` (the exact taxonomy
+  values stored on the listing). CarDetailPage breadcrumbs use these instead of the
+  display labels, so a click on "X5 (G05) (2019-)" filters correctly instead of
+  matching 0 cars (the year span in the label was never part of the taxonomy value).
+- `App.js` now keys `<SearchPage />` on the pathname across the three routes it can
+  serve. Without a key, going from `/bg/porsche/macan` to `/bg/porsche` did not
+  remount the component, so the model filter stayed and the URL mirror wrote the
+  model slug straight back into the URL.
+- Same principle covers makes that were renamed via `label_for` overrides: the
+  breadcrumb URL carries the raw stored value so `resolveSlugs` can map it to the
+  current taxonomy, regardless of how the make is displayed.
+
 ## 2026-08-10 — Launch checklist: 1, 2, 5, 8, 17, 19
 - **Custom 404 (#1):** New `NotFoundPage` (`/app/frontend/src/pages/NotFoundPage.js`). Wired
   as the nested `*` under `/:lang` in `App.js`. Also: SearchPage detects an unresolvable

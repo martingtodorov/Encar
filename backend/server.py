@@ -2920,8 +2920,15 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
                                         curate.display(2, (listing or {}).get("model") or "",
                                                        T(cat.get("modelName")))])),
         "manufacturer": T(cat.get("manufacturerName")),
+        # Raw upstream taxonomy values as stored on the listing: these are what
+        # `/api/car-search` filters against, so the car page (and its breadcrumb links)
+        # can jump back to the exact `make + model` slice this car belongs to. Without
+        # them we would have to pass the display label (e.g. "X5 (G05) (2019-)"), which
+        # includes the year span and never matches the taxonomy value ("X5 (G05)").
+        "manufacturer_raw": (listing or {}).get("manufacturer") or T(cat.get("manufacturerName")),
         "model": curate.display(2, (listing or {}).get("model") or "",
                                 T(cat.get("modelName"))),
+        "model_raw": (listing or {}).get("model") or T(cat.get("modelName")),
         # Our own cached English trim FIRST, so the car page, the result rows and the filter
         # dropdown all spell it the same way ("4-Door 43 4MATIC+", not Encar's "4Door 43").
         "grade": (listing or {}).get("badge_t") or L((listing or {}).get("badge"))
