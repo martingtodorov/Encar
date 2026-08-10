@@ -73,7 +73,7 @@ export const PhoneInput = ({
             setIso(e.target.value);
             emit(byIso[e.target.value]?.dial || "", national);
           }}
-          className="h-10 w-[92px] min-w-0 shrink-0 rounded-[9px] border border-border bg-background px-2 text-[13px] text-foreground outline-none transition-colors focus:border-[hsl(var(--primary))] sm:w-[130px]"
+          className="h-10 w-[92px] min-w-0 shrink-0 rounded-[9px] border border-border bg-background px-2 text-[13px] text-foreground outline-none transition-colors focus:border-[hsl(var(--primary))] sm:w-[104px]"
         >
           {sorted.map((c) => (
             <option key={c.iso} value={c.iso}>

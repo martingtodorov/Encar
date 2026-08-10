@@ -112,7 +112,7 @@ export const EnquiryDialog = ({ car, title, trigger }) => {
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
+          <div className="flex flex-col gap-3.5">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="enq-email" className="text-[12.5px] font-medium">
                 {t("emailLabel")}
