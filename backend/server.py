@@ -2594,21 +2594,9 @@ async def sitemap_static(request: Request):
         path_for = {code: f"/{code}{suffix}" for code in langs}
         urls.append(_sitemap_url(base, path_for, today, freq, prio))
 
-    # The HTML sitemap lives only in bg and en (owner request). One <url> entry
-    # per language, with reciprocal hreflang alternates - no x-default because
-    # neither language is a fallback for the other.
-    sitemap_langs = [c for c in ("bg", "en") if c in langs]
-    for code in sitemap_langs:
-        loc = f"{base}/{code}/sitemap"
-        parts = [f"<loc>{_attr(loc)}</loc>"]
-        for c in sitemap_langs:
-            parts.append(
-                f'<xhtml:link rel="alternate" hreflang="{c}" '
-                f'href="{_attr(base + "/" + c + "/sitemap")}"/>')
-        parts.append(f"<lastmod>{today}</lastmod>")
-        parts.append("<changefreq>weekly</changefreq>")
-        parts.append("<priority>0.6</priority>")
-        urls.append("<url>" + "".join(parts) + "</url>")
+    # HTML sitemap: one entry per language with hreflang alternates.
+    path_for = {code: f"/{code}/sitemap" for code in langs}
+    urls.append(_sitemap_url(base, path_for, today, "weekly", "0.6"))
     return Response(_sitemap_wrap(urls), headers=_sitemap_headers())
 
 
@@ -2660,8 +2648,6 @@ async def sitemap_index_json(lang: str = "bg"):
     prefixed URLs (/bg/... vs /en/...).
     """
     lang = norm_lang(lang)
-    if lang not in ("bg", "en"):
-        raise HTTPException(400, "sitemap is available only in bg and en")
 
     # Curation may merge makes; the taxonomy collection is what the dropdowns
     # (and the make/model routes) read, so it is also the right source here.

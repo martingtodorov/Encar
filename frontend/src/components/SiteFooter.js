@@ -19,7 +19,7 @@ function responsePromiseCopy(raw, t) {
 
 /** Who we are, and every page on the site in three columns. On every page. */
 export const SiteFooter = () => {
-  const { t, lang, cms } = useApp();
+  const { t, cms } = useApp();
   const { path } = useLangNav();
 
   // The owner's own details win; the built-ins are the fallback.
@@ -83,21 +83,16 @@ export const SiteFooter = () => {
             <div className="text-[12px] uppercase tracking-wide text-muted-foreground">
               {t(column.key)}
             </div>
-            {column.links.map(({ to, key, langs }) => {
-              // Owner asked for the HTML sitemap to exist only in bg and en.
-              // A `langs` allow-list on the link makes that opt-in per row.
-              if (langs && !langs.includes(lang)) return null;
-              return (
-                <Link
-                  key={to}
-                  to={path(to)}
-                  data-testid={`footer-link-${key}`}
-                  className="w-fit text-[13px] font-medium text-foreground transition-colors hover:text-primary hover:underline"
-                >
-                  {t(key)}
-                </Link>
-              );
-            })}
+            {column.links.map(({ to, key }) => (
+              <Link
+                key={to}
+                to={path(to)}
+                data-testid={`footer-link-${key}`}
+                className="w-fit text-[13px] font-medium text-foreground transition-colors hover:text-primary hover:underline"
+              >
+                {t(key)}
+              </Link>
+            ))}
           </nav>
         ))}
       </div>

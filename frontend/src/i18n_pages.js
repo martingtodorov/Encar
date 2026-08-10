@@ -33,7 +33,8 @@ const PAGES = {
     navFees: "Taxe și comisioane",
     navSitemap: "Harta site-ului",
     sitemapTitle: "Harta site-ului",
-    sitemapIntro: "Toate mărcile și modelele disponibile.",
+    sitemapIntro:
+      "Toate mărcile și modelele disponibile chiar acum. Un clic până la fiecare pagină.",
     sitemapCounts: "{makes} mărci · {models} modele",
     footerExplore: "Explorează",
     footerHelp: "Ajutor",

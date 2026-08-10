@@ -15,11 +15,11 @@ Encar (uses the visitor's IP), with:
 * mobile.bg bot integration
 
 ## Recently completed (this session)
-* **HTML Sitemap page (`/bg/sitemap`, `/en/sitemap`)** (2026-02-10).
+* **HTML Sitemap page (`/bg/sitemap`, `/ro/sitemap`, `/en/sitemap`)** (2026-02-10).
   One indexable page listing every make and every model as real `<Link>` anchors so
   Googlebot can walk the whole catalogue in a single hop, distributing internal PageRank
-  without executing JS. Owner asked for BG and EN only — Romanian version is intentionally
-  404'd and its footer link is hidden.
+  without executing JS. Available in all three languages — page chrome (title, intro,
+  footer link) is localized while make/model labels stay in English (proper nouns).
   * Backend: `/api/sitemap/index?lang=bg|en` — flattens `taxonomy` (levels 1 + 2) into
     `{makes:[{value, slug, label, count, models:[{value, slug, label, count}]}]}`. Uses
     the permanent `cached_label_set` for make labels and `translate_cached_only` for

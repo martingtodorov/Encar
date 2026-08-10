@@ -4,27 +4,20 @@ import { HeaderBar } from "@/components/HeaderBar";
 import { useApp } from "@/context/AppContext";
 import { useSeo } from "@/lib/seo";
 import { getSitemapIndex } from "@/lib/api";
-import NotFoundPage from "@/pages/NotFoundPage";
 
 /**
  * The HTML sitemap: every make and every model on a single indexable page.
  *
  * Purpose is SEO — Googlebot walks all 200+ makes and 1200+ model landing pages
- * from one hop, distributing internal PageRank without needing JS. The owner
- * asked for two languages only (BG and EN); Romanian is intentionally 404'd
- * because that catalogue does not need duplicated dilution.
+ * from one hop, distributing internal PageRank without needing JS. All three
+ * languages render the same catalogue (makes and models are proper nouns).
  */
 export default function SitemapPage() {
   const { t, lang } = useApp();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Guard rendered BEFORE any hooks that depend on data - the owner
-  // deliberately restricts this page to bg + en.
-  const supported = lang === "bg" || lang === "en";
-
   useEffect(() => {
-    if (!supported) return undefined;
     let alive = true;
     setLoading(true);
     getSitemapIndex(lang)
@@ -34,15 +27,13 @@ export default function SitemapPage() {
     return () => {
       alive = false;
     };
-  }, [lang, supported]);
+  }, [lang]);
 
   useSeo({
     lang,
     title: `${t("sitemapTitle")} \u00b7 Encar`,
     description: t("sitemapIntro"),
   });
-
-  if (!supported) return <NotFoundPage />;
 
   const makes = data?.makes || [];
   const totalMakes = makes.length;
