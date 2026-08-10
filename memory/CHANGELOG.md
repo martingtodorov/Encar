@@ -2,6 +2,17 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-10 — Multiple daily crawl times
+- Admin catalogue-sync schedule now stores a `times[]` array (up to 6 slots) instead of a
+  single `time`. The backend scheduler fires the crawl once per configured HH:MM per day
+  using a `last_runs` map keyed by slot, so a 03:30 + 12:00 + 18:00 schedule triggers three
+  independent syncs. `next_run_at` returns the earliest upcoming slot.
+- Backwards compat: legacy `time` payloads and stored docs are auto-migrated to
+  single-entry `times`. `PUT /api/admin/catalogue-sync/schedule` accepts either
+  `{time: "HH:MM"}` or `{times: ["HH:MM", ...]}`.
+- Admin UI (`AdminCatalogueSync.js`) grew "Add time"/remove-row controls; validation for
+  bad HH:MM, empty list, and >6 slots returns 400. Verified via curl.
+
 ## 2026-08-09 (late night) — pretty search paths /bg/bmw/m2-g87 (VERIFIED, iteration_42)
 Make/model now live in the URL PATH; everything else stays in the query string.
 - `App.js`: `:makeSlug` and `:makeSlug/:modelSlug` routes declared last under `/:lang` —

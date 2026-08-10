@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CalendarClock, Loader2, Play, RefreshCw, RotateCcw } from "lucide-react";
+import { CalendarClock, Loader2, Play, Plus, RefreshCw, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -8,15 +8,22 @@ import { getCatalogueSync, putSyncSchedule, startCatalogueSync } from "@/lib/api
 import { Spinner, Stat, ago, num, stampSofia } from "@/components/admin/AdminBits";
 
 const ZONES = ["Europe/Sofia", "Europe/Bucharest", "Europe/London", "Asia/Seoul", "UTC"];
+const MAX_TIMES = 6;
 
 const stamp = stampSofia;
 
-/** Start a whole-catalogue crawl, and choose a time for it to run by itself each day. */
+const timesFrom = (s) => {
+  if (Array.isArray(s?.times) && s.times.length) return [...s.times];
+  if (s?.time) return [s.time];
+  return ["03:30"];
+};
+
+/** Start a whole-catalogue crawl, and choose one or more times for it to run by itself each day. */
 export const AdminCatalogueSync = () => {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ enabled: false, time: "03:30", tz: ZONES[0] });
+  const [form, setForm] = useState({ enabled: false, times: ["03:30"], tz: ZONES[0] });
 
   const load = async (keepForm = true) => {
     const d = await getCatalogueSync();
@@ -24,7 +31,7 @@ export const AdminCatalogueSync = () => {
     if (!keepForm || !data) {
       setForm({
         enabled: !!d.schedule?.enabled,
-        time: d.schedule?.time || "03:30",
+        times: timesFrom(d.schedule),
         tz: d.schedule?.tz || ZONES[0],
       });
     }
@@ -59,13 +66,43 @@ export const AdminCatalogueSync = () => {
     }
   };
 
+  const updateTime = (idx, value) =>
+    setForm((f) => {
+      const next = [...f.times];
+      next[idx] = value;
+      return { ...f, times: next };
+    });
+
+  const removeTime = (idx) =>
+    setForm((f) => {
+      if (f.times.length <= 1) return f;
+      return { ...f, times: f.times.filter((_, i) => i !== idx) };
+    });
+
+  const addTime = () =>
+    setForm((f) => {
+      if (f.times.length >= MAX_TIMES) return f;
+      return { ...f, times: [...f.times, "12:00"] };
+    });
+
   const save = async () => {
+    // De-duplicate and sort locally so the payload matches what the server will store.
+    const cleaned = Array.from(new Set(form.times.filter(Boolean))).sort();
+    if (!cleaned.length) {
+      toast.error("Add at least one time");
+      return;
+    }
     setSaving(true);
     try {
-      const sched = await putSyncSchedule(form);
+      const sched = await putSyncSchedule({
+        enabled: form.enabled, times: cleaned, tz: form.tz,
+      });
       setData((p) => ({ ...p, schedule: sched }));
+      setForm((f) => ({ ...f, times: timesFrom(sched) }));
       toast.success(
-        sched.enabled ? `Daily sync set for ${sched.time} ${sched.tz}` : "Daily sync turned off"
+        sched.enabled
+          ? `Daily sync set for ${sched.times.join(", ")} ${sched.tz}`
+          : "Daily sync turned off"
       );
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Could not save the schedule");
@@ -189,18 +226,51 @@ export const AdminCatalogueSync = () => {
             <span className="text-[13.5px] text-foreground">Enabled</span>
           </label>
 
-          <label className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Time
+              Times (up to {MAX_TIMES}/day)
             </span>
-            <Input
-              data-testid="sync-schedule-time"
-              type="time"
-              value={form.time}
-              onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
-              className="h-10 w-[130px] rounded-[10px]"
-            />
-          </label>
+            <div data-testid="sync-schedule-times" className="flex flex-wrap items-center gap-2">
+              {form.times.map((t, i) => (
+                <div
+                  key={i}
+                  data-testid={`sync-schedule-time-row-${i}`}
+                  className="flex items-center gap-1"
+                >
+                  <Input
+                    data-testid={`sync-schedule-time-${i}`}
+                    type="time"
+                    value={t}
+                    onChange={(e) => updateTime(i, e.target.value)}
+                    className="h-10 w-[130px] rounded-[10px]"
+                  />
+                  {form.times.length > 1 ? (
+                    <button
+                      type="button"
+                      data-testid={`sync-schedule-time-remove-${i}`}
+                      onClick={() => removeTime(i)}
+                      aria-label={`Remove time ${t}`}
+                      className="grid h-8 w-8 place-items-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <X className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+              {form.times.length < MAX_TIMES ? (
+                <Button
+                  type="button"
+                  data-testid="sync-schedule-time-add"
+                  variant="outline"
+                  onClick={addTime}
+                  className="h-10 gap-1.5 rounded-[10px] border-border bg-card px-3 text-[13px]"
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                  Add time
+                </Button>
+              ) : null}
+            </div>
+          </div>
 
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -230,7 +300,7 @@ export const AdminCatalogueSync = () => {
 
         <p data-testid="sync-next-run" className="mt-3 text-[12.5px] text-muted-foreground">
           {data.schedule?.enabled
-            ? `Next automatic run: ${stamp(data.schedule.next_run_at)}`
+            ? `Runs daily at ${(data.schedule.times || []).join(", ")} ${data.schedule.tz} · next: ${stamp(data.schedule.next_run_at)}`
             : "No automatic run scheduled."}
         </p>
       </div>

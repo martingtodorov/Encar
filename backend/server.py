@@ -3385,7 +3385,8 @@ async def admin_sync_status():
 
 class SyncScheduleBody(BaseModel):
     enabled: bool = False
-    time: str = "03:30"
+    time: str | None = None                       # legacy single-time payload
+    times: list[str] | None = None
     tz: str = "Europe/Sofia"
 
 
@@ -3412,8 +3413,9 @@ async def catalogue_sync_run(request: Request, fresh: bool = False,
 async def catalogue_sync_schedule(body: SyncScheduleBody, request: Request,
                                   x_admin_token: str = Header(default="")):
     await _require_admin(request, x_admin_token)
+    times = body.times if body.times is not None else ([body.time] if body.time else [])
     try:
-        return jsonable(await syncjob_mod.set_schedule(db, body.enabled, body.time, body.tz))
+        return jsonable(await syncjob_mod.set_schedule(db, body.enabled, times, body.tz))
     except Exception as e:
         raise HTTPException(400, str(e)[:200])
 

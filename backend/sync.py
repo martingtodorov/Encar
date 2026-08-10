@@ -429,7 +429,14 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
                     gone.add(str(row.get("Id")))
                 continue
             doc = normalise_row(row)
-            if not doc["_id"] or not doc["price_krw"]:
+            if not doc["_id"]:
+                # Silently dropped upstream rows without an Id were showing up as an
+                # unexplained 0.3-0.5% gap between `reachable` and `distinct_kept`. Counting
+                # them exposes the number and stops the coverage math from looking wrong.
+                st["dropped_no_id"] = st.get("dropped_no_id", 0) + 1
+                continue
+            if not doc["price_krw"]:
+                st["dropped_no_price"] = st.get("dropped_no_price", 0) + 1
                 continue
             landed, sale = pricing.quick_sale_eur(
                 doc["price_krw"], rates["fx_krw_eur"], rates["usd_eur"], S)

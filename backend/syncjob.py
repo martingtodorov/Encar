@@ -20,7 +20,8 @@ log = logging.getLogger("syncjob")
 
 JOB_ID = "catalogue_job"
 SCHEDULE_ID = "sync_schedule"
-DEFAULT_SCHEDULE = {"enabled": False, "time": "03:30", "tz": "Europe/Sofia"}
+DEFAULT_SCHEDULE = {"enabled": False, "times": ["03:30"], "tz": "Europe/Sofia"}
+MAX_DAILY_TIMES = 6
 
 _task = None
 
@@ -83,18 +84,31 @@ async def _phase(db, phase):
 
 async def get_schedule(db):
     doc = await db.settings.find_one({"_id": SCHEDULE_ID}) or {}
-    sched = {**DEFAULT_SCHEDULE, **{k: v for k, v in doc.items() if k != "_id"}}
+    raw = {k: v for k, v in doc.items() if k != "_id"}
+    # Migration: an older schedule stored one `time` string; treat it as a single-entry list.
+    times = raw.get("times")
+    if not times and raw.get("time"):
+        times = [raw["time"]]
+    times = _clean_times(times or DEFAULT_SCHEDULE["times"])
+    sched = {
+        "enabled": bool(raw.get("enabled", DEFAULT_SCHEDULE["enabled"])),
+        "times": times,
+        "tz": raw.get("tz") or DEFAULT_SCHEDULE["tz"],
+    }
     sched["next_run_at"] = next_run_at(sched)
     return sched
 
 
-async def set_schedule(db, enabled, time_hhmm, tz):
-    hh, mm = _parse_time(time_hhmm)
+async def set_schedule(db, enabled, times, tz):
+    times = _clean_times(times)
+    if not times:
+        raise ValueError("at least one time is required")
     ZoneInfo(tz)                                  # raises on a bogus zone
     await db.settings.update_one(
         {"_id": SCHEDULE_ID},
-        {"$set": {"enabled": bool(enabled), "time": f"{hh:02d}:{mm:02d}", "tz": tz,
-                  "updated_at": _now()}},
+        {"$set": {"enabled": bool(enabled), "times": times, "tz": tz,
+                  "updated_at": _now()},
+         "$unset": {"time": ""}},
         upsert=True)
     return await get_schedule(db)
 
@@ -107,19 +121,47 @@ def _parse_time(value):
     return hh, mm
 
 
+def _clean_times(values):
+    """De-duplicate, validate and sort a list of HH:MM strings."""
+    if isinstance(values, str):
+        values = [values]
+    seen = set()
+    out = []
+    for v in values or []:
+        hh, mm = _parse_time(v)
+        s = f"{hh:02d}:{mm:02d}"
+        if s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+    if len(out) > MAX_DAILY_TIMES:
+        raise ValueError(f"at most {MAX_DAILY_TIMES} daily runs are allowed")
+    out.sort()
+    return out
+
+
 def next_run_at(sched):
     if not sched.get("enabled"):
         return None
     try:
-        hh, mm = _parse_time(sched.get("time"))
         zone = ZoneInfo(sched.get("tz") or DEFAULT_SCHEDULE["tz"])
     except Exception:
         return None
+    times = sched.get("times") or []
     local = datetime.now(zone)
-    target = local.replace(hour=hh, minute=mm, second=0, microsecond=0)
-    if target <= local:
-        target += timedelta(days=1)
-    return target.astimezone(timezone.utc).isoformat()
+    candidates = []
+    for t in times:
+        try:
+            hh, mm = _parse_time(t)
+        except Exception:
+            continue
+        target = local.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if target <= local:
+            target += timedelta(days=1)
+        candidates.append(target)
+    if not candidates:
+        return None
+    return min(candidates).astimezone(timezone.utc).isoformat()
 
 
 def is_running(db=None):
@@ -315,7 +357,7 @@ async def _run(db, trigger, resume_run_id=None):
 
 
 async def scheduler(db, period=30):
-    """Fire the crawl once on the chosen local minute of each day."""
+    """Fire the crawl once for every chosen local minute of each day."""
     while True:
         await asyncio.sleep(period)
         try:
@@ -324,16 +366,26 @@ async def scheduler(db, period=30):
                 continue
             zone = ZoneInfo(sched.get("tz") or DEFAULT_SCHEDULE["tz"])
             local = datetime.now(zone)
-            hh, mm = _parse_time(sched.get("time"))
+            now_hhmm = f"{local.hour:02d}:{local.minute:02d}"
+            if now_hhmm not in sched.get("times", []):
+                continue
             today = local.date().isoformat()
-            if local.hour != hh or local.minute != mm:
-                continue
             doc = await db.settings.find_one({"_id": SCHEDULE_ID}) or {}
-            if doc.get("last_run_date") == today:
+            last_runs = dict(doc.get("last_runs") or {})
+            # Migration: honour the previous single-slot `last_run_date` so we don't
+            # double-fire the same time on the day the schedule is upgraded.
+            legacy = doc.get("last_run_date")
+            times = sched.get("times") or []
+            if legacy and times and not last_runs:
+                last_runs[times[0]] = legacy
+            if last_runs.get(now_hhmm) == today:
                 continue
-            await db.settings.update_one({"_id": SCHEDULE_ID},
-                                         {"$set": {"last_run_date": today}}, upsert=True)
-            log.info("scheduled catalogue sync firing for %s %s", today, sched["time"])
+            last_runs[now_hhmm] = today
+            await db.settings.update_one(
+                {"_id": SCHEDULE_ID},
+                {"$set": {"last_runs": last_runs, "last_run_date": today}},
+                upsert=True)
+            log.info("scheduled catalogue sync firing for %s %s", today, now_hhmm)
             await start(db, trigger="schedule")
         except Exception as e:
             log.warning("sync scheduler: %s", str(e)[:200])
