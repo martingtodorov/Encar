@@ -40,35 +40,40 @@ export const Hero = ({ totalUpstream, onStart }) => {
             </p>
 
             <div
-              className="animate-rise mt-5 flex flex-wrap items-center gap-x-6 gap-y-3 sm:mt-7"
+              className="animate-rise mt-5 flex flex-col gap-3 sm:mt-7 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-6"
               style={{ animationDelay: "120ms" }}
             >
-              <Button
-                data-testid="hero-cta"
-                onClick={onStart}
-                className="group h-12 gap-2 rounded-[10px] bg-[hsl(var(--primary))] px-7 text-[15px] font-semibold text-primary-foreground transition-colors hover:brightness-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                {t("heroCta")}
-                <ArrowRight
-                  className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5"
-                  aria-hidden="true"
+              {/* The two CTAs sit side-by-side on every viewport: on a phone they split the
+                  row 50/50 with `flex-1`; on ≥sm they behave like inline auto-width
+                  buttons and the catalogue count follows on the same line. */}
+              <div className="flex w-full items-center gap-2 sm:w-auto">
+                <Button
+                  data-testid="hero-cta"
+                  onClick={onStart}
+                  className="group h-12 flex-1 gap-2 rounded-[10px] bg-[hsl(var(--primary))] px-4 text-[14px] font-semibold text-primary-foreground transition-colors hover:brightness-110 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:flex-none sm:px-7 sm:text-[15px]"
+                >
+                  {t("heroCta")}
+                  <ArrowRight
+                    className="h-4 w-4 shrink-0 transition-transform duration-200 group-hover:translate-x-0.5"
+                    aria-hidden="true"
+                  />
+                </Button>
+                {/* Above-the-fold enquiry — an open dialog collects name / email / phone /
+                    message without navigating away from the home page, so the visitor's
+                    interest converts into a lead in one click. */}
+                <EnquiryDialog
+                  trigger={
+                    <Button
+                      variant="outline"
+                      data-testid="hero-contact-cta"
+                      className="h-12 flex-1 gap-2 rounded-[10px] border-border bg-card px-3 text-[13.5px] font-semibold text-foreground hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))] sm:flex-none sm:px-5 sm:text-[14px]"
+                    >
+                      <MessageCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      {t("heroContactCta")}
+                    </Button>
+                  }
                 />
-              </Button>
-              {/* Above-the-fold enquiry — an open dialog collects name / email / phone /
-                  message without navigating away from the home page, so the visitor's
-                  interest converts into a lead in one click. */}
-              <EnquiryDialog
-                trigger={
-                  <Button
-                    variant="outline"
-                    data-testid="hero-contact-cta"
-                    className="h-12 gap-2 rounded-[10px] border-border bg-card px-5 text-[14px] font-semibold text-foreground hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))]"
-                  >
-                    <MessageCircle className="h-4 w-4" aria-hidden="true" />
-                    {t("heroContactCta")}
-                  </Button>
-                }
-              />
+              </div>
               {totalUpstream ? (
                 <span
                   data-testid="hero-catalogue-size"

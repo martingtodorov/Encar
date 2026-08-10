@@ -73,11 +73,11 @@ export const PhoneInput = ({
             setIso(e.target.value);
             emit(byIso[e.target.value]?.dial || "", national);
           }}
-          className="h-10 w-[124px] min-w-0 shrink-0 rounded-[9px] border border-border bg-background px-2 text-[13px] text-foreground outline-none transition-colors focus:border-[hsl(var(--primary))]"
+          className="h-10 w-[92px] min-w-0 shrink-0 rounded-[9px] border border-border bg-background px-2 text-[13px] text-foreground outline-none transition-colors focus:border-[hsl(var(--primary))] sm:w-[130px]"
         >
           {sorted.map((c) => (
             <option key={c.iso} value={c.iso}>
-              {`${c.name} +${c.dial}`}
+              {`+${c.dial} ${c.iso}`}
             </option>
           ))}
         </select>
@@ -93,7 +93,7 @@ export const PhoneInput = ({
             setNational(digits);
             emit(code, digits);
           }}
-          className={`h-10 flex-1 bg-background ${
+          className={`tnum h-10 min-w-0 flex-1 bg-background text-[14px] tracking-[0.02em] ${
             problem ? "border-[hsl(var(--destructive))]" : ""
           }`}
         />
