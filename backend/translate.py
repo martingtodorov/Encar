@@ -175,7 +175,9 @@ async def _anthropic_call(chunk, lang, model=None):
     """Primary translator: Anthropic Claude with the project's own API key."""
     import anthropic
 
-    model = model or os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
+    # Default is Haiku, per owner: the whole app pays Haiku token rates unless a caller
+    # explicitly picks a heavier model. Warm-up may still request Sonnet by env var.
+    model = model or os.environ.get("ANTHROPIC_MODEL", HAIKU_MODEL)
     try:
         resp = await _anthropic_client().messages.create(
             model=model,

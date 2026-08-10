@@ -3009,29 +3009,22 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     # Catch every remaining Korean string anywhere in the payload (insurance,
     # inspection, diagnosis, equipment/options, spec, category ...).
     #
-    # Cache-only, deliberately. These bounded enumerations are shared catalogue-wide and
-    # are already cached, so the page still renders fully translated. What is left over is
-    # per-car freeform text (dealer branch, address, plate number) which can NEVER be a
-    # cache hit — translating it inline made the first view of every car wait ~6s on the
-    # LLM. It is filled in the background instead and the client refetches once it lands.
+    # CACHE-ONLY, no LLM. Every enumerated value shown on the page (fuel, colour,
+    # body shape, options, panel labels, inspection statuses) is already resolved
+    # through T() from the shared cache above. What is left over is per-car freeform
+    # Korean text — dealer branch, address, plate number — which we do NOT surface
+    # to the buyer, so translating it was pure waste. The remaining pass here only
+    # applies translations we ALREADY have, and no longer schedules background LLM
+    # calls for cache misses.
     leftovers = set()
     collect_korean(payload, leftovers)
-    translation_pending = False
     if leftovers:
         tmap = dict(tr)
         missing = [x for x in leftovers if x not in tmap]
         if missing:
             tmap.update(await translate_cached_only(db, missing, lang))
-            still = [x for x in missing if x not in tmap]
-            if still:
-                # Detail-page leftovers run on Haiku, per the owner: options, panel
-                # labels, spec lines and dealer freeform text are factual and Haiku
-                # renders them just as well at ~1/5 the token cost of Sonnet.
-                schedule_translation(db, list(dict.fromkeys(still)), lang,
-                                     model=HAIKU_MODEL)
-                translation_pending = True
         payload = apply_translations(payload, tmap)
-    payload["translation_pending"] = translation_pending
+    payload["translation_pending"] = False
 
     if await _is_admin_request(request):
         payload["admin"] = pricing.admin_range(quote)
