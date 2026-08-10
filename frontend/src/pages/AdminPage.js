@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Activity, BadgeEuro, FileText, Inbox, Layers, PieChart, RefreshCcw, ScrollText, Ship, ShieldCheck, Sparkles, Users, FileSignature } from "lucide-react";
+import { Activity, BadgeEuro, BookOpen, FileText, Inbox, Layers, PieChart, RefreshCcw, ScrollText, Ship, ShieldCheck, Sparkles, Users, FileSignature } from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
@@ -21,6 +21,7 @@ import { AdminPages } from "@/components/admin/AdminPages";
 import { AdminConsent } from "@/components/admin/AdminConsent";
 import { AdminTraffic } from "@/components/admin/AdminTraffic";
 import { AdminRecommendations } from "@/components/admin/AdminRecommendations";
+import { AdminDictionary } from "@/components/admin/AdminDictionary";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
@@ -33,6 +34,7 @@ const TABS = [
   { id: "buyers", label: "Buyers", icon: Users },
   { id: "taxonomy", label: "Models & trims", icon: Layers },
   { id: "reco", label: "Picked for you", icon: Sparkles },
+  { id: "dictionary", label: "Dictionary", icon: BookOpen },
   { id: "pages", label: "Pages & SEO", icon: FileText },
   { id: "contract", label: "Contract", icon: FileSignature },
   { id: "consent", label: "Cookie consent", icon: ShieldCheck },
@@ -119,6 +121,7 @@ export default function AdminPage() {
           {tab === "buyers" && <AdminBuyers />}
           {tab === "taxonomy" && <AdminTaxonomy />}
           {tab === "reco" && <AdminRecommendations />}
+          {tab === "dictionary" && <AdminDictionary />}
           {tab === "pages" && <AdminPages />}
           {tab === "contract" && <AdminContract />}
           {tab === "consent" && <AdminConsent />}

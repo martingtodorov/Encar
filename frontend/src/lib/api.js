@@ -722,3 +722,28 @@ export async function adminSaveCompany(body) {
   return data;
 }
 
+
+// ── Self-learning translation dictionary ────────────────────────────────────
+// Every make, model, badge, spec value, fuel and dealer boilerplate line the site
+// has ever translated lives in `db.translations` with a `type` tag. These helpers
+// power the admin browser + inline edits that push corrections back to the cache.
+export async function adminDictionaryStats() {
+  const { data } = await http.get("/admin/dictionary/stats");
+  return data;
+}
+
+export async function adminDictionaryBrowse({ type = "", lang = "",
+                                              q = "", limit = 50, offset = 0 } = {}) {
+  const { data } = await http.get("/admin/dictionary", {
+    params: { type, lang, q, limit, offset },
+  });
+  return data;
+}
+
+export async function adminDictionaryEdit(lang, sourceHash, target) {
+  const { data } = await http.put(
+    `/admin/dictionary/${encodeURIComponent(lang)}/${encodeURIComponent(sourceHash)}`,
+    { target }
+  );
+  return data;
+}

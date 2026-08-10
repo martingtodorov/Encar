@@ -4419,7 +4419,7 @@ async def admin_dictionary_browse(request: Request,
     total = await db.translations.count_documents(query)
     items = []
     async for d in db.translations.find(query, projection={
-        "_id": 0, "source": 1, "target": 1, "type": 1, "lang": 1
+        "_id": 1, "source": 1, "target": 1, "type": 1, "lang": 1
     }).sort([("type", 1), ("source", 1)]).skip(offset).limit(limit):
         items.append(d)
     return {"total": total, "items": items, "offset": offset, "limit": limit}
