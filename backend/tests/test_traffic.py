@@ -49,12 +49,14 @@ def test_a_ping_is_counted_and_stores_no_address():
 
     row = _run(lambda db: db.traffic_hits.find_one({"p": path}))
     assert row, "the view was not recorded"
-    assert set(row.keys()) == {"_id", "v", "p", "l", "at"}, row.keys()
+    assert set(row.keys()) == {"_id", "v", "vl", "p", "l", "at"}, row.keys()
     assert row["l"] == "Test page"
     # No field anywhere may hold an address or a user agent.
     blob = str(row)
-    assert "Mozilla" not in blob and "." not in row["v"]
+    assert "Mozilla" not in blob and "." not in row["v"] and "." not in row["vl"]
     assert len(row["v"]) == 20 and all(c in "0123456789abcdef" for c in row["v"])
+    assert len(row["vl"]) == 20 and all(c in "0123456789abcdef" for c in row["vl"])
+    assert row["v"] != row["vl"], "the two salts must produce different digests"
     _run(lambda db: db.traffic_hits.delete_many({"p": path}))
 
 
@@ -69,7 +71,25 @@ def test_the_same_visitor_gets_the_same_digest_within_a_day():
     rows = _run(lambda db: db.traffic_hits.find({"p": path}).to_list(10))
     assert len(rows) == 3
     assert len({r["v"] for r in rows}) == 1, "one visitor was counted as several"
+    assert len({r["vl"] for r in rows}) == 1, "one visitor was counted as several (long salt)"
     _run(lambda db: db.traffic_hits.delete_many({"p": path}))
+
+
+def test_the_long_salt_is_kept_and_expires_by_itself():
+    """A separate, longer-lived salt is what makes the week and month counts honest.
+
+    It must still expire on its own so the fingerprints it produced cannot outlive it.
+    """
+    requests.post(f"{BASE}/traffic/ping", json={"path": "/long-salt-check"}, timeout=30,
+                  headers=UA)
+    row = _run(lambda db: db.traffic_salt_long.find_one({"_id": "current"}))
+    assert row and len(row["salt"]) == 64
+
+    idx = _run(lambda db: db.traffic_salt_long.index_information())
+    ttl = [v for v in idx.values() if "expireAfterSeconds" in v]
+    assert ttl, "the long-salt collection has no TTL index"
+    assert ttl[0]["expireAfterSeconds"] == 45 * 86400
+    _run(lambda db: db.traffic_hits.delete_many({"p": "/long-salt-check"}))
 
 
 def test_todays_salt_is_kept_and_expires_by_itself():

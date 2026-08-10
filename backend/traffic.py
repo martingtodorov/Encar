@@ -2,13 +2,23 @@
 
 Nothing is written to the visitor's device, so ePrivacy's consent rule for storage does not
 apply and the count is honest rather than "only those who accepted a banner". What tells two
-visits apart is an HMAC of the IP address and the user agent under a salt that is generated
-fresh every day and thrown away after two: inside a day we can say "two people, four views",
-and once the salt is gone nobody - us included - can recompute yesterday's fingerprints or link
-them to today's. The lawful basis is legitimate interest under Art. 6(1)(f): knowing the traffic
-on your own shop.
+visits apart is an HMAC of the IP address and the user agent, computed under TWO salts:
 
-The raw IP is never stored. Only the digest is, and only for as long as the retention window.
+  * a short salt that is generated fresh every day and thrown away after two, so live and
+    today's counts cannot be linked from one day to the next;
+  * a long salt that rotates every ~45 days (kept just inside the hit retention window),
+    used exclusively so that the week and month unique-visitor counts do not over-count a
+    returning visitor once per day. Without the long salt the daily salt would fingerprint
+    the same person differently each day and a lawyer who visits every day would appear as
+    seven unique people in the week window and thirty in the month.
+
+Both salts are deleted well before their fingerprints outlive their usefulness, so once the
+salt is gone nobody - us included - can recompute yesterday's fingerprints or link them to
+today's. The lawful basis is legitimate interest under Art. 6(1)(f): knowing the traffic on
+your own shop.
+
+The raw IP is never stored. Only the digests are, and only for as long as the retention
+window.
 """
 import hashlib
 import hmac
@@ -31,6 +41,7 @@ _db = None
 LIVE_MINUTES = 5
 KEEP_DAYS = 40                     # a month of history plus room for the month-to-date window
 SALT_KEEP_DAYS = 2
+LONG_SALT_KEEP_DAYS = 45           # just outside the 30-day month window, well inside retention
 SNAPSHOT_CACHE_SECONDS = 10
 
 # A visit from any of these is a machine, not a buyer, and must not be counted as a page
@@ -67,8 +78,12 @@ async def ensure_indexes(db):
     # liability, and a salt that outlives its day would undo the whole point of rotating it.
     await db.traffic_hits.create_index("at", expireAfterSeconds=KEEP_DAYS * 86400)
     await db.traffic_hits.create_index([("at", -1), ("v", 1)])
+    await db.traffic_hits.create_index([("at", -1), ("vl", 1)])
     await db.traffic_salt.create_index("created_at",
                                        expireAfterSeconds=SALT_KEEP_DAYS * 86400)
+    # A separate collection so the daily and the long salt cannot share a TTL by accident.
+    await db.traffic_salt_long.create_index("created_at",
+                                            expireAfterSeconds=LONG_SALT_KEEP_DAYS * 86400)
 
 
 def _now():
@@ -98,8 +113,35 @@ async def _salt():
     return day, (row or {}).get("salt", salt)
 
 
+async def _long_salt():
+    """The salt behind the week/month unique-visitor counter.
+
+    Rotates lazily: whichever hit arrives when there is no live long salt in Mongo creates
+    a fresh one, and TTL takes the previous one out at ~45 days. Keeping it just outside the
+    30-day month window means a well-formed month query sees one salt for its entire span;
+    keeping it inside the 40-day hit retention window means the fingerprints in Mongo never
+    outlive the salt that made them - once the salt is gone, they are permanently opaque.
+    """
+    row = await _db.traffic_salt_long.find_one({"_id": "current"})
+    if row:
+        return row["salt"]
+    salt = secrets.token_hex(32)
+    await _db.traffic_salt_long.update_one(
+        {"_id": "current"},
+        {"$setOnInsert": {"salt": salt, "created_at": _now()}},
+        upsert=True)
+    row = await _db.traffic_salt_long.find_one({"_id": "current"})
+    return (row or {}).get("salt", salt)
+
+
 async def visitor_digest(request: Request):
     _, salt = await _salt()
+    raw = f"{_client_ip(request)}|{request.headers.get('user-agent', '')}"
+    return hmac.new(salt.encode(), raw.encode(), hashlib.sha256).hexdigest()[:20]
+
+
+async def visitor_digest_long(request: Request):
+    salt = await _long_salt()
     raw = f"{_client_ip(request)}|{request.headers.get('user-agent', '')}"
     return hmac.new(salt.encode(), raw.encode(), hashlib.sha256).hexdigest()[:20]
 
@@ -120,6 +162,7 @@ async def record(request: Request, path, label=""):
     if BOTS.search(request.headers.get("user-agent", "")):
         return False
     await _db.traffic_hits.insert_one({"v": await visitor_digest(request),
+                                      "vl": await visitor_digest_long(request),
                                       "p": _clean_path(path), "l": _clean_label(label),
                                       "at": _now()})
     return True
@@ -136,10 +179,18 @@ def _day_start(days_back=0):
     return local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
 
 
-async def _window(since):
-    """Unique people and total views in one window, without ever holding a set in memory."""
+async def _window(since, key="v"):
+    """Unique people and total views in one window, without ever holding a set in memory.
+
+    `key="v"` groups by the daily fingerprint (accurate inside one day, over-counts across
+    days) and is used for live and today. `key="vl"` groups by the long fingerprint (accurate
+    across the 30-day month window) and is used for week and month. Hits stored before the
+    long salt existed have no `vl`; they fall back to `v` so old data still contributes rather
+    than vanishing on rollout.
+    """
+    group_key = {"$ifNull": ["$vl", "$v"]} if key == "vl" else f"${key}"
     pipe = [{"$match": {"at": {"$gte": since}}},
-            {"$group": {"_id": "$v", "n": {"$sum": 1}}},
+            {"$group": {"_id": group_key, "n": {"$sum": 1}}},
             {"$group": {"_id": None, "visitors": {"$sum": 1}, "views": {"$sum": "$n"}}}]
     rows = await _db.traffic_hits.aggregate(pipe).to_list(1)
     if not rows:
@@ -171,8 +222,8 @@ async def snapshot():
             "live_minutes": LIVE_MINUTES,
             "pages": await _live_pages(live_since),
             "day": await _window(_day_start()),
-            "week": await _window(_day_start(6)),
-            "month": await _window(_day_start(29))}
+            "week": await _window(_day_start(6), key="vl"),
+            "month": await _window(_day_start(29), key="vl")}
     _cache.update({"at": now, "data": data})
     return data
 
