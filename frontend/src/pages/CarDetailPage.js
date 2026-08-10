@@ -318,12 +318,11 @@ export default function CarDetailPage() {
           already starts below it, and counting it twice left a phone with ~78px of nothing
           between the car bar and the first photo. */}
       <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-[72px] sm:px-6 lg:pt-2">
-        {/* Breadcrumbs: Home > Make > Model > (car title). Rendered only after the car
-            loads so a shared link never flashes a bare "Home" chip on its own. The Make
-            and Model links carry the RAW upstream taxonomy value as query params — the
-            search endpoint filters on those exact values, so passing the localised
-            display label (e.g. "X5 (G05) (2019-)") would match nothing. SearchPage then
-            rewrites the URL to the pretty `/{lang}/{makeSlug}/{modelSlug}` form. */}
+        {/* Breadcrumbs: Home > Make > Model. The car title itself is intentionally NOT the
+            last chip - the H1 immediately below already shouts it, and repeating the exact
+            same string twice within 20 pixels of each other read as a bug. The Model chip
+            takes the "current page" slot instead: schema.org BreadcrumbList is happy with
+            either shape (three items or four), and Google's sitelinks strip still fires. */}
         {car && (
           <Breadcrumbs
             testId="car-breadcrumbs"
@@ -342,7 +341,6 @@ export default function CarDetailPage() {
                         + `&model=${encodeURIComponent(car.model_raw || car.model)}`,
                   }]
                 : []),
-              { label: car.title || `#${id}` },
             ]}
           />
         )}
