@@ -23,6 +23,10 @@ export const PhoneInput = ({
   const { codes, dial, country } = useDialCodes();
   const [iso, setIso] = useState("");
   const [national, setNational] = useState("");
+  // Flip the moment the visitor picks a different flag or types a digit. Once set,
+  // an IP-guess refresh (see dialcodes.js — refetches every 10 minutes) is ignored so
+  // it never quietly rewrites a country the buyer already chose.
+  const [touched, setTouched] = useState(false);
 
   const byIso = useMemo(
     () => Object.fromEntries(codes.map((c) => [c.iso, c])),
@@ -30,11 +34,12 @@ export const PhoneInput = ({
   );
   const code = byIso[iso]?.dial || "";
 
-  // An incoming number (the account's own, prefilled) decides the prefix; an empty field takes
-  // the guess from the IP. Typing never re-runs this.
+  // An incoming number (the account's own, prefilled) decides the prefix; an empty field
+  // takes the guess from the IP. Typing or manually picking a country freezes the choice.
   useEffect(() => {
     if (!codes.length) return;
     const parsed = splitNumber(value, codes);
+    if (touched && !parsed.dial) return;   // buyer already chose — do not override
     const wanted = parsed.dial || dial || "";
     setIso((prev) => {
       if (prev && byIso[prev]?.dial === wanted) return prev;
@@ -44,8 +49,7 @@ export const PhoneInput = ({
       return (mine || codes.find((c) => c.dial === wanted) || {}).iso || prev;
     });
     setNational(parsed.national);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [codes.length, dial, country, value === ""]);
+  }, [codes.length, dial, country, value, touched, byIso, codes]);
 
   const emit = (nextCode, nextNational) => {
     const digits = String(nextNational || "").replace(/[^\d]/g, "");
@@ -70,6 +74,7 @@ export const PhoneInput = ({
           aria-label={t("phonePrefix")}
           value={iso}
           onChange={(e) => {
+            setTouched(true);
             setIso(e.target.value);
             emit(byIso[e.target.value]?.dial || "", national);
           }}
@@ -90,6 +95,7 @@ export const PhoneInput = ({
           value={national}
           onChange={(e) => {
             const digits = e.target.value.replace(/[^\d]/g, "").slice(0, 14);
+            setTouched(true);
             setNational(digits);
             emit(code, digits);
           }}
