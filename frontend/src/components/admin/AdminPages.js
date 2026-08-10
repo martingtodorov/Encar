@@ -177,6 +177,21 @@ const CompanyCard = () => {
         {field("site", "Domain")}
         <div className="sm:col-span-2">{field("address", "Registered address")}</div>
       </div>
+
+      <div className="mt-6 border-t border-border pt-4">
+        <h3 className="text-[13.5px] font-semibold text-foreground">Launch checklist</h3>
+        <p className="mt-0.5 text-[12px] text-muted-foreground">
+          Optional. Blank fields are simply not rendered.
+        </p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {field("ga_id", "Google Analytics 4 measurement id (e.g. G-XXXXXX)")}
+          {field("response_hours",
+                 "Response-time promise, hours (e.g. 24 or “2 business”)")}
+          {field("google_maps_url", "Google Maps link (used by directions button)")}
+          {field("geo_lat", "Office latitude (for AutoDealer schema)")}
+          {field("geo_lng", "Office longitude (for AutoDealer schema)")}
+        </div>
+      </div>
       <Button
         data-testid="cms-company-save"
         onClick={save}

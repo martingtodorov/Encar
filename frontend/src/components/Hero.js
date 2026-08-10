@@ -1,10 +1,13 @@
-import { ShieldCheck, FileText, Search, ArrowRight } from "lucide-react";
+import { ShieldCheck, FileText, Search, ArrowRight, MessageCircle } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/context/AppContext";
+import { useLangNav } from "@/hooks/useLangNav";
 import { formatNumber } from "@/lib/format";
 
 export const Hero = ({ totalUpstream, onStart }) => {
   const { t, lang, cms } = useApp();
+  const { path } = useLangNav();
   // Owner-editable headline and standfirst (Admin -> Pages -> Home).
   const heroTitle = cms?.hero?.title || t("heroTitle");
   const heroSubtitle = cms?.hero?.subtitle || t("heroSubtitle");
@@ -52,6 +55,20 @@ export const Hero = ({ totalUpstream, onStart }) => {
                   className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5"
                   aria-hidden="true"
                 />
+              </Button>
+              {/* A second above-the-fold call-to-action for visitors who arrive knowing
+                  they want a specific car and prefer to talk. Contact copy is on the
+                  Contact page - not a modal - so it is also indexable. */}
+              <Button
+                asChild
+                variant="outline"
+                data-testid="hero-contact-cta"
+                className="h-12 gap-2 rounded-[10px] border-border bg-card px-5 text-[14px] font-semibold text-foreground hover:border-[hsl(var(--primary))] hover:text-[hsl(var(--primary))]"
+              >
+                <Link to={path("/contact")}>
+                  <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                  {t("heroContactCta")}
+                </Link>
               </Button>
               {totalUpstream ? (
                 <span

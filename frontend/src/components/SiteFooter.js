@@ -4,6 +4,19 @@ import { useLangNav } from "@/hooks/useLangNav";
 import { COMPANY, FOOTER_COLUMNS } from "@/content/company";
 import { openCookieSettings } from "@/components/CookieBar";
 
+/** Pick the right response-time line based on what the owner typed. `24` → hourly copy,
+ *  `2 business` → business-hours copy, blank → generic fallback. */
+function responsePromiseCopy(raw, t) {
+  const value = String(raw || "").trim();
+  if (!value) return t("responsePromiseFallback");
+  const match = value.match(/^(\d+(?:[.,]\d+)?)\s*(.*)$/);
+  if (!match) return t("responsePromiseFallback");
+  const hours = match[1].replace(",", ".");
+  const suffix = match[2].toLowerCase();
+  const business = /business|работн|lucrător|lucratoare/i.test(suffix);
+  return t(business ? "responsePromiseBusiness" : "responsePromise", { hours });
+}
+
 /** Who we are, and every page on the site in three columns. On every page. */
 export const SiteFooter = () => {
   const { t, cms } = useApp();
@@ -38,6 +51,15 @@ export const SiteFooter = () => {
               {co.email}
             </a>
           </div>
+          {/* A response-time promise builds trust the way a phone number cannot: it says
+              what "quick" means. Owner sets the hours in Admin -> Company. When the field
+              is blank we fall back to a soft copy line rather than nothing. */}
+          <p
+            data-testid="footer-response-promise"
+            className="mt-3 text-[12px] font-medium leading-relaxed text-foreground"
+          >
+            {responsePromiseCopy(co.response_hours, t)}
+          </p>
           <p className="mt-3 text-[12px] leading-relaxed text-muted-foreground">
             {t("footerNote")}
           </p>

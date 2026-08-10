@@ -28,7 +28,9 @@ SLUGS = ["home", "how-it-works", "faq", "fees", "contact", "terms", "privacy", "
 LANGS = ["bg", "ro", "en"]
 BODY_SLUGS = [s for s in SLUGS if s != "home"]
 
-COMPANY_FIELDS = ["name", "eik", "vat", "address", "phone", "email", "site"]
+COMPANY_FIELDS = ["name", "eik", "vat", "address", "phone", "email", "site",
+                  "ga_id", "response_hours",
+                  "geo_lat", "geo_lng", "google_maps_url"]
 
 _db = None
 _require_admin = None
@@ -102,6 +104,11 @@ class CompanyBody(BaseModel):
     phone: str = ""
     email: str = ""
     site: str = ""
+    ga_id: str = ""
+    response_hours: str = ""
+    geo_lat: str = ""
+    geo_lng: str = ""
+    google_maps_url: str = ""
 
 
 def _page_out(doc):

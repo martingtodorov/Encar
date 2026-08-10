@@ -2,18 +2,28 @@
  * Third-party statistics, loaded ONLY after the visitor has agreed to the statistics
  * category - and only when an id is actually configured.
  *
- * Nothing here runs today: `REACT_APP_GA_ID` is unset, so `mount()` returns immediately and
- * no Google script, cookie or request exists. The owner plans GA4, so the consent gate and
- * Google's own Consent Mode defaults (everything DENIED before a decision) are in place
- * first - switching it on must never mean shipping a tracker that fires before the banner.
+ * The GA4 measurement id is owner-editable in Admin -> Pages -> Company (`ga_id`) and
+ * arrives through the CMS `/cms/site` response, so switching analytics on no longer
+ * requires a rebuild. `REACT_APP_GA_ID` is honoured as a fallback for local dev.
+ * The consent gate and Google's own Consent Mode defaults (everything DENIED before a
+ * decision) are in place first — switching it on must never mean shipping a tracker
+ * that fires before the banner.
  */
-const GA_ID = process.env.REACT_APP_GA_ID || "";
-
+let gaId = process.env.REACT_APP_GA_ID || "";
 let mounted = false;
+let lastGranted = null;
+
+/** AppContext calls this the moment the CMS company details load or change. */
+export function configureAnalytics(nextId) {
+  const clean = String(nextId || "").trim();
+  if (clean === gaId) return;
+  gaId = clean;
+  // Re-emit the current consent state now that we know an id exists (or has changed).
+  if (lastGranted !== null) syncAnalytics(lastGranted);
+}
 
 function pushConsentState(granted) {
   window.dataLayer = window.dataLayer || [];
-  // eslint-disable-next-line prefer-rest-params
   function gtag() {
     window.dataLayer.push(arguments);
   }
@@ -28,7 +38,8 @@ function pushConsentState(granted) {
 
 /** Called whenever the decision changes. `granted` is the statistics category. */
 export function syncAnalytics(granted) {
-  if (!GA_ID) return;
+  lastGranted = granted;
+  if (!gaId) return;
   if (!granted) {
     pushConsentState(false);
     return;
@@ -38,11 +49,11 @@ export function syncAnalytics(granted) {
   mounted = true;
   const s = document.createElement("script");
   s.async = true;
-  s.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(GA_ID)}`;
+  s.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(gaId)}`;
   document.head.appendChild(s);
   window.gtag("js", new Date());
   // IP anonymisation is the default in GA4; no cross-site signals, no ad features.
-  window.gtag("config", GA_ID, { anonymize_ip: true, allow_google_signals: false });
+  window.gtag("config", gaId, { anonymize_ip: true, allow_google_signals: false });
 }
 
-export const analyticsConfigured = () => !!GA_ID;
+export const analyticsConfigured = () => !!gaId;

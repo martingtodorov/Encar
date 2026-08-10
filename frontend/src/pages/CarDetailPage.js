@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { HeaderBar } from "@/components/HeaderBar";
 import { DetailStickyBar } from "@/components/DetailStickyBar";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { ImageWithFallback } from "@/components/ImageWithFallback";
 import { PhotoSwiper } from "@/components/PhotoSwiper";
 import { CarGrid } from "@/components/CarGrid";
@@ -317,6 +318,25 @@ export default function CarDetailPage() {
           already starts below it, and counting it twice left a phone with ~78px of nothing
           between the car bar and the first photo. */}
       <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-[72px] sm:px-6 lg:pt-2">
+        {/* Breadcrumbs: Home > Make > Model > (car title). Rendered only after the car
+            loads so a shared link never flashes a bare "Home" chip on its own. Each label
+            is what the visitor's language expects, so the JSON-LD BreadcrumbList uses the
+            translated brand/model names. */}
+        {car && (
+          <Breadcrumbs
+            testId="car-breadcrumbs"
+            items={[
+              { label: t("breadcrumbHome"), to: `/${lang}` },
+              ...(car.manufacturer_t || car.manufacturer
+                ? [{ label: car.manufacturer_t || car.manufacturer, to: `/${lang}` }]
+                : []),
+              ...(car.model_t || car.model
+                ? [{ label: car.model_t || car.model, to: `/${lang}` }]
+                : []),
+              { label: car.title || `#${id}` },
+            ]}
+          />
+        )}
         <Button
           data-testid="back-to-results-button"
           variant="ghost"

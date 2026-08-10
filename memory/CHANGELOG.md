@@ -2,6 +2,33 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-08-10 — Launch checklist: 1, 2, 5, 8, 17, 19
+- **Custom 404 (#1):** New `NotFoundPage` (`/app/frontend/src/pages/NotFoundPage.js`). Wired
+  as the nested `*` under `/:lang` in `App.js`. Also: SearchPage detects an unresolvable
+  make/model slug (e.g. `/bg/no-such-make`) and short-circuits to the 404 with
+  `noindex, nofollow` + friendly Bulgarian/Romanian/English copy.
+- **Secondary hero CTA (#2):** `Hero.js` now shows a second above-the-fold outline CTA
+  linking to `/contact` (i18n key `heroContactCta`), sitting next to the primary
+  "Start searching" button.
+- **Breadcrumbs (#5):** New `Breadcrumbs.js` component. Renders `Home > Make > Model` on
+  filtered search pages and `Home > Make > Model > Car title` on `CarDetailPage`. Emits a
+  BreadcrumbList JSON-LD alongside so Google can build sitelinks.
+- **Response-time promise (#8):** Owner-editable `response_hours` in Admin -> Company.
+  Rendered in the footer as "We reply within 24 (business) hours"; a blank field falls
+  back to a soft "usually within one business day" copy.
+- **LocalBusiness / AutoDealer schema (#17):** SearchPage's home JSON-LD `@graph` now
+  includes an `AutoDealer` + `LocalBusiness` node with address, phone, email, geo
+  coordinates and Google Maps link — all pulled from the CMS company doc.
+- **Google Analytics (#19):** GA4 measurement id is owner-editable (`ga_id` field in
+  Admin -> Company). `analytics.js` refactored to accept the id at runtime via
+  `configureAnalytics(...)`; `AppContext` calls it as soon as the CMS company payload
+  arrives, so switching GA on no longer needs a rebuild. Consent gating is unchanged.
+- CMS: `COMPANY_FIELDS` grew `ga_id`, `response_hours`, `geo_lat`, `geo_lng`,
+  `google_maps_url`. Verified via curl (PUT `/admin/cms/company`, GET `/cms/site`).
+- Smoke-tested via Playwright: 404 renders with correct `noindex` meta and Bulgarian
+  copy; home shows the new CTA + response-promise footer + AutoDealer JSON-LD; `/bg/bmw`
+  shows the "Начало > BMW" breadcrumbs with BreadcrumbList schema.
+
 ## 2026-08-10 — Multiple daily crawl times
 - Admin catalogue-sync schedule now stores a `times[]` array (up to 6 slots) instead of a
   single `time`. The backend scheduler fires the crawl once per configured HH:MM per day

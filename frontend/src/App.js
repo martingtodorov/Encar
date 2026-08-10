@@ -26,6 +26,7 @@ const LegalPage = lazy(() => import("@/pages/LegalPage"));
 import PaymentResultPage from "@/pages/PaymentResultPage";
 import MyPurchasesPage from "@/pages/MyPurchasesPage";
 import AuthCallback from "@/pages/AuthCallback";
+import NotFoundPage from "@/pages/NotFoundPage";
 
 /**
  * The Google redirect comes back as `…/bg#session_id=…`. That is checked DURING RENDER, so
@@ -72,6 +73,11 @@ function AppRouter() {
             real page. */}
         <Route path=":makeSlug" element={<SearchPage />} />
         <Route path=":makeSlug/:modelSlug" element={<SearchPage />} />
+        {/* Anything else under /:lang is a genuine 404. `noindex` on the page keeps a
+            mistyped URL out of the index while nginx serves the SPA shell (HTTP 200).
+            A hard 404 status still needs a nginx `location = /404` — the SPA can only
+            do the visitor-side half. */}
+        <Route path="*" element={<NotFoundPage />} />
       </Route>
       {/* Bare and legacy URLs keep working: same page, language added. */}
       <Route path="*" element={<LangRedirect />} />

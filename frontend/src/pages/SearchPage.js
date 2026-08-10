@@ -13,6 +13,8 @@ import {
 import { HeaderBar } from "@/components/HeaderBar";
 import { Hero } from "@/components/Hero";
 import { Recommended } from "@/components/Recommended";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
+import NotFoundPage from "@/pages/NotFoundPage";
 import { TaxonomySelects } from "@/components/TaxonomySelects";
 import { FilterSidebar } from "@/components/FilterSidebar";
 import { AppliedFiltersChips } from "@/components/AppliedFiltersChips";
@@ -127,6 +129,10 @@ export default function SearchPage() {
   );
 
   const [facets, setFacets] = useState(null);
+  // A URL like `/bg/junk-make` isn't a real make: the resolver echoes it back. When that
+  // happens we render NotFoundPage instead of silently redirecting to home, so an old
+  // shared link tells the visitor the make is gone rather than dumping them elsewhere.
+  const [notFound, setNotFound] = useState(false);
   const [result, setResult] = useState(
     restored?.result || { items: [], total: 0, pages: 0 }
   );
@@ -150,10 +156,19 @@ export default function SearchPage() {
     : "";
   useSeo({
     lang,
-    title: listPhrase ? `${listPhrase} | Encar` : seoHome.title || t("seoHomeTitle"),
-    description: listPhrase
-      ? `${listPhrase} — ${t("seoCarDesc")}`
-      : seoHome.description || t("seoHomeDesc"),
+    title: notFound
+      ? `${t("notFoundTitle")} · Encar`
+      : listPhrase
+        ? `${listPhrase} | Encar`
+        : seoHome.title || t("seoHomeTitle"),
+    description: notFound
+      ? t("notFoundLead")
+      : listPhrase
+        ? `${listPhrase} — ${t("seoCarDesc")}`
+        : seoHome.description || t("seoHomeDesc"),
+    // A pretty-URL slug we could not resolve is a 404 wearing a 200: keep it out of the
+    // index even though SearchPage is still the mounted component underneath NotFoundPage.
+    noindex: notFound,
   });
 
 
@@ -266,14 +281,21 @@ export default function SearchPage() {
         learnSlugs(learned);
         // The resolver echoes unknown tokens back so PRE-SLUG links with raw values keep
         // working — but a PATH segment is always a slug, so one echoed back unchanged is a
-        // junk URL (/bg/some-junk-make). Dropped, and the URL mirror then writes /{lang}.
+        // junk URL (/bg/some-junk-make). This is a real 404: show it instead of home so an
+        // old shared link surfaces the fact that the make (or model) is gone.
         let make = r.make || "";
         let model = r.model || "";
+        let dead = false;
         if (makeSlug && initial.tax.make === makeSlug && make === makeSlug) {
           make = "";
           model = "";
+          dead = true;
         }
-        if (modelSlug && initial.tax.model === modelSlug && model === modelSlug) model = "";
+        if (modelSlug && initial.tax.model === modelSlug && model === modelSlug) {
+          model = "";
+          dead = true;
+        }
+        if (dead) setNotFound(true);
         setTax({
           make,
           model,
@@ -538,7 +560,37 @@ export default function SearchPage() {
   const isHome = !anyFilterActive && page <= 1;
 
   // The site itself, plus its search entry point: this is what lets Google offer a search
-  // box for the site and attribute pages to the company running it.
+  // box for the site and attribute pages to the company running it. When the owner has
+  // filled in office details in Admin -> Company, we also emit AutoDealer with the address
+  // and phone so Google can attach a knowledge panel and a directions button.
+  const co = cms?.company || {};
+  const autoDealer = (() => {
+    if (!co.address && !co.phone && !co.email) return null;
+    const node = {
+      "@type": ["AutoDealer", "LocalBusiness"],
+      name: co.name || "Encar Europe",
+      url: `${window.location.origin}/${lang}`,
+      ...(co.email ? { email: co.email } : {}),
+      ...(co.phone ? { telephone: co.phone } : {}),
+      ...(co.address
+        ? {
+            address: { "@type": "PostalAddress", streetAddress: co.address },
+          }
+        : {}),
+      ...(co.geo_lat && co.geo_lng
+        ? {
+            geo: {
+              "@type": "GeoCoordinates",
+              latitude: Number(co.geo_lat),
+              longitude: Number(co.geo_lng),
+            },
+          }
+        : {}),
+      ...(co.google_maps_url ? { hasMap: co.google_maps_url } : {}),
+    };
+    return node;
+  })();
+
   useJsonLd(
     isHome
       ? {
@@ -561,6 +613,7 @@ export default function SearchPage() {
                 "query-input": "required name=search_term_string",
               },
             },
+            ...(autoDealer ? [autoDealer] : []),
           ],
         }
       : null,
@@ -575,6 +628,11 @@ export default function SearchPage() {
     shownTotal === 1
       ? t("resultsCountOne")
       : t("resultsCount", { n: formatNumber(shownTotal, lang) });
+
+  // A pretty-URL segment that didn't resolve to a real make/model is a genuine 404.
+  // Rendering the shared NotFoundPage keeps the header, footer, noindex meta and BG copy
+  // consistent with an unknown route like /bg/no-such-page.
+  if (notFound) return <NotFoundPage />;
 
   return (
     <div className="min-h-screen bg-background">
@@ -619,6 +677,29 @@ export default function SearchPage() {
           )}
         </button>
       </div>
+
+      {/* Breadcrumbs on non-home views only: on the home page the hero already anchors
+          the visitor. When a make or model is picked, the trail runs Home > Make > Model. */}
+      {!isHome && (
+        <Breadcrumbs
+          testId="search-breadcrumbs"
+          items={[
+            { label: t("breadcrumbHome"), to: `/${lang}` },
+            ...(taxLabels?.make
+              ? [{
+                  label: taxLabels.make,
+                  to: tax?.model
+                    ? `/${lang}/${encodeURIComponent(slugFor("make", tax.make) || tax.make)}`
+                    : undefined,
+                }]
+              : []),
+            ...(taxLabels?.model ? [{ label: taxLabels.model }] : []),
+            ...((!taxLabels?.make && !taxLabels?.model)
+              ? [{ label: searchName || t("breadcrumbSearch") }]
+              : []),
+          ]}
+        />
+      )}
 
       {/* The site name as the landing page's h1, for crawlers. `sr-only` and not
           `display: none`: hidden text is discounted, a screen-reader-only heading is not. The

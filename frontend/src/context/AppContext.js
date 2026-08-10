@@ -3,6 +3,7 @@ import { getCmsSite, getFx } from "@/lib/api";
 import { setCompany } from "@/content/company";
 import { EMPTY_SITE, cachedSite, rememberSite } from "@/lib/cmsCache";
 import { noteFavourite } from "@/lib/taste";
+import { configureAnalytics } from "@/lib/analytics";
 import { t as translate, CURRENCIES } from "@/i18n";
 
 /** A currency we retired (e.g. BGN) can still be sitting in a returning visitor's
@@ -45,7 +46,10 @@ export function AppProvider({ children }) {
   // cache so a refresh never flashes the built-in headline before the API answers.
   const [cms, setCms] = useState(() => {
     const hit = cachedSite(detectLang());
-    if (hit) setCompany(hit.company);
+    if (hit) {
+      setCompany(hit.company);
+      configureAnalytics(hit.company?.ga_id);
+    }
     return hit || EMPTY_SITE;
   });
   const [favourites, setFavourites] = useState(() => {
@@ -76,12 +80,14 @@ export function AppProvider({ children }) {
     const hit = cachedSite(lang);
     if (hit) {
       setCompany(hit.company);
+      configureAnalytics(hit.company?.ga_id);
       setCms(hit);
     }
     getCmsSite(lang)
       .then((data) => {
         if (!alive) return;
         setCompany(data.company);
+        configureAnalytics(data.company?.ga_id);
         setCms({ company: data.company || {}, seo: data.seo || {}, hero: data.hero || {} });
         rememberSite(lang, data);
       })

@@ -14,6 +14,18 @@ export const COMPANY = {
   address: "гр. София 1766, район Витоша, ул. „Бяла река“ 12, бл. 10, ап. 3, България",
   vat: "",
   site: "encareurope.com",
+  // Owner-editable in Admin -> Pages -> Company. Everything below is optional: blank
+  // values are simply not rendered anywhere.
+  //  * ga_id — a GA4 measurement id like "G-XXXXXX". When present, analytics.js loads
+  //    Google's tag once the visitor accepts the statistics category.
+  //  * response_hours — "24" or "2 business hours", printed in the footer as a promise.
+  //  * geo_lat/geo_lng and google_maps_url — used by the AutoDealer JSON-LD on the home
+  //    page so Google can attach a knowledge panel and a directions link.
+  ga_id: "",
+  response_hours: "",
+  geo_lat: "",
+  geo_lng: "",
+  google_maps_url: "",
 };
 
 /** The owner can edit these in Admin -> Pages. The object is mutated in place (rather than

@@ -297,6 +297,19 @@ const EXTRA = {
     trackLinkHint: "Свържи пратката с колата, за да я виждаш до пътя ѝ.",
     trackUnlinkCar: "Разкачи",
     trackNoCars: "Запази автомобил, за да можеш да го свържеш с тази пратка.",
+    // 404 page
+    notFoundTitle: "Не намерихме тази страница",
+    notFoundLead: "Връзката може да е стара или неточна. Върни се към началото или продължи търсенето на автомобил.",
+    notFoundHomeCta: "Към началото",
+    notFoundSearchCta: "Търси автомобил",
+    // Breadcrumbs and hero secondary CTA
+    breadcrumbHome: "Начало",
+    breadcrumbSearch: "Търсене",
+    heroContactCta: "Свържи се с нас",
+    // Response-time promise (owner-editable hours in Admin -> Company)
+    responsePromise: "Отговаряме в рамките на {hours} часа",
+    responsePromiseBusiness: "Отговаряме в рамките на {hours} работни часа",
+    responsePromiseFallback: "Отговаряме бързо, обикновено в рамките на един работен ден.",
   },
   ro: {
 
@@ -593,6 +606,17 @@ const EXTRA = {
     trackLinkHint: "Leagă transportul de mașină ca să o vezi lângă traseul ei.",
     trackUnlinkCar: "Deconectează",
     trackNoCars: "Salvează o mașină ca să o poți lega de acest transport.",
+    // 404 page
+    notFoundTitle: "Nu am găsit această pagină",
+    notFoundLead: "Linkul poate fi vechi sau greșit. Întoarce-te la pagina principală sau continuă căutarea unei mașini.",
+    notFoundHomeCta: "Pagina principală",
+    notFoundSearchCta: "Caută o mașină",
+    breadcrumbHome: "Acasă",
+    breadcrumbSearch: "Căutare",
+    heroContactCta: "Contactează-ne",
+    responsePromise: "Răspundem în {hours} de ore",
+    responsePromiseBusiness: "Răspundem în {hours} ore lucrătoare",
+    responsePromiseFallback: "Răspundem rapid, de obicei într-o zi lucrătoare.",
   },
   en: {
 
@@ -889,6 +913,16 @@ const EXTRA = {
     trackLinkHint: "Link the shipment to your car to see it beside its journey.",
     trackUnlinkCar: "Unlink",
     trackNoCars: "Save a car first and you can link it to this shipment.",
+    notFoundTitle: "We could not find that page",
+    notFoundLead: "The link may be old or mistyped. Head back to the home page, or carry on browsing cars.",
+    notFoundHomeCta: "Back to home",
+    notFoundSearchCta: "Browse cars",
+    breadcrumbHome: "Home",
+    breadcrumbSearch: "Search",
+    heroContactCta: "Talk to us",
+    responsePromise: "We reply within {hours} hours",
+    responsePromiseBusiness: "We reply within {hours} business hours",
+    responsePromiseFallback: "We reply quickly, usually within one business day.",
   },
 };
 
