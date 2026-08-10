@@ -144,6 +144,22 @@ server {
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
 
+    # Fingerprinted static assets (self-hosted fonts, hashed logo files) never change under
+    # the same URL - a new build ships a new hash. Same treatment as /static/: cache them
+    # for a year and mark immutable so the browser skips revalidation entirely. The 4 h
+    # default that Lighthouse flagged came from the SPA fallback below (`try_files ...
+    # /index.html`) picking up its no-cache heuristic for anything without a location match.
+    location /fonts/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+    location ~* ^/logo-\d+\.(webp|png)$ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+    # PWA icons, favicons and the OG plate are also content-hashed by name; safe to cache hard.
+    location ~* ^/(favicon\.(ico|png)|og\.png|icons/.*)$ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
     # A pinned service worker would serve a broken build forever.
     location = /service-worker.js {
         add_header Cache-Control "no-store";
