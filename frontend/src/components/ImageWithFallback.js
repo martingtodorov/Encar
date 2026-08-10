@@ -12,6 +12,7 @@ export const ImageWithFallback = ({ src, alt, className = "", testId, fit = "cov
   const [state, setState] = useState(src ? "loading" : "error");
   const [slow, setSlow] = useState(false);
   const timer = useRef(null);
+  const imgRef = useRef(null);
 
   useEffect(() => {
     setState(src ? "loading" : "error");
@@ -19,6 +20,17 @@ export const ImageWithFallback = ({ src, alt, className = "", testId, fit = "cov
     if (timer.current) clearTimeout(timer.current);
     if (src) {
       timer.current = setTimeout(() => setSlow(true), 800);
+    }
+    // Eager images (LCP candidates) start downloading during HTML parse, before React
+    // hydrates. If the picture is small or already in the browser cache the load event
+    // fires BEFORE React attaches the JSX `onLoad` handler, so the state never leaves
+    // "loading" and the shimmer overlay hangs over a picture that has been rendered for
+    // seconds. Checking `img.complete` on mount catches that race: the image is already
+    // painted, so we mark it loaded and drop the overlay immediately.
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+      setState("loaded");
+      if (timer.current) clearTimeout(timer.current);
+      setSlow(false);
     }
     return () => timer.current && clearTimeout(timer.current);
   }, [src]);
@@ -59,6 +71,7 @@ export const ImageWithFallback = ({ src, alt, className = "", testId, fit = "cov
         </div>
       )}
       <img
+        ref={imgRef}
         data-testid={testId}
         src={src}
         alt={alt}

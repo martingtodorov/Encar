@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CarCard } from "@/components/CarCard";
 import { useApp } from "@/context/AppContext";
 import { countRecoClick, getRecommendations } from "@/lib/api";
@@ -23,8 +23,18 @@ export const Recommended = ({ onOpen }) => {
   // Only the owner's hand-picked shelf is measured: a click on the popular list says nothing
   // about a choice the owner made.
   const [curated, setCurated] = useState(false);
+  // The last language a fetch was successfully STARTED for. React 18's StrictMode double-
+  // fires effects in dev and, in prod, an AppContext re-render toggled the `lang` dependency
+  // briefly enough to run this twice back to back - the second response replaced the first,
+  // every card in the shelf remounted, and every in-flight image request from the first
+  // render was aborted mid-download. The visitor saw "impossible to load" images that were
+  // actually loaded fine and then thrown away. One request per language, once and for all.
+  const inflightLang = useRef(null);
 
   useEffect(() => {
+    if (!lang || inflightLang.current === lang) return;
+    inflightLang.current = lang;
+
     let alive = true;
     setDone(false);
     getRecommendations({ ...getTaste(), lang, limit: 12 })
