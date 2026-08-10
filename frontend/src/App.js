@@ -1,6 +1,6 @@
 import "@/App.css";
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AppProvider } from "@/context/AppContext";
 import { AuthProvider } from "@/context/AuthContext";
@@ -67,7 +67,9 @@ function AppRouter() {
         <Route path="privacy" element={<LegalPage slug="privacy" />} />
         <Route path="cookies" element={<LegalPage slug="cookies" />} />
         <Route path="contact" element={<LegalPage slug="contact" />} />
-        <Route path="faq" element={<LegalPage slug="faq" />} />
+        {/* /faq folded into /how-it-works: help.js FAQ is rendered inline there so bookmarks
+            and any surviving inbound links land on the same content instead of a dead route. */}
+        <Route path="faq" element={<Navigate to="../how-it-works" replace />} />
         <Route path="fees" element={<LegalPage slug="fees" />} />
         <Route path="purchases" element={<MyPurchasesPage />} />
         <Route path="payment/success" element={<PaymentResultPage outcome="success" />} />

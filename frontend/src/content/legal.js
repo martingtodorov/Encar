@@ -8,7 +8,7 @@ import { COMPANY } from "@/content/company";
  * business specifically: we buy cars at Korean auction/dealer level, quote one landed price,
  * ship them by sea and deliver to the buyer's address.
  */
-const UPDATED = "2026-06-08";
+const UPDATED = "2026-08-10";
 
 const doc = (title, intro, sections, updated = UPDATED) => ({
   title, intro, sections, updated,
@@ -22,9 +22,9 @@ const doc = (title, intro, sections, updated = UPDATED) => ({
 // count weekly and monthly unique visitors accurately - a clarification of an existing
 // processing operation, not a new tracker, so consent.POLICY_VERSION still stays.
 const COOKIE_STAMP = {
-  bg: "Версия 1.4 · Актуализирана на 8 февруари 2026 г.",
-  ro: "Versiunea 1.4 · Actualizată la 8 februarie 2026",
-  en: "Version 1.4 · Updated 8 February 2026",
+  bg: "Версия 1.4 · Актуализирана на 10 август 2026 г.",
+  ro: "Versiunea 1.4 · Actualizată la 10 august 2026",
+  en: "Version 1.4 · Updated 10 August 2026",
 };
 
 // The privacy policy is the owner's own v1.3 document in all three languages, plus one section
@@ -32,9 +32,9 @@ const COOKIE_STAMP = {
 // processing operation, so section 17's own rule applies. v1.5 discloses the second, longer-
 // lived salt used exclusively for accurate week and month unique-visitor counts.
 const PRIVACY_STAMP = {
-  bg: "Версия 1.5 · Последна актуализация: 8 февруари 2026 г.",
-  ro: "Versiunea 1.5 · Ultima actualizare: 8 februarie 2026",
-  en: "Version 1.5 · Last updated 8 February 2026",
+  bg: "Версия 1.5 · Последна актуализация: 10 август 2026 г.",
+  ro: "Versiunea 1.5 · Ultima actualizare: 10 august 2026",
+  en: "Version 1.5 · Last updated 10 August 2026",
 };
 
 // Built on demand rather than at import time: the company details can be edited in the
@@ -48,15 +48,15 @@ const BG = {
     [
       ["Какво правим",
         [`Показваме автомобили, обявени за продажба в Южна Корея, преведени на български, румънски и английски.`,
-         `Цената, която виждаш, е крайна прогнозна цена до твоя адрес: включва автомобила, морския транспорт, мито и ДДС, освен ако на страницата на обявата не е посочено друго.`]],
+         `Цената, която виждаш, е крайна прогнозна цена до България, освен ако на страницата на обявата не е посочено друго.`]],
       ["Обявите не са наша собственост",
         [`Данните и снимките идват от корейския пазар и се обновяват периодично. Възможно е автомобил да бъде продаден или свален от продажба, преди да получим обновени данни.`,
          `Затова обява на сайта е покана за запитване, а не обвързваща оферта. Обвързваща цена получаваш в писмено потвърждение от нас.`]],
       ["Поръчка и плащане",
         [`След запитване потвърждаваме наличността, окончателната цена и срока, и издаваме документ за плащане. Договорът се счита сключен, когато потвърдим поръчката писмено.`,
-         `Плащането се извършва по банков път към ${COMPANY.name}. Не приемаме плащания в брой за автомобили.`]],
+         `Плащането се извършва по банков път — по сметка на ${COMPANY.name} или по сметка на нашия канадски партньор посредник VIN TRADE LLC, според това какво е посочено във фактурата, която получавате. Не приемаме плащания в брой за автомобили.`]],
       ["Срокове и доставка",
-        [`Ориентировъчният срок от потвърдена поръчка до доставка е между 6 и 10 седмици и зависи от корабните разписания, пристанищните и митническите процедури.`,
+        [`Ориентировъчният срок от потвърдена поръчка до доставка е между 12 и 14 седмици и зависи от корабните разписания, пристанищните и митническите процедури.`,
          `Датите в раздел „Проследи автомобила“ са прогнозни. Последната стъпка — доставка до твоя адрес — се изчислява като приблизително седем дни след пристигане в европейското пристанище.`]],
       ["Състояние на автомобила",
         [`Автомобилите са употребявани. Показваме инспекционния доклад и историята, доколкото са налични от източника.`,
@@ -266,15 +266,15 @@ const RO = {
     [
       ["Ce facem",
         [`Afișăm mașini scoase la vânzare în Coreea de Sud, traduse în bulgară, română și engleză.`,
-         `Prețul afișat este prețul final estimat până la adresa ta: mașina, transportul maritim, taxele vamale și TVA, dacă pagina anunțului nu spune altfel.`]],
+         `Prețul afișat este prețul final estimat până în Bulgaria, dacă pagina anunțului nu spune altfel.`]],
       ["Anunțurile nu ne aparțin",
         [`Datele și fotografiile provin din piața coreeană și se actualizează periodic. O mașină poate fi vândută înainte să primim date noi.`,
          `De aceea un anunț este o invitație la cerere, nu o ofertă obligatorie. Prețul obligatoriu îl primești în confirmarea noastră scrisă.`]],
       ["Comandă și plată",
         [`După cerere confirmăm disponibilitatea, prețul final și termenul, apoi emitem documentul de plată. Contractul se încheie când confirmăm comanda în scris.`,
-         `Plata se face prin transfer bancar către ${COMPANY.name}. Nu acceptăm numerar pentru mașini.`]],
+         `Plata se face prin transfer bancar — în contul ${COMPANY.name} sau în contul partenerului nostru intermediar canadian VIN TRADE LLC, în funcție de ce este indicat pe factura pe care o primești. Nu acceptăm numerar pentru mașini.`]],
       ["Termene și livrare",
-        [`Termenul orientativ de la comanda confirmată până la livrare este de 6-10 săptămâni și depinde de orarele navelor și de procedurile portuare și vamale.`,
+        [`Termenul orientativ de la comanda confirmată până la livrare este de 12-14 săptămâni și depinde de orarele navelor și de procedurile portuare și vamale.`,
          `Datele din „Urmărește mașina” sunt estimări. Ultimul pas — livrarea la adresa ta — se calculează la aproximativ șapte zile după sosirea în portul european.`]],
       ["Starea mașinii",
         [`Mașinile sunt second-hand. Afișăm raportul de inspecție și istoricul, în măsura în care sursa le pune la dispoziție.`,
@@ -484,15 +484,15 @@ const EN = {
     [
       ["What we do",
         [`We show cars offered for sale in South Korea, translated into Bulgarian, Romanian and English.`,
-         `The price you see is the estimated final price to your address: the car, sea freight, customs duty and VAT, unless the listing page says otherwise.`]],
+         `The price you see is the estimated final price to Bulgaria, unless the listing page says otherwise.`]],
       ["The listings are not ours",
         [`Data and photos come from the Korean market and are refreshed periodically. A car can be sold before we receive updated data.`,
          `A listing is therefore an invitation to enquire, not a binding offer. A binding price comes in our written confirmation.`]],
       ["Ordering and payment",
         [`After your enquiry we confirm availability, the final price and the lead time, then issue the payment document. The contract is formed when we confirm your order in writing.`,
-         `Payment is by bank transfer to ${COMPANY.name}. We do not accept cash for vehicles.`]],
+         `Payment is by bank transfer — to the account of ${COMPANY.name} or to the account of our Canadian intermediary partner VIN TRADE LLC, whichever is stated on the invoice you receive. We do not accept cash for vehicles.`]],
       ["Lead times and delivery",
-        [`From a confirmed order to delivery usually takes 6 to 10 weeks, depending on sailing schedules and on port and customs procedures.`,
+        [`From a confirmed order to delivery usually takes 12 to 14 weeks, depending on sailing schedules and on port and customs procedures.`,
          `Dates on the "Track my vehicle" page are estimates. The final step — delivery to your address — is calculated as roughly seven days after arrival at the European port.`]],
       ["Condition of the car",
         [`The cars are used. We show the inspection report and the history as far as the source makes them available.`,

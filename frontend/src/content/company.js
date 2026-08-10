@@ -60,7 +60,6 @@ export const FOOTER_COLUMNS = [
     key: "footerHelp",
     links: [
       { to: "/how-it-works", key: "navHowItWorks" },
-      { to: "/faq", key: "navFaq" },
       { to: "/fees", key: "navFees" },
       { to: "/contact", key: "legalContact" },
     ],

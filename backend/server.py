@@ -2335,9 +2335,9 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     # the one thing that makes this site worth using. A shared link and a search result should
     # not describe the same car differently.
     blurb = {
-        "bg": "крайна цена до България с мито, ДДС и доставка.",
-        "ro": "preț final livrat, cu taxe vamale, TVA și transport incluse.",
-        "en": "final landed price with duty, VAT and delivery included.",
+        "bg": "крайна цена до България.",
+        "ro": "preț final până în Bulgaria.",
+        "en": "final price to Bulgaria.",
     }[lang]
     description = " · ".join([f for f in facts if f])
     description = f"{description} — {blurb}" if description else blurb
@@ -2582,7 +2582,6 @@ async def sitemap_static(request: Request):
     routes = [
         ("", "hourly", "1.0"),
         ("/how-it-works", "monthly", "0.8"),
-        ("/faq", "monthly", "0.7"),
         ("/terms", "yearly", "0.3"),
         ("/privacy", "yearly", "0.3"),
         ("/cookies", "yearly", "0.3"),

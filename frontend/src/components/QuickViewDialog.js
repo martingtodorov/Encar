@@ -150,14 +150,6 @@ export const QuickViewDialog = ({ car, open, onOpenChange }) => {
                       testId="quote-encar-price"
                     />
                     <Row label={t("exportFee")} value={money(quote.autowini_fee_eur)} />
-                    <Row
-                      label={t("customsDuty")}
-                      value={money(quote.duty)}
-                      testId="quote-duty"
-                    />
-                    {quote.vat > 0 && (
-                      <Row label={t("vat")} value={money(quote.vat)} testId="quote-vat" />
-                    )}
                     <Row label={t("domestic")} value={money(quote.domestic_total)} />
                     <Separator className="my-1.5 bg-border" />
                     <Row

@@ -13,6 +13,7 @@ import { useApp } from "@/context/AppContext";
 import { useSeo } from "@/lib/seo";
 import { getCmsPage } from "@/lib/api";
 import { cachedPageHtml, rememberPageHtml } from "@/lib/cmsCache";
+import { helpDoc } from "@/content/help";
 
 const Step = ({ icon: Icon, title, body, n }) => (
   <div className="rounded-[16px] border border-border bg-card p-5 shadow-sm">
@@ -105,8 +106,6 @@ export default function HowItWorksPage() {
               <ul className="mt-3 space-y-2 text-[14px] text-muted-foreground">
                 <li>• {t("encarPrice")}</li>
                 <li>• {t("exportFee")}</li>
-                <li>• {t("customsDuty")}</li>
-                <li>• {t("vat")}</li>
                 <li>• {t("domestic")}</li>
               </ul>
               <p className="mt-3 text-[13px] leading-relaxed text-foreground">{t("trust1Body")}</p>
@@ -143,14 +142,33 @@ export default function HowItWorksPage() {
             >
               <h2 className="text-[16px] font-semibold text-foreground">{t("howFaqTitle")}</h2>
               <dl className="mt-3 divide-y divide-border">
+                {/* The four mechanics questions (deposit hold, sold-out, documents, ship
+                    position) live in i18n_extra.js because they mirror deposits.py rules and
+                    tracking.py behaviour - things engineers change without touching content. */}
                 {[1, 2, 3, 4].map((n) => (
-                  <div key={n} className="py-3 first:pt-0 last:pb-0">
+                  <div key={`m${n}`} className="py-3 first:pt-0 last:pb-0">
                     <dt className="text-[14px] font-semibold text-foreground">
                       {t(`howFaq${n}Q`)}
                     </dt>
                     <dd className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground">
                       {t(`howFaq${n}A`)}
                     </dd>
+                  </div>
+                ))}
+                {/* The remaining questions come straight from help.js so the owner can edit
+                    them in one place. This is why /faq is no longer a separate route: the
+                    same source of truth is rendered inline here. */}
+                {(helpDoc(lang, "faq")?.sections || []).map(([question, answers], i) => (
+                  <div key={`h${i}`} className="py-3 first:pt-0 last:pb-0">
+                    <dt className="text-[14px] font-semibold text-foreground">{question}</dt>
+                    {(answers || []).map((line, j) => (
+                      <dd
+                        key={j}
+                        className="mt-1 text-[13.5px] leading-relaxed text-muted-foreground"
+                      >
+                        {line}
+                      </dd>
+                    ))}
                   </div>
                 ))}
               </dl>

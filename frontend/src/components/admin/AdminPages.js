@@ -47,7 +47,7 @@ function builtInHtml(slug, lang) {
     const steps = [1, 2, 3, 4]
       .map((n) => `  <h2>${esc(tt(`howStep${n}Title`))}</h2>\n  <p>${esc(tt(`howStep${n}Body`))}</p>`)
       .join("\n");
-    const parts = ["encarPrice", "exportFee", "customsDuty", "vat", "domestic"]
+    const parts = ["encarPrice", "exportFee", "domestic"]
       .map((k) => `    <li>${esc(tt(k))}</li>`)
       .join("\n");
     return `<h1>${esc(tt("navHowItWorks"))}</h1>
