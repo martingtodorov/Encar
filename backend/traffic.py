@@ -33,9 +33,23 @@ KEEP_DAYS = 40                     # a month of history plus room for the month-
 SALT_KEEP_DAYS = 2
 SNAPSHOT_CACHE_SECONDS = 10
 
+# A visit from any of these is a machine, not a buyer, and must not be counted as a page
+# view. This list is kept in lock-step with the nginx crawler map (see
+# deploy/hetzner/ansible/templates/nginx-encar.conf.j2); if nginx routes a UA to the SSR
+# share endpoint, the same UA must also be skipped here - otherwise every Facebook, iMessage
+# or Viber link preview poll adds a "user" to the dashboard.
+#
+# The `AppleWebKit/… (KHTML, like Gecko)$` clause catches Apple's headless iMessage fetcher
+# (iOS 16+) whose UA ends at the Gecko marker with no `Version/` or `Safari/` suffix. A real
+# Safari or a WebKit-based iOS Chrome/Firefox ALWAYS carries at least one of those trailing
+# tokens, so the anchor pins the match to the crawler only.
 BOTS = re.compile(
     r"bot|crawl|spider|slurp|curl|wget|python-requests|httpx|headless|lighthouse|"
-    r"pingdom|uptime|monitor|preview|facebookexternalhit|whatsapp|telegrambot",
+    r"pingdom|uptime|monitor|preview|facebookexternalhit|facebookcatalog|Facebot|"
+    r"whatsapp|viber|telegram|slack|discord|linkedin|pinterest|redditbot|"
+    r"skypeuripreview|iframely|embedly|snapchat|instagram|mastodon|bluesky|vkshare|"
+    r"com\.apple\.webkit\.networking|applebot|applebot-extended|"
+    r"AppleWebKit/[0-9.]+ \(KHTML, like Gecko\)\s*$",
     re.I)
 
 TZ = ZoneInfo(os.environ.get("ADMIN_TZ", "Europe/Sofia"))
