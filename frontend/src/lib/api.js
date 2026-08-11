@@ -140,6 +140,14 @@ export async function getSitemapIndex(lang) {
   return data;
 }
 
+/** Same-make + same-model shelf on the car detail page. */
+export async function getMoreFromModel(carId, lang, limit = 12) {
+  const { data } = await http.get(`/car/${carId}/more-from-model`, {
+    params: { lang, limit },
+  });
+  return data;
+}
+
 /** Cascading Make -> Model -> Submodel -> Trim. Served from a precomputed tree. */
 /** English slugs from the URL -> the Korean values the search endpoint speaks. */
 export async function resolveSlugs(params) {

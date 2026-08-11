@@ -446,6 +446,46 @@ async def listings_by_ids(body: ListingIdsBody, lang: str = "bg"):
     return {"items": items}
 
 
+@api.get("/car/{listing_id}/more-from-model")
+async def more_from_model(listing_id: str, lang: str = "bg", limit: int = 12):
+    """Cars from the same make + model, excluding the current listing.
+
+    A shopper reading one 5-Series ad almost always wants to see the other
+    5-Series without redoing the filters, so this ships a focused shelf that
+    only speaks make/model - no taste blending, no price band. Sorted by newest
+    so the freshest inventory rises. Curation-aware (curate.expand) so a make
+    that was merged into another still surfaces its cars.
+    """
+    lang = norm_lang(lang)
+    limit = min(max(1, int(limit)), 24)
+    doc = await db.listings.find_one({"_id": str(listing_id)},
+                                     {"manufacturer": 1, "model": 1})
+    if not doc or not doc.get("model"):
+        return {"items": [], "make": None, "model": None}
+
+    await curate.refresh(db)
+    make = doc.get("manufacturer") or ""
+    model = doc.get("model") or ""
+    query = {
+        "active": True,
+        "duplicate": {"$ne": True},
+        "under_contract": {"$ne": True},
+        "_id": {"$ne": str(listing_id)},
+        "manufacturer": {"$in": curate.expand(1, [make])},
+        "model": {"$in": curate.expand(2, [model])},
+    }
+    rows = [d async for d in
+            db.listings.find(query).sort([("first_seen", -1)]).limit(limit)]
+    if not rows:
+        return {"items": [], "make": make, "model": model}
+    await translate_listings(db, rows, lang)
+    items = [listing_out(r) for r in rows]
+    await publish_prices(items)
+    return {"items": items, "make": make, "model": model,
+            "model_t": (rows[0] or {}).get("model_t") or model,
+            "make_t": (rows[0] or {}).get("manufacturer_t") or make}
+
+
 @api.post("/car/{listing_id}/translate-description")
 async def translate_description(listing_id: str, lang: str = "bg"):
     """Translate ONE dealer description, on demand.

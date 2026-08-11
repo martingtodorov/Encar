@@ -34,6 +34,7 @@ import { DescriptionPanelBody } from "@/components/DescriptionPanelBody";
 import { ClampBlock } from "@/components/ClampBlock";
 import { PriceNote } from "@/components/PriceNote";
 import { YouMightLike } from "@/components/YouMightLike";
+import { MoreFromModel } from "@/components/MoreFromModel";
 import { useLangNav } from "@/hooks/useLangNav";
 import { getCar, warmCar, forgetCar, countView } from "@/lib/api";
 import { noteView, WEIGHT } from "@/lib/taste";
@@ -919,7 +920,15 @@ export default function CarDetailPage() {
               </div>
             )}
 
-            {/* Read the description, liked the car — the next question is "what else?" */}
+            {/* Read the description, liked the car — the next question is "what else?"
+                First the strict same-model shelf ("more 5-Series like this one"), then
+                a broader taste-blended one. Shopper who is model-locked jumps within the
+                model without redoing filters; a shopper who is open to alternatives
+                still gets the wider net below. */}
+            <MoreFromModel
+              carId={id}
+              onOpen={(c) => navigate(path(`/car/${c.id}`))}
+            />
             <YouMightLike
               car={car}
               excludeId={id}
