@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { Navigate, Outlet, useLocation, useParams } from "react-router-dom";
+import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import { CookieBar } from "@/components/CookieBar";
 import { ScrollToTop } from "@/components/ScrollToTop";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -10,8 +11,10 @@ import { stripLang } from "@/lib/seo";
 import { allows, onConsentChange } from "@/lib/consent";
 import { syncAnalytics } from "@/lib/analytics";
 import { ping, labelFor } from "@/lib/traffic";
+import { getGeoLang } from "@/lib/api";
 
 const CODES = LANGS.map((l) => l.code);
+const GEO_LANG_DONE = "encar.geolang.done";
 
 /**
  * Language lives in the URL, not in the browser's preference.
@@ -24,13 +27,67 @@ const CODES = LANGS.map((l) => l.code);
 export const LangLayout = () => {
   const { lang: urlLang } = useParams();
   const { lang, setLang } = useApp();
-  const { pathname } = useLocation();
+  const { user } = useAuth();
+  const { pathname, search, hash } = useLocation();
+  const navigate = useNavigate();
   const valid = CODES.includes(urlLang);
   const timer = useRef(null);
+  // Snapshot at mount whether the visitor had ever explicitly picked a language.
+  // The URL-sync effect below writes `encar.lang` on the very first render, so
+  // reading storage later would always look "explicit" and the geo hint would be
+  // silently skipped. Ref captured once so the geo effect can trust it.
+  const hadStoredLang = useRef(Boolean(localStorage.getItem("encar.lang")));
+  const geoLookupFired = useRef(false);
+  const accountLangApplied = useRef(false);
 
   useEffect(() => {
     if (valid && urlLang !== lang) setLang(urlLang);
   }, [valid, urlLang, lang, setLang]);
+
+  // Account language wins over both localStorage and IP geolocation. A Bulgarian on
+  // holiday abroad sees the Bulgarian skin the moment they sign in, even from a
+  // browser with no prior visit history. Only applied once per session so a shopper
+  // can still switch languages manually mid-session without being snapped back.
+  useEffect(() => {
+    if (!valid || !user || accountLangApplied.current) return;
+    const preferred = (user.lang || "").toLowerCase();
+    if (!preferred || !CODES.includes(preferred)) return;
+    accountLangApplied.current = true;
+    if (preferred === urlLang) return;
+    const rest = stripLang(pathname);
+    navigate(`/${preferred}${rest}${search}${hash}`, { replace: true });
+  }, [valid, user, urlLang, pathname, search, hash, navigate]);
+
+  // First-visit geolocation: a Romanian visitor who lands on the BG homepage (because
+  // Bulgarian is the fallback locale) should be reshown the same page in Romanian
+  // without having to hunt for a switcher. `useNavigate` returns a new function on
+  // every render, so we guard against re-entry with a ref rather than an effect dep.
+  useEffect(() => {
+    if (!valid) return;
+    if (hadStoredLang.current) return;
+    if (user?.lang) return;                          // account preference will win below
+    if (geoLookupFired.current) return;
+    if (sessionStorage.getItem(GEO_LANG_DONE)) {
+      geoLookupFired.current = true;
+      return;
+    }
+    geoLookupFired.current = true;
+    getGeoLang()
+      .then((res) => {
+        sessionStorage.setItem(GEO_LANG_DONE, "1");
+        const next = res?.lang;
+        if (!next || !CODES.includes(next) || next === urlLang) return;
+        // Rewrite the URL to the detected language, keeping the rest of the path so a
+        // deep link (e.g. /bg/bmw/3-series-g20) survives the redirect. The URL-sync
+        // effect above will pick the new prefix up and store it, so no explicit
+        // setLang is needed here (a double write would race with the redirect).
+        const rest = stripLang(pathname);
+        navigate(`/${next}${rest}${search}${hash}`, { replace: true });
+      })
+      .catch(() => {
+        sessionStorage.setItem(GEO_LANG_DONE, "1");
+      });
+  }, [valid, urlLang, pathname, search, hash, navigate, setLang]);
 
   // Third-party statistics follow the decision, in both directions: nothing loads before a
   // yes, and a withdrawal switches the consent signal back to denied.

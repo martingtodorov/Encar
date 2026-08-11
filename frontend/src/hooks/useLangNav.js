@@ -1,7 +1,9 @@
 import { useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import { stripLang } from "@/lib/seo";
+import { saveAccountLang } from "@/lib/api";
 
 /**
  * Every internal link carries the language prefix, so building paths by hand would mean
@@ -10,6 +12,7 @@ import { stripLang } from "@/lib/seo";
  */
 export function useLangNav() {
   const { lang } = useApp();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -27,8 +30,14 @@ export function useLangNav() {
     (code) => {
       const rest = stripLang(location.pathname);
       navigate(`/${code}${rest}${location.search}${location.hash}`);
+      // Explicit picks by a signed-in buyer follow them across devices. Fire-and-forget
+      // so a slow network never blocks the visual switch; a stale value on failure is
+      // fixed next time they open the switcher.
+      if (user) {
+        saveAccountLang(code).catch(() => {});
+      }
     },
-    [navigate, location.pathname, location.search, location.hash]
+    [navigate, location.pathname, location.search, location.hash, user]
   );
 
   return { lang, path, go, switchLang };

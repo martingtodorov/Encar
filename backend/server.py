@@ -3831,6 +3831,32 @@ class TrackBody(BaseModel):
     car_id: str = ""
 
 
+@api.get("/geo/lang")
+async def geo_lang(request: Request):
+    """First-visit language hint from the caller's IP.
+
+    ISO code → skin language, matching the three markets the site actually serves:
+      RO, MD          → ro
+      BG              → bg
+      anything else   → en (a Bulgarian visitor gets `bg` above, so the fall-through
+                       into English is deliberately the "third-country" default)
+
+    The visitor's explicit choice always wins (localStorage on the client), so this
+    endpoint is only consulted once per browser. `guessed=false` when we could not
+    tell - the client should keep whatever it had detected from `navigator.language`.
+    """
+    country = await geoip.country_of(request)
+    if country in ("RO", "MD"):
+        lang = "ro"
+    elif country == "BG":
+        lang = "bg"
+    elif country:
+        lang = "en"
+    else:
+        lang = ""
+    return {"country": country, "lang": lang, "guessed": bool(lang)}
+
+
 @api.get("/geo")
 async def geo_hint(request: Request):
     """The dial-code dropdown: every prefix, plus the one to start on.

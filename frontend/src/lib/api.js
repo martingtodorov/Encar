@@ -154,6 +154,12 @@ export async function getFacetCounts(body) {
   return data;
 }
 
+/** First-visit language hint from IP geolocation. Returns `{lang: 'bg'|'ro'|'en'|''}`. */
+export async function getGeoLang() {
+  const { data } = await http.get("/geo/lang");
+  return data;
+}
+
 /** Cascading Make -> Model -> Submodel -> Trim. Served from a precomputed tree. */
 /** English slugs from the URL -> the Korean values the search endpoint speaks. */
 export async function resolveSlugs(params) {
@@ -416,6 +422,12 @@ export async function apiMe() {
 export async function saveBilling(billing) {
   const { data } = await http.put("/auth/billing", billing);
   return data.user;
+}
+
+/** Persist the buyer's preferred skin language on the account. */
+export async function saveAccountLang(lang) {
+  const { data } = await http.post("/auth/lang", { lang });
+  return data;
 }
 
 export async function apiRegister(body) {

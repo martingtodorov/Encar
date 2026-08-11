@@ -307,6 +307,10 @@ def _public(user, passkeys=0):
         "recovery_codes_left": sum(
             1 for c in (user.get("recovery_codes") or []) if not c.get("used")),
         "taste": user.get("taste") or {},
+        # Preferred skin language, follows the buyer across devices. Empty string
+        # means "no preference recorded yet"; the frontend then falls back to
+        # localStorage → IP geolocation → browser locale.
+        "lang": (user.get("lang") or "")[:2],
         "created_at": user.get("created_at"),
     }
 
@@ -933,6 +937,25 @@ async def put_taste(body: TasteIn, user=Depends(current_user)):
         }
     await _db.users.update_one({"_id": user["_id"]}, {"$set": update})
     return {"saved": True}
+
+
+class LangIn(BaseModel):
+    lang: str = ""
+
+
+@router.post("/auth/lang")
+async def put_lang(body: LangIn, user=Depends(current_user)):
+    """Persist the buyer's preferred skin language on the account.
+
+    Called by the language switcher so a Bulgarian on holiday reaches for the
+    switcher once and the choice follows them across devices. Empty string clears
+    the preference and lets IP/browser detection take over again.
+    """
+    code = (body.lang or "").strip().lower()[:2]
+    if code and code not in ("bg", "ro", "en"):
+        raise HTTPException(400, "unsupported language")
+    await _db.users.update_one({"_id": user["_id"]}, {"$set": {"lang": code}})
+    return {"lang": code}
 
 
 @router.get("/auth/favourites")
