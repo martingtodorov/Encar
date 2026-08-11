@@ -107,7 +107,7 @@ export const CookieBar = () => {
   return (
     <div
       data-testid="cookie-overlay"
-      className="fixed inset-0 z-[200] flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-6"
+      className="fixed inset-0 z-[200] flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-6"
       onMouseDown={(e) => {
         // Clicking the backdrop closes it ONLY when the decision has already been made.
         if (!blocking && e.target === e.currentTarget) setShow(false);
