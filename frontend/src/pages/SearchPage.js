@@ -507,6 +507,19 @@ export default function SearchPage() {
     window.scrollTo({ top: Math.max(top, 0), behavior: "smooth" });
   }, []);
 
+  // The header's "Search cars" link carries a `#search` fragment: clicking it from any
+  // page (or clicking it again from home) drops the visitor at the make/model dropdowns
+  // rather than the top of the hero, mirroring the hero CTA. Runs after the taxonomy
+  // node exists AND the initial data has arrived so the target does not jump.
+  useEffect(() => {
+    if (location.hash !== "#search") return;
+    // Two frames: the first paints, the second measures once the layout is stable.
+    const raf1 = requestAnimationFrame(() => {
+      requestAnimationFrame(() => scrollToSearch());
+    });
+    return () => cancelAnimationFrame(raf1);
+  }, [location.hash, scrollToSearch]);
+
   // A new page starts at the top of the page, not at the pagination the visitor just
   // clicked. Measuring the list instead was unreliable: the hero disappears from page two
   // onwards, so the layout shifts out from under the target mid-scroll.

@@ -46,7 +46,7 @@ export const HeaderNav = () => {
   return (
     <nav data-testid="header-nav" className="flex flex-1 items-center gap-5">
       <Link
-        to={path(primary.to)}
+        to={`${path(primary.to)}#search`}
         data-testid="header-nav-link-search"
         aria-current={pathname === path("/") ? "page" : undefined}
         className={cls(pathname === path("/"))}
