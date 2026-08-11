@@ -2814,10 +2814,10 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
             # phone. A <picture> element in the swiper picks this variant below the
             # `md` breakpoint.
             "full_mobile": image_url(path, 900, 506),
-            # 500x280 sharpens the 224x126 CSS thumbnails on retina (they render around
-            # 448x252 device px) without shipping a full gallery-sized picture per
-            # thumbnail. 260x147 was visibly soft on the pinned desktop rail.
-            "thumb": image_url(path, 500, 280),
+            # 356x200 sharpens the 112x76 CSS mobile strip thumbnail on retina
+            # (~224x152 physical) and the ~264x149 CSS desktop rail thumb (~528x298
+            # physical) without shipping a full gallery-sized picture per thumbnail.
+            "thumb": image_url(path, 356, 200),
         })
 
     # ── options resolved from the dictionaries and grouped by category ───────────
