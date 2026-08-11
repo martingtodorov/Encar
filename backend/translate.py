@@ -176,7 +176,7 @@ async def _anthropic_call(chunk, lang, model=None):
     import anthropic
 
     # Default is Haiku, per owner: the whole app pays Haiku token rates unless a caller
-    # explicitly picks a heavier model. Warm-up may still request Sonnet by env var.
+    # explicitly picks a heavier model.
     model = model or os.environ.get("ANTHROPIC_MODEL", HAIKU_MODEL)
     try:
         resp = await _anthropic_client().messages.create(
@@ -213,8 +213,8 @@ async def _emergent_call(chunk, lang):
 def _providers(model=None):
     """Every provider we can use, in order of preference.
 
-    `model` overrides the Anthropic model for this call chain, so car-detail translations
-    can force Haiku while label-set warm-up keeps Sonnet as the default.
+    `model` overrides the Anthropic model for this call chain, so any caller can force
+    a different model, but the default (via ANTHROPIC_MODEL env) is Haiku everywhere.
     A CHAIN, not a single choice. The old code picked one provider by which key was present
     and gave up there, so when the owner's Anthropic key expired every model name quietly
     stopped being translated even though a working Gemini key sat right next to it.
