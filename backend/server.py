@@ -155,14 +155,14 @@ def listing_out(doc):
         "landed_eur": doc.get("landed_eur"),
         "sale_eur": doc.get("sale_eur"),
         "photo_count": doc.get("photo_count") or len(photos),
-        # 500x280 is what a card in the grid actually paints (487 CSS px wide at the
-        # widest desktop breakpoint, so 500 covers a 1x screen exactly and a 2x screen
-        # sees a marginal downscale). Lighthouse flagged 640x360 as ~9 KB waste per
-        # thumbnail across a 12-card grid.
-        "image": image_url(photos[0] if photos else None, 500, 280),
-        "image_sm": image_url(photos[0] if photos else None, 320, 180),
+        # Grid cards paint at up to ~500 CSS px wide (16:9). On a 2x retina screen that
+        # is ~1000 physical px, so requesting 500 gave a visibly soft image. 900x506
+        # is ~2x for the biggest card and ~4x for a row card (236 CSS px), which is
+        # what the CDN's own detail thumbnails ship at.
+        "image": image_url(photos[0] if photos else None, 900, 506),
+        "image_sm": image_url(photos[0] if photos else None, 480, 270),
         # every photo we hold, so the card can be swiped without opening the car
-        "images": [image_url(p, 500, 280) for p in photos],
+        "images": [image_url(p, 900, 506) for p in photos],
         "has_inspection": bool(doc.get("has_inspection")),
         "has_record": bool(doc.get("has_record")),
         "diagnosed": bool(doc.get("diagnosed")),
