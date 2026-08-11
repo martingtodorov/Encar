@@ -1687,6 +1687,47 @@ async def meta_filters(lang: str = "bg", refresh: bool = False):
     }
 
 
+@api.post("/meta/facet-counts")
+async def meta_facet_counts(body: SearchBody):
+    """Fuel + transmission counts scoped to the CURRENT search.
+
+    The static `/meta/filters` counts are computed over the whole catalogue so the
+    initial sidebar can render, but that number becomes wrong the moment a visitor
+    narrows down: "Diesel 12,340" next to a make that only makes petrol cars is a
+    lie the shopper will spot immediately.
+
+    For each faceted field the query is rebuilt EXCLUDING that field's own
+    selection - so a user who has already ticked "Petrol" still sees how many
+    "Diesel" there are (otherwise unclicking Petrol would show zero everywhere).
+    """
+    p = body.model_dump()
+    await curate.refresh(db)
+
+    async def counts_for(field: str, exclude_key: str, translate_lang: str | None = None):
+        # Build the base query without this field's own selection.
+        p_wo = {**p, exclude_key: []}
+        q = build_query(p_wo)
+        q[field] = {"$nin": [None, ""]}
+        pipe = [
+            {"$match": q},
+            {"$group": {"_id": f"${field}", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}},
+            {"$limit": 200},
+        ]
+        rows = [{"value": d["_id"], "count": d["count"]}
+                async for d in db.listings.aggregate(pipe)]
+        if translate_lang:
+            tmap = await _labels([r["value"] for r in rows], translate_lang)
+            for r in rows:
+                r["label"] = tmap.get(r["value"], r["value"])
+        return rows
+
+    lang = norm_lang(body.lang)
+    fuels = await counts_for("fuel_type", "fuels", translate_lang=lang)
+    transmissions = await counts_for("transmission", "transmissions")
+    return {"fuels": fuels, "transmissions": transmissions, "lang": lang}
+
+
 @api.get("/meta/models")
 async def meta_models(make: str = Query(...), lang: str = "bg", limit: int = 300):
     """Models for a make - loaded on demand so the sidebar stays fast."""

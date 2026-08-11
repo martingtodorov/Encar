@@ -24,7 +24,7 @@ import { ResultsPagination } from "@/components/ResultsPagination";
 import { useApp } from "@/context/AppContext";
 import { useGate } from "@/components/SignInGate";
 import { useLangNav } from "@/hooks/useLangNav";
-import { cachedSearch, getCatalogueSize, getFilters, prefetchSearch, resolveSlugs, searchCars } from "@/lib/api";
+import { cachedSearch, getCatalogueSize, getFacetCounts, getFilters, prefetchSearch, resolveSlugs, searchCars } from "@/lib/api";
 import { formatNumber } from "@/lib/format";
 import { noteSearch, getTaste } from "@/lib/taste";
 import { takeBackScroll } from "@/lib/backScroll";
@@ -129,6 +129,11 @@ export default function SearchPage() {
   );
 
   const [facets, setFacets] = useState(null);
+  // Dynamic fuel + transmission counts, scoped to the current search. The static
+  // `facets` above holds labels, slugs and the whole-catalogue counts; a merge at
+  // render time swaps in these live numbers so a shopper who ticked "BMW" no longer
+  // sees the global 80k Petrol count next to it.
+  const [dynamicCounts, setDynamicCounts] = useState(null);
   // A URL like `/bg/junk-make` isn't a real make: the resolver echoes it back. When that
   // happens we render NotFoundPage instead of silently redirecting to home, so an old
   // shared link tells the visitor the make is gone rather than dumping them elsewhere.
@@ -381,6 +386,43 @@ export default function SearchPage() {
     debounce.current = setTimeout(() => runSearch(payload), 280);
     return () => debounce.current && clearTimeout(debounce.current);
   }, [payload, runSearch, resolving]);
+
+  // Fetch dynamic fuel/transmission counts for the current payload, so the sidebar
+  // stops advertising whole-catalogue numbers next to a narrowed result set. The
+  // request piggybacks the SAME debounce window as the main search, and null-out
+  // while in flight so a partially applied filter never renders stale counts.
+  useEffect(() => {
+    if (resolving) return undefined;
+    let alive = true;
+    const t = setTimeout(() => {
+      getFacetCounts(payload)
+        .then((d) => alive && setDynamicCounts(d))
+        .catch(() => alive && setDynamicCounts(null));
+    }, 280);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [payload, resolving]);
+
+  // Static `facets` keeps labels, slugs and (whole-catalogue) counts. Dynamic
+  // counts overlay only the ones that changed. Any static value the dynamic count
+  // dropped to zero is filtered out - a "Diesel (0)" chip is worse than no chip.
+  const facetsForSidebar = useMemo(() => {
+    if (!facets) return facets;
+    if (!dynamicCounts) return facets;
+    const byValue = (list) => Object.fromEntries((list || []).map((r) => [r.value, r.count]));
+    const fuelCount = byValue(dynamicCounts.fuels);
+    const transCount = byValue(dynamicCounts.transmissions);
+    return {
+      ...facets,
+      fuels: (facets.fuels || [])
+        .map((f) => ({ ...f, count: fuelCount[f.value] ?? 0 }))
+        .filter((f) => f.count > 0),
+      transmissions: (facets.transmissions || [])
+        .map((tr) => ({ ...tr, count: transCount[tr.value] ?? 0 })),
+    };
+  }, [facets, dynamicCounts]);
 
   const setFilter = useCallback((key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -775,7 +817,7 @@ export default function SearchPage() {
                 filters={filters}
                 setFilter={setFilter}
                 toggleInArray={toggleInArray}
-                facets={facets}
+                facets={facetsForSidebar}
                 onReset={resetAll}
               />
             </div>
@@ -793,7 +835,7 @@ export default function SearchPage() {
                     filters={filters}
                     setFilter={setFilter}
                     toggleInArray={toggleInArray}
-                    facets={facets}
+                    facets={facetsForSidebar}
                     onReset={resetAll}
                     inSheet
                     tax={tax}
@@ -872,7 +914,7 @@ export default function SearchPage() {
                 filters={filters}
                 tax={tax}
                 taxLabels={taxLabels}
-                facets={facets}
+                facets={facetsForSidebar}
                 onRemove={removeChip}
                 onClearAll={resetAll}
               />

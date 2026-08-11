@@ -148,6 +148,12 @@ export async function getMoreFromModel(carId, lang, limit = 12) {
   return data;
 }
 
+/** Fuel + transmission counts scoped to the current search body. */
+export async function getFacetCounts(body) {
+  const { data } = await http.post("/meta/facet-counts", body);
+  return data;
+}
+
 /** Cascading Make -> Model -> Submodel -> Trim. Served from a precomputed tree. */
 /** English slugs from the URL -> the Korean values the search endpoint speaks. */
 export async function resolveSlugs(params) {
