@@ -155,14 +155,14 @@ def listing_out(doc):
         "landed_eur": doc.get("landed_eur"),
         "sale_eur": doc.get("sale_eur"),
         "photo_count": doc.get("photo_count") or len(photos),
-        # Grid cards paint at up to ~500 CSS px wide (16:9). On a 2x retina screen that
-        # is ~1000 physical px, so requesting 500 gave a visibly soft image. 900x506
-        # is ~2x for the biggest card and ~4x for a row card (236 CSS px), which is
-        # what the CDN's own detail thumbnails ship at.
-        "image": image_url(photos[0] if photos else None, 900, 506),
+        # Grid cards paint at up to ~500 CSS px wide (16:9). 570x320 is ~2x on a
+        # retina screen for the biggest desktop card, and a well-fed ~4x on a row
+        # card at 236 CSS px, while shipping ~half the bytes of the 900x506 crop we
+        # used briefly. widthRate + cw/ch means the CDN delivers exactly this frame.
+        "image": image_url(photos[0] if photos else None, 570, 320),
         "image_sm": image_url(photos[0] if photos else None, 480, 270),
         # every photo we hold, so the card can be swiped without opening the car
-        "images": [image_url(p, 900, 506) for p in photos],
+        "images": [image_url(p, 570, 320) for p in photos],
         "has_inspection": bool(doc.get("has_inspection")),
         "has_record": bool(doc.get("has_record")),
         "diagnosed": bool(doc.get("diagnosed")),
@@ -2803,11 +2803,17 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     photos = []
     for path in detail_photo_paths(detail):
         photos.append({
-            # 1280x720: the main gallery on the detail page AND the fullscreen lightbox
-            # both use this URL, so a single fetch covers both views. 1080p was tried and
-            # rolled back - the extra bytes did not translate to any visible sharpness on
-            # a laptop at ~662x372 CSS px, and doubled the bytes for every gallery photo.
+            # 1280x720: the main gallery on the desktop detail page AND the fullscreen
+            # lightbox both use this URL, so a single fetch covers both views. 1080p
+            # was tried and rolled back - the extra bytes did not translate to any
+            # visible sharpness on a laptop at ~662x372 CSS px, and doubled the bytes
+            # for every gallery photo.
             "full": image_url(path, 1280, 720),
+            # Mobile viewport is at most 428 CSS px wide (iPhone Pro Max), so 900x506
+            # is a comfortable 2x retina without shipping the desktop 1280x720 to a
+            # phone. A <picture> element in the swiper picks this variant below the
+            # `md` breakpoint.
+            "full_mobile": image_url(path, 900, 506),
             # 500x280 sharpens the 224x126 CSS thumbnails on retina (they render around
             # 448x252 device px) without shipping a full gallery-sized picture per
             # thumbnail. 260x147 was visibly soft on the pinned desktop rail.

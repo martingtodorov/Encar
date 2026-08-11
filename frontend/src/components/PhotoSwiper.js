@@ -82,6 +82,7 @@ const ARROW =
 
 export const PhotoSwiper = ({
   images = [],
+  imagesMobile = [],
   alt = "",
   testId = "photo-swiper",
   index,
@@ -290,6 +291,7 @@ export const PhotoSwiper = ({
             {n === 0 || n <= reach ? (
               <ImageWithFallback
                 src={src}
+                srcMobile={imagesMobile[n]}
                 alt={alt}
                 testId={n === 0 ? `${testId}-image` : undefined}
                 eager={eager && n === 0}

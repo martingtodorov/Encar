@@ -7,7 +7,7 @@ import { useApp } from "@/context/AppContext";
  * They arrive at arbitrary aspect ratios and can be slow or fail, so this handles
  * skeleton -> slow label -> loaded, plus a real fallback panel on error.
  */
-export const ImageWithFallback = ({ src, alt, className = "", testId, fit = "cover", eager = false, priority = false }) => {
+export const ImageWithFallback = ({ src, srcMobile, alt, className = "", testId, fit = "cover", eager = false, priority = false }) => {
   const { t } = useApp();
   const [state, setState] = useState(src ? "loading" : "error");
   const [slow, setSlow] = useState(false);
@@ -70,26 +70,34 @@ export const ImageWithFallback = ({ src, alt, className = "", testId, fit = "cov
           )}
         </div>
       )}
-      <img
-        ref={imgRef}
-        data-testid={testId}
-        src={src}
-        alt={alt}
-        loading={eager ? "eager" : "lazy"}
-        fetchPriority={priority ? "high" : "auto"}
-        decoding="async"
-        onLoad={() => {
-          done();
-          setState("loaded");
-        }}
-        onError={() => {
-          done();
-          setState("error");
-        }}
-        className={`w-full transition-opacity duration-300 ${
-          fit === "contain" ? "h-auto object-contain" : "h-full object-cover"
-        } ${state === "loaded" ? "opacity-100" : "opacity-0"}`}
-      />
+      <picture>
+        {/* Under `md` (768 px) the swiper serves a smaller crop so a phone does not
+            pull the desktop 1280x720 gallery frame. Above that breakpoint the primary
+            `src` (highest resolution) is used. */}
+        {srcMobile && (
+          <source media="(max-width: 767px)" srcSet={srcMobile} />
+        )}
+        <img
+          ref={imgRef}
+          data-testid={testId}
+          src={src}
+          alt={alt}
+          loading={eager ? "eager" : "lazy"}
+          fetchPriority={priority ? "high" : "auto"}
+          decoding="async"
+          onLoad={() => {
+            done();
+            setState("loaded");
+          }}
+          onError={() => {
+            done();
+            setState("error");
+          }}
+          className={`w-full transition-opacity duration-300 ${
+            fit === "contain" ? "h-auto object-contain" : "h-full object-cover"
+          } ${state === "loaded" ? "opacity-100" : "opacity-0"}`}
+        />
+      </picture>
     </div>
   );
 };

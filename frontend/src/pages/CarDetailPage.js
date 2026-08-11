@@ -502,6 +502,7 @@ export default function CarDetailPage() {
                 <div className="aspect-[16/9] w-full cursor-zoom-in overflow-hidden rounded-[16px] border border-border lg:w-[calc(100%-286px)]">
                   <PhotoSwiper
                     images={photos.map((p) => p.full)}
+                    imagesMobile={photos.map((p) => p.full_mobile || p.full)}
                     alt={car.title}
                     testId="detail-main-photo"
                     index={active}
