@@ -13,11 +13,27 @@ import { useApp } from "@/context/AppContext";
  * a short list that fits or leave a long one uncut. Below the ceiling nothing is rendered at
  * all — no button, no fade.
  */
-export const ClampBlock = ({ children, maxHeight = 300, testId = "clamp", disabled = false }) => {
+export const ClampBlock = ({
+  children,
+  maxHeight = 300,
+  testId = "clamp",
+  disabled = false,
+  // When true, the block starts expanded and stays expanded, but the toggle is still
+  // rendered so the visitor can collapse it manually. Used for the description panel
+  // after a translation - once the words are in view, forcing them behind a "show all"
+  // click again would waste the streaming reveal the visitor just watched.
+  defaultOpen = false,
+}) => {
   const { t } = useApp();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [tall, setTall] = useState(false);
   const inner = useRef(null);
+  // Follow `defaultOpen` in both directions - opens when the caller signals it
+  // should be open (e.g. a translation just landed), and closes again if the caller
+  // resets that signal (e.g. the visitor switched back to the original).
+  useEffect(() => {
+    setOpen(defaultOpen);
+  }, [defaultOpen]);
 
   useEffect(() => {
     const el = inner.current;
