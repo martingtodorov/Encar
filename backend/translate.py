@@ -506,6 +506,122 @@ def _segments(text):
     return out
 
 
+# Fragment separators inside a dealer line. Kept as capture groups so the pieces
+# BETWEEN them (the commas, brackets, arrows themselves) can be re-inserted verbatim
+# when we reassemble a translated line from cached fragments. `. ` requires a
+# following space so numeric decimals ("1.5 turbo") are not shredded.
+_FRAG_SPLIT = re.compile(r"(\s*[,\/→\-–—]\s*|\s*\.\s+|\s*\[|\]\s*)")
+
+# Enough hangul to be worth harvesting - single-syllable fragments are usually
+# grammar particles ("이", "은") and would poison the dictionary if aligned.
+_MIN_HARVEST_HANGUL = 2
+
+
+def _fragment_split(text):
+    """Break one dealer line into cache-addressable fragments.
+
+    Uses common Korean-text separators (comma, slash, dot, dash, arrow, brackets).
+    Returns a list of ("keep"|"content", piece) pairs so the caller can re-assemble
+    a translation without losing spacing or punctuation. Only "content" pieces get
+    cached; "keep" pieces are the separators themselves.
+    """
+    out = []
+    parts = _FRAG_SPLIT.split(text or "")
+    for i, piece in enumerate(parts):
+        if not piece:
+            continue
+        if i % 2 == 1:                      # a separator captured by the regex
+            out.append(("keep", piece))
+        else:
+            out.append(("content", piece))
+    return out
+
+
+def _count_hangul(s):
+    return sum(1 for ch in s or "" if "\uac00" <= ch <= "\ud7a3")
+
+
+async def _harvest_fragments(db, source_line, translated_line, lang):
+    """Save aligned Korean/target fragment pairs from ONE freshly translated line.
+
+    Same separator split applied to source and target; if the content-fragment
+    counts match one-for-one, we can reasonably trust the alignment for a plain
+    dealer sentence (dot/comma boundaries survive translation in practice). If the
+    counts disagree we walk away rather than write a rubbish pair - a bad row in
+    the cache poisons every future description that quotes the same fragment.
+
+    Also guards against a lopsided alignment: if the LLM inserted a preamble like
+    "Извършени:" into the first target fragment (or a summary tail into the last),
+    the per-fragment target/source length ratio spikes. When any pair strays more
+    than 3x from the median ratio the whole line is skipped rather than storing a
+    pair with an unwanted prefix baked in.
+    """
+    src_parts = [p.strip() for k, p in _fragment_split(source_line) if k == "content"]
+    tgt_parts = [p.strip() for k, p in _fragment_split(translated_line) if k == "content"]
+    src_parts = [p for p in src_parts if p]
+    tgt_parts = [p for p in tgt_parts if p]
+    if len(src_parts) != len(tgt_parts) or len(src_parts) < 2:
+        return
+
+    # length-ratio sanity: reject when the alignment is obviously stretched.
+    ratios = []
+    for src, tgt in zip(src_parts, tgt_parts):
+        h = _count_hangul(src)
+        if h < _MIN_HARVEST_HANGUL:
+            return                                # too little signal, walk away
+        ratios.append(len(tgt) / h)
+    ratios_sorted = sorted(ratios)
+    median = ratios_sorted[len(ratios_sorted) // 2]
+    if any(r > median * 3 or r * 3 < median for r in ratios):
+        return                                    # one pair is stretched, skip line
+
+    from pymongo import UpdateOne
+    docs = []
+    for src, tgt in zip(src_parts, tgt_parts):
+        if not src or not tgt or src == tgt:
+            continue
+        if not _looks_translated(src, tgt):
+            continue
+        docs.append({
+            "_id": cache_key(src, lang), "source": src, "lang": lang, "target": tgt,
+            "type": "description_fragment",
+        })
+    if docs:
+        await db.translations.bulk_write(
+            [UpdateOne({"_id": d["_id"]}, {"$set": d}, upsert=True) for d in docs],
+            ordered=False)
+
+
+async def _from_fragments(db, line, lang):
+    """Try to assemble a line's translation entirely from cached fragments.
+
+    Returns the assembled string on a full hit, or None when even one fragment is
+    missing - a partial hit is worse than none because the visitor sees the line
+    half in Korean, half in Bulgarian. Small enough to run before every LLM batch.
+    """
+    parts = _fragment_split(line)
+    contents = [p for k, p in parts if k == "content"]
+    strippable = [c.strip() for c in contents if c.strip()]
+    if len(strippable) < 2:
+        return None
+    got = await translate_cached_only(db, strippable, lang)
+    if any(c not in got for c in strippable):
+        return None
+    out = []
+    for kind, piece in parts:
+        if kind == "keep":
+            out.append(piece)
+            continue
+        stripped = piece.strip()
+        if not stripped:
+            out.append(piece)
+            continue
+        lead = piece[: len(piece) - len(piece.lstrip())]
+        tail = piece[len(piece.rstrip()):]
+        out.append(f"{lead}{got[stripped]}{tail}")
+    return "".join(out)
+
+
 async def translate_description_segmented(db, text, lang, *, on_progress=None):
     """Translate a dealer description one line at a time, driven by the cache.
 
@@ -513,6 +629,11 @@ async def translate_description_segmented(db, text, lang, *, on_progress=None):
     dealer sells a car with the same "무사고 차량입니다" boilerplate line, that line
     costs zero tokens. Only lines with no cache hit are batched through Haiku in ONE
     call at the end.
+
+    On top of the line cache, this path also harvests fragment pairs from every
+    fresh LLM answer (e.g. "엔진오일 교환" ↔ "смяна на моторно масло") and looks
+    them up first on subsequent runs. A line whose fragments are ALL cached skips
+    the LLM entirely even when the whole line has never been seen before.
 
     `on_progress(text, done)` is called after every cache hit and after the LLM batch,
     so a caller can push incremental output to a stream. `done=True` on the last event.
@@ -525,6 +646,16 @@ async def translate_description_segmented(db, text, lang, *, on_progress=None):
     # 1) Cache lookup for every "todo" segment in ONE indexed Mongo call.
     todo_lines = [s for kind, s in segs if kind == "todo"]
     tmap = await translate_cached_only(db, todo_lines, lang) if todo_lines else {}
+
+    # 1a) For lines that missed the whole-line cache, try to rebuild them from
+    #     previously-harvested fragments. When every fragment is cached the LLM is
+    #     bypassed for this line altogether; when even one fragment is missing we
+    #     leave the line as-is and it falls into the batched LLM call below.
+    still_missing = [ln for ln in todo_lines if ln not in tmap]
+    for line in still_missing:
+        assembled = await _from_fragments(db, line, lang)
+        if assembled:
+            tmap[line] = assembled
 
     # 2) Anything already cached AND anything decorative or Latin is served instantly.
     out = []
@@ -551,6 +682,13 @@ async def translate_description_segmented(db, text, lang, *, on_progress=None):
                     [UpdateOne({"_id": d["_id"]}, {"$set": d}, upsert=True) for d in docs],
                     ordered=False)
             tmap.update({k: v for k, v in got.items() if v})
+            # 3a) Fragment harvest: after storing the whole line, tear it down into
+            #     comma/dot/dash-bounded fragments and cache each aligned pair. Runs
+            #     only on lines Haiku actually just answered (a re-visit of a cached
+            #     line does not re-harvest).
+            for src, tr in got.items():
+                if tr and _looks_translated(src, tr):
+                    await _harvest_fragments(db, src, tr, lang)
 
     # 4) Stitch back together, preserving line breaks and decorative bars verbatim.
     for kind, value in segs:
