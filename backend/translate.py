@@ -442,14 +442,18 @@ DESC_SYSTEM = (
 
 
 async def stream_description(db, text, lang):
-    """Yield a dealer description translation in pieces, then cache the whole thing.
+    """Yield a dealer description translation in pieces.
 
     Legacy single-shot streamer. Kept for symmetry with the callers, but the new default
     path is `translate_description_segmented` — it splits the text into lines, serves
     everything already cached without touching the LLM, and only batches the truly new
     lines. See that function for the cost story.
+
+    Deliberately does NOT cache the full assembled text: every dealer writes their car up
+    differently, so a whole-description cache had a hit rate close to zero while filling
+    the translations collection with dead rows. Line-level cache in the segmented path is
+    where the real reuse happens.
     """
-    parts = []
     async with _anthropic_client().messages.stream(
         model=HAIKU_MODEL,
         max_tokens=4000,
@@ -458,16 +462,7 @@ async def stream_description(db, text, lang):
         messages=[{"role": "user", "content": text}],
     ) as stream:
         async for piece in stream.text_stream:
-            parts.append(piece)
             yield piece
-
-    full = "".join(parts).strip()
-    if full and full != text:
-        await db.translations.update_one(
-            {"_id": cache_key(text, lang)},
-            {"$set": {"_id": cache_key(text, lang), "source": text,
-                      "lang": lang, "target": full}},
-            upsert=True)
 
 
 # Split a description on line breaks. Blank lines are preserved so the reassembled
@@ -565,14 +560,9 @@ async def translate_description_segmented(db, text, lang, *, on_progress=None):
             emit(tmap.get(value) or value)
 
     full = "".join(out)
-    # Cache the whole answer too, so a re-visit of the same URL does one Mongo GET
-    # rather than reassembling from segments.
-    if full.strip() and full != text:
-        await db.translations.update_one(
-            {"_id": cache_key(text, lang)},
-            {"$set": {"_id": cache_key(text, lang), "source": text,
-                      "lang": lang, "target": full, "type": "description_full"}},
-            upsert=True)
+    # Only the individual line rows persist. The whole-description document was
+    # cached previously but had a near-zero hit rate (every dealer writes their
+    # car up differently) and only bloated the translations collection.
     if on_progress:
         on_progress("", True)
     return full
