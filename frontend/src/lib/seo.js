@@ -88,13 +88,25 @@ export function useSeo({ lang, title, description, image, noindex = false }) {
     property("og:title", title || document.title);
     property("og:url", self);
     property("og:type", "website");
-    if (image) property("og:image", image);
+    if (image) {
+      // Facebook, LinkedIn and iOS Safari's Share Sheet all downgrade to a plain
+      // thumbnail when no size is declared - a large card only renders when at least
+      // width/height are present. The share HTML for car links (backend/share_car)
+      // carries this too; the four tags kept here match, so a page rendered under JS
+      // wins the same rich preview.
+      property("og:image", image);
+      property("og:image:secure_url", image);
+      property("og:image:width", "1200");
+      property("og:image:height", "630");
+      property("og:image:alt", title || SITE_NAME);
+    }
     property("og:locale", OG_LOCALE[lang] || OG_LOCALE.en);
     if (description) property("og:description", description);
 
     meta("twitter:card", "summary_large_image");
     meta("twitter:title", title || document.title);
     if (image) meta("twitter:image", image);
+    if (image) meta("twitter:image:alt", title || SITE_NAME);
     if (description) meta("twitter:description", description);
   }, [lang, title, description, image, noindex, pathname]);
 }

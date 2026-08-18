@@ -107,7 +107,7 @@ const CountRow = ({ label, count, testId }) => {
 };
 
 export default function CarDetailPage() {
-  const { id } = useParams();
+  const { id, slug: urlSlug } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { path } = useLangNav();
@@ -217,6 +217,29 @@ export default function CarDetailPage() {
     .split(/\s+/)
     .filter((w, i, a) => !i || w.toLowerCase() !== a[i - 1].toLowerCase())
     .join(" ");
+
+  // URL slug: transliterate the SEO title down to `[a-z0-9-]+` so shareable / indexable
+  // links carry the make + model in the address bar. Keeps the numeric id at the front
+  // so lookups still work with either shape (`/car/{id}` and `/car/{id}/{slug}`).
+  const seoSlug = seoTitle
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")           // strip combining diacritics
+    .replace(/[^a-z0-9]+/g, "-")               // collapse anything non-slug
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+
+  // Once the car has loaded, canonicalise the URL: if the visitor is on
+  // /bg/car/{id} we drop them on /bg/car/{id}/{slug} so the URL reflects the
+  // listing, without changing the underlying page or its data. Uses `replace`
+  // so the browser back button skips this bookkeeping hop.
+  useEffect(() => {
+    if (!car || !seoSlug) return;
+    if (urlSlug === seoSlug) return;
+    navigate(`/${lang}/car/${id}/${seoSlug}${location.search}${location.hash}`, {
+      replace: true,
+    });
+  }, [car, seoSlug, urlSlug, id, lang, location.search, location.hash, navigate]);
 
   // Title and description are built from the SAME cleaned name and the SAME facts the share
   // page uses (backend `share_car`), so a Google snippet and a Messenger preview of one car

@@ -16,6 +16,13 @@ module.exports = function setupPreviewShareLinks(app) {
   const api = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
   if (!api) return;
 
+  // Sitemaps live under /api/ on the preview host (only /api/* reaches the backend),
+  // but Google fetches the paths listed in robots.txt without the /api prefix. In
+  // production nginx rewrites those, so mirror that in the dev server.
+  app.get(/^\/sitemap(?:-[a-z]+(?:-\d+)?)?\.xml$/, (req, res) => {
+    res.redirect(301, `${api}/api${req.url}`);
+  });
+
   app.get(/^\/(bg|ro|en)\/car\/([^/]+)\/?$/, (req, res, next) => {
     if (!CRAWLER.test(req.headers["user-agent"] || "")) return next();
     const [, lang, id] = req.url.split("?")[0].match(/^\/(bg|ro|en)\/car\/([^/]+)\/?$/);

@@ -53,6 +53,10 @@ function AppRouter() {
       <Route path="/:lang" element={<LangLayout />}>
         <Route index element={<SearchPage key={searchKey} />} />
         <Route path="car/:id" element={<CarDetailPage />} />
+        {/* Same page under a slugged URL for shareable/indexable variants like
+            /bg/car/42328978/mercedes-benz-c-class-w205. The route is optional; the
+            page canonicalises to the slugged form when the car is loaded. */}
+        <Route path="car/:id/:slug" element={<CarDetailPage />} />
         <Route path="saved" element={<SavedCarsPage />} />
         <Route path="searches" element={<SavedSearchesPage />} />
         <Route path="how-it-works" element={<HowItWorksPage />} />

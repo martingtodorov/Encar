@@ -18,6 +18,7 @@ import re
 import hashlib
 import secrets
 import time
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from email.utils import formatdate, parsedate_to_datetime
 import uuid
@@ -2441,10 +2442,11 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     og_locale = {"bg": "bg_BG", "ro": "ro_RO", "en": "en_GB"}[lang]
 
     # Encar's own detail head is the reference (see fem.encar.com/cars/detail/*): one og:title,
-    # one og:image, one og:description and og:url, plus site_name and locale. No twitter:*
-    # duplicates, no og:image:secure_url or width/height/alt companions - those companion tags
-    # were the last route the site logo took into a car preview when the SPA shell's defaults
-    # leaked through. The picture is a car photo or it is absent; nothing falls back to a logo.
+    # A shopper hitting this URL from a chat gets one og:image, one og:description
+    # and og:url, plus site_name and locale. The og:image now travels with its
+    # secure_url / width / height / alt companions so Facebook, LinkedIn and iMessage
+    # render the large-card treatment instead of downgrading to a small thumbnail
+    # when at least width and height are missing.
     tags = [f'<meta name="description" content="{_attr(description)}">',
             f'<meta property="og:title" content="{_attr(title)}">',
             f'<meta property="og:description" content="{_attr(description)}">',
@@ -2453,7 +2455,13 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
             '<meta property="og:site_name" content="Europe Encar">',
             f'<meta property="og:locale" content="{og_locale}">']
     if image:
-        tags.append(f'<meta property="og:image" content="{_attr(image)}">')
+        tags += [
+            f'<meta property="og:image" content="{_attr(image)}">',
+            f'<meta property="og:image:secure_url" content="{_attr(image)}">',
+            '<meta property="og:image:width" content="1200">',
+            '<meta property="og:image:height" content="630">',
+            f'<meta property="og:image:alt" content="{_attr(title)}">',
+        ]
     tags += _social_tags()
 
     html = ("<!doctype html><html><head><meta charset=\"utf-8\">"
@@ -2599,12 +2607,17 @@ def _sitemap_headers():
 
 
 def _sitemap_url(base: str, path_for: dict, lastmod: str,
-                 changefreq: str = "weekly", priority: str = "0.5") -> str:
+                 changefreq: str = "weekly", priority: str = "0.5",
+                 images: list | None = None) -> str:
     """One <url> entry with an hreflang alternate for every language.
 
     `path_for` maps a language code to its URL path (starting with `/`). The primary
     <loc> is the English variant so a crawler that ignores alternates still walks the
     canonical version; x-default points there too.
+
+    `images` is a list of absolute image URLs. When present, an `<image:image>` block
+    is emitted for each (capped at 6 - the Google Image sitemap protocol allows more
+    but past ~6 the extra bytes stop helping and just inflate the sitemap size).
     """
     parts = [f"<loc>{_attr(base + path_for['en'])}</loc>"]
     for code, path in path_for.items():
@@ -2612,6 +2625,8 @@ def _sitemap_url(base: str, path_for: dict, lastmod: str,
                      f'href="{_attr(base + path)}"/>')
     parts.append(f'<xhtml:link rel="alternate" hreflang="x-default" '
                  f'href="{_attr(base + path_for["en"])}"/>')
+    for img in (images or [])[:6]:
+        parts.append(f"<image:image><image:loc>{_attr(img)}</image:loc></image:image>")
     parts.append(f"<lastmod>{lastmod}</lastmod>")
     parts.append(f"<changefreq>{changefreq}</changefreq>")
     parts.append(f"<priority>{priority}</priority>")
@@ -2621,7 +2636,8 @@ def _sitemap_url(base: str, path_for: dict, lastmod: str,
 def _sitemap_wrap(urls: list) -> str:
     return ('<?xml version="1.0" encoding="UTF-8"?>'
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
-            'xmlns:xhtml="http://www.w3.org/1999/xhtml">'
+            'xmlns:xhtml="http://www.w3.org/1999/xhtml" '
+            'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">'
             + "".join(urls) + "</urlset>")
 
 
@@ -2780,6 +2796,22 @@ async def sitemap_index_json(lang: str = "bg"):
     return {"lang": lang, "makes": makes}
 
 
+def _car_slug(title: str, limit: int = 80) -> str:
+    """Turn a car title ("BMW 5 Series (G30)") into a URL slug.
+
+    Kept dependency-free (no `python-slugify`, no `unidecode`): NFKD strips the
+    latin diacritics we care about, and every code point outside `[a-z0-9]` becomes
+    a hyphen. Empty string is returned when the title lands under the hyphens - in
+    that case the sitemap falls back to the no-slug URL rather than shipping a
+    dangling `/car/{id}/`.
+    """
+    if not title:
+        return ""
+    norm = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode("ascii")
+    out = re.sub(r"[^a-z0-9]+", "-", norm.lower()).strip("-")
+    return out[:limit]
+
+
 @api.api_route("/sitemap-listings-{n}.xml", methods=["GET", "HEAD"])
 async def sitemap_listings(n: int, request: Request):
     """Chunk N of the active-listing sitemap.
@@ -2801,7 +2833,7 @@ async def sitemap_listings(n: int, request: Request):
     urls = []
     cursor = db.listings.find(
         {"active": True, "duplicate": {"$ne": True}, "under_contract": {"$ne": True}},
-        {"_id": 1, "last_seen": 1}
+        {"_id": 1, "last_seen": 1, "photos": 1, "manufacturer": 1, "model": 1, "grade": 1}
     ).sort([("_id", 1)]).skip(skip).limit(_SITEMAP_CHUNK)
     async for row in cursor:
         lid = row["_id"]
@@ -2812,8 +2844,20 @@ async def sitemap_listings(n: int, request: Request):
             lastmod = lm.astimezone(timezone.utc).strftime("%Y-%m-%d")
         else:
             lastmod = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        path_for = {code: f"/{code}/car/{lid}" for code in langs}
-        urls.append(_sitemap_url(base, path_for, lastmod, "daily", "0.6"))
+        # First few photos are the ones the card + detail page show; enough for
+        # Google Images to index the car without the sitemap ballooning to 100 URLs.
+        # 900x506 matches the mobile detail crop so the URL is one the frontend
+        # already fetches, and Google's cache stays warm across surfaces.
+        photos = row.get("photos") or []
+        images = [image_url(p, 900, 506) for p in photos[:5] if p]
+        # Slug from make + model so the sitemap emits the canonical (`/car/{id}/{slug}`)
+        # URL directly rather than relying on the client-side redirect to canonicalise.
+        # Falls back to the id-only URL when the row has no title fragments.
+        title = " ".join(filter(None, [row.get("manufacturer"), row.get("model")]))
+        slug = _car_slug(title)
+        suffix = f"/car/{lid}/{slug}" if slug else f"/car/{lid}"
+        path_for = {code: f"/{code}{suffix}" for code in langs}
+        urls.append(_sitemap_url(base, path_for, lastmod, "daily", "0.6", images=images))
     return Response(_sitemap_wrap(urls), headers=_sitemap_headers())
 
 

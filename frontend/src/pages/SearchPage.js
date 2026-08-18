@@ -674,6 +674,25 @@ export default function SearchPage() {
       : null,
     "site-jsonld"
   );
+
+  // Make/model landings and the plain search page get an ItemList entry so Google
+  // can render a rich carousel next to the listing card. The @id points at the car
+  // detail URL - Google follows those to the Vehicle schema already on each page.
+  useJsonLd(
+    !isHome && result.items?.length
+      ? {
+          "@context": "https://schema.org",
+          "@type": "ItemList",
+          numberOfItems: Math.min(result.items.length, 20),
+          itemListElement: result.items.slice(0, 20).map((it, i) => ({
+            "@type": "ListItem",
+            position: i + 1,
+            url: `${window.location.origin}/${lang}/car/${it.id}`,
+          })),
+        }
+      : null,
+    "results-itemlist-jsonld"
+  );
   const barVisible = triggerOffscreen;
 
   // The landing view advertises the whole library: `total_all` is the catalogue count, while
