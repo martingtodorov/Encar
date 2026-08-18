@@ -25,11 +25,13 @@ CHUNK = 60
 # set TRANSLATE_CHUNK_PACE=0 on a paid key to run flat out.
 CHUNK_PACE = float(os.environ.get("TRANSLATE_CHUNK_PACE", "6"))
 MODEL = ("gemini", "gemini-3-flash-preview")
-# The Anthropic model to use for CAR-DETAIL page translations. Owner's directive: the
-# whole detail path (specs, options, panel labels, dealer descriptions) runs on Haiku
-# because it costs ~5× less than Sonnet for output tokens and the wording is factual,
-# not creative. Sonnet stays the default for label-set warm-up where a wrong marque
-# spelling would then propagate everywhere.
+# The Anthropic model to use for every path that hits Anthropic. Owner's directive:
+# the whole app runs on Haiku (specs, options, dealer descriptions AND label-set
+# warm-up) - the wording is factual, not creative, and Haiku costs ~5x less than
+# Sonnet for output tokens. `ANTHROPIC_MODEL` in the environment can still swap this
+# out if a specific batch ever needs a heavier model, but the DEFAULT is Haiku
+# everywhere, and nothing calls _anthropic_call or _llm_translate with an explicit
+# `model=` pointing at Sonnet.
 HAIKU_MODEL = os.environ.get("ANTHROPIC_FAST_MODEL", "claude-haiku-4-5-20251001")
 
 # ── LLM circuit breaker ──────────────────────────────────────────────────────
@@ -313,8 +315,9 @@ async def translate_many(db, texts, lang, *, model=None, type=None):
     audited by column. Callers pass it when the field they are translating is known.
 
     Unknown/unsupported lang, or Korean itself, is a pass-through. `model` (optional)
-    forces a specific Anthropic model — the car-detail page passes Haiku so nothing on a
-    listing view is ever billed at Sonnet rates.
+    forces a specific Anthropic model — kept as an override for future needs; today
+    every caller lets it fall through to the ANTHROPIC_MODEL env (Haiku), so nothing
+    on a listing view is billed at heavier rates.
     """
     if lang not in LANGS:
         return {t: t for t in texts}
@@ -802,9 +805,10 @@ async def translate_cached_only(db, texts, lang):
 def schedule_translation(db, texts, lang, *, model=None, type=None):
     """Fire-and-forget fill of cache misses, so the NEXT view is translated.
 
-    `model` (optional) forces a specific Anthropic model — the detail page passes Haiku
-    so a background fill of a spec sheet never burns Sonnet-priced tokens. `type` tags
-    the entries in the self-learning dictionary.
+    `model` (optional) forces a specific Anthropic model — kept as an override; today
+    every caller lets it fall through to the ANTHROPIC_MODEL env (Haiku) so a background
+    fill of a spec sheet stays cheap. `type` tags the entries in the self-learning
+    dictionary.
     """
     if lang not in LANGS or not texts:
         return
