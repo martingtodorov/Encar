@@ -2630,7 +2630,7 @@ async def _active_listings_count() -> int:
         {"active": True, "duplicate": {"$ne": True}, "under_contract": {"$ne": True}})
 
 
-@api.get("/sitemap.xml")
+@api.api_route("/sitemap.xml", methods=["GET", "HEAD"])
 async def sitemap_index(request: Request):
     """Points at every child sitemap. Google fetches this first."""
     base = _share_base(request)
@@ -2653,7 +2653,7 @@ async def sitemap_index(request: Request):
     return Response(body, headers=_sitemap_headers())
 
 
-@api.get("/sitemap-static.xml")
+@api.api_route("/sitemap-static.xml", methods=["GET", "HEAD"])
 async def sitemap_static(request: Request):
     """Landings and evergreen pages: /, /how-it-works, /faq, /terms, /track, ..."""
     base = _share_base(request)
@@ -2681,7 +2681,7 @@ async def sitemap_static(request: Request):
     return Response(_sitemap_wrap(urls), headers=_sitemap_headers())
 
 
-@api.get("/sitemap-models.xml")
+@api.api_route("/sitemap-models.xml", methods=["GET", "HEAD"])
 async def sitemap_models(request: Request):
     """Every make landing (/bg/bmw) and every make/model landing (/bg/bmw/m2-g87)."""
     base = _share_base(request)
@@ -2780,7 +2780,7 @@ async def sitemap_index_json(lang: str = "bg"):
     return {"lang": lang, "makes": makes}
 
 
-@api.get("/sitemap-listings-{n}.xml")
+@api.api_route("/sitemap-listings-{n}.xml", methods=["GET", "HEAD"])
 async def sitemap_listings(n: int, request: Request):
     """Chunk N of the active-listing sitemap.
 

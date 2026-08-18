@@ -204,6 +204,16 @@ server {
     }
 
     # Every route is client side: /bg, /ro, /en and everything under them.
+    #
+    # Apex (naked `/`) is a permanent redirect to the Bulgarian skin so the site has one
+    # canonical home in Google's index rather than three duplicate "landing" URLs (`/`,
+    # `/bg`, `/bg/`). Client-side geolocation on the Bulgarian page can still move a
+    # Romanian or English visitor onwards, but that redirect is a soft 302 in JS - it
+    # does not muddle canonicalization.
+    location = / {
+        return 301 /bg;
+    }
+
     location / {
         # `$uri/index.html` before the shell: it is what serves build/bg|ro|en/index.html, the
         # per-language copies with translated <title>/description (scripts/gen-lang-html.js).
