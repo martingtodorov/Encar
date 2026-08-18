@@ -33,6 +33,11 @@ MODEL = ("gemini", "gemini-3-flash-preview")
 # everywhere, and nothing calls _anthropic_call or _llm_translate with an explicit
 # `model=` pointing at Sonnet.
 HAIKU_MODEL = os.environ.get("ANTHROPIC_FAST_MODEL") or "claude-haiku-4-5-20251001"
+# Taxonomy fields (marque, model, submodel, trim) render in EVERY search result and
+# every URL slug. A wrong marque spelling propagates across the whole catalogue and is
+# painful to unwind, so this narrow slice deliberately runs on Sonnet even though the
+# rest of the app is on Haiku. Overridable via env for a future upgrade.
+TAXONOMY_MODEL = os.environ.get("ANTHROPIC_TAXONOMY_MODEL") or "claude-sonnet-5"
 
 # ── LLM circuit breaker ──────────────────────────────────────────────────────
 # Errors that cannot possibly be fixed by retrying (no credit, bad key, no quota at all).
@@ -874,16 +879,20 @@ async def translate_listings(db, rows, lang, fields=("manufacturer", "model", "b
     always_texts = [r.get(f) for r in rows for f in always_fields if r.get(f)]
     if always_texts:
         try:
-            tmap = {**tmap, **await translate_many(db, always_texts, lang, type="always")}
+            tmap = {**tmap, **await translate_many(
+                db, always_texts, lang, type="always", model=TAXONOMY_MODEL)}
         except Exception as e:
             log.warning("submodel translation failed: %s", str(e)[:160])
 
     # Kept in a separate map: these are resolved in English whatever the page language.
+    # Uses Sonnet (TAXONOMY_MODEL) - a wrong marque spelling here ends up on hundreds
+    # of URLs and every card, and is worth the ~5x token cost on this narrow slice.
     lmap = {}
     latin_texts = [r.get(f) for r in rows for f in latin_fields if r.get(f)]
     if latin_texts:
         try:
-            lmap = await translate_many(db, latin_texts, LATIN_LANG, type="latin")
+            lmap = await translate_many(
+                db, latin_texts, LATIN_LANG, type="latin", model=TAXONOMY_MODEL)
         except Exception as e:
             log.warning("make/model translation failed: %s", str(e)[:160])
 
@@ -936,7 +945,12 @@ async def warm_translations(db, langs=None, per_field=600):
             cached = await translate_cached_only(db, values, lang)
             todo = [v for v in values if v not in cached]
             if todo:
-                await translate_many(db, todo, lang, type=field)
+                # Taxonomy fields (marque/model/submodel/trim) go through Sonnet on
+                # first-warm too - a wrong spelling written to the permanent cache
+                # would repeat forever, so the extra tokens buy accuracy exactly at
+                # the moment it counts.
+                model = TAXONOMY_MODEL if field in LATIN_FIELDS else None
+                await translate_many(db, todo, lang, type=field, model=model)
             stats[f"{field}:{lang}"] = {"values": len(values), "translated": len(todo)}
     log.info("translation warm-up done: %s", stats)
     return stats
