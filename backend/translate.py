@@ -32,7 +32,7 @@ MODEL = ("gemini", "gemini-3-flash-preview")
 # out if a specific batch ever needs a heavier model, but the DEFAULT is Haiku
 # everywhere, and nothing calls _anthropic_call or _llm_translate with an explicit
 # `model=` pointing at Sonnet.
-HAIKU_MODEL = os.environ.get("ANTHROPIC_FAST_MODEL", "claude-haiku-4-5-20251001")
+HAIKU_MODEL = os.environ.get("ANTHROPIC_FAST_MODEL") or "claude-haiku-4-5-20251001"
 
 # ── LLM circuit breaker ──────────────────────────────────────────────────────
 # Errors that cannot possibly be fixed by retrying (no credit, bad key, no quota at all).
@@ -128,7 +128,7 @@ async def _gemini_call(chunk, lang):
     import httpx
 
     key = os.environ["GEMINI_API_KEY"]
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    model = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
     body = {
         "systemInstruction": {"parts": [{"text": SYSTEM.format(lang=LANGS[lang])}]},
         "contents": [{"role": "user", "parts": [{"text": _user_prompt(chunk, lang)}]}],
@@ -178,8 +178,12 @@ async def _anthropic_call(chunk, lang, model=None):
     import anthropic
 
     # Default is Haiku, per owner: the whole app pays Haiku token rates unless a caller
-    # explicitly picks a heavier model.
-    model = model or os.environ.get("ANTHROPIC_MODEL", HAIKU_MODEL)
+    # explicitly picks a heavier model. `.get(...) or HAIKU_MODEL` (not the two-arg
+    # default) so an env var set to the empty string - the classic outcome of a Jinja
+    # template rendering `ANTHROPIC_MODEL={{ anthropic_model }}` with an undefined
+    # ansible var - still falls back to Haiku instead of being sent to Anthropic as
+    # `model=""` (which errors with 400 and quietly triggers the Gemini fallback).
+    model = model or os.environ.get("ANTHROPIC_MODEL") or HAIKU_MODEL
     try:
         resp = await _anthropic_client().messages.create(
             model=model,
