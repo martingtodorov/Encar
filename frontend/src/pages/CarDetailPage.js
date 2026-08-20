@@ -123,6 +123,25 @@ export default function CarDetailPage() {
   // Desktop opens the full lightbox; the phone keeps the vertical photo column, which
   // reads better on a small screen than a one-at-a-time viewer.
   const [shot, setShot] = useState(null);
+  // While the phone lightbox is open, `zoomed` tracks whether the visitor has pinched
+  // the viewport. When they have, the DialogContent's own `overflow-y-auto` swallows
+  // vertical touch drag and only horizontal pan reaches the visual viewport — so
+  // toggling to `overflow-visible` while zoomed lets iOS pan in both axes.
+  const [lightboxZoomed, setLightboxZoomed] = useState(false);
+  useEffect(() => {
+    if (!lightbox || typeof window === "undefined") return undefined;
+    const vv = window.visualViewport;
+    if (!vv) return undefined;
+    const onResize = () => setLightboxZoomed(vv.scale > 1.02);
+    onResize();
+    vv.addEventListener("resize", onResize);
+    vv.addEventListener("scroll", onResize);
+    return () => {
+      vv.removeEventListener("resize", onResize);
+      vv.removeEventListener("scroll", onResize);
+      setLightboxZoomed(false);
+    };
+  }, [lightbox]);
 
   const openPhotos = (i) => {
     if (window.matchMedia("(min-width: 1024px)").matches) setShot(i);
@@ -976,7 +995,14 @@ export default function CarDetailPage() {
           data-testid="detail-lightbox"
           // The stock close button is absolute inside this scrolling column, so it slides
           // out of reach on the second photo. Hidden here in favour of the sticky one below.
-          className="max-h-[92vh] max-w-4xl overflow-y-auto border-border bg-black p-0 [&>button]:hidden"
+          //
+          // `overflow-visible` while pinch-zoomed: iOS Safari otherwise scrolls the
+          // container vertically and only pans the visual viewport horizontally, leaving
+          // half of the zoomed photo unreachable. Dropping the container's own scroll
+          // hands vertical pan back to the browser's native visualViewport gesture.
+          className={`max-w-4xl border-border bg-black p-0 [&>button]:hidden ${
+            lightboxZoomed ? "max-h-none overflow-visible" : "max-h-[92vh] overflow-y-auto"
+          }`}
         >
           <DialogTitle className="sr-only">{car?.title || t("allPhotos")}</DialogTitle>
           <DialogDescription className="sr-only">
@@ -998,7 +1024,19 @@ export default function CarDetailPage() {
 
           <div className="flex flex-col gap-1.5 bg-black py-1.5">
             {photos.map((p, i) => (
-              <div key={p.full || i} className="w-full bg-black">
+              <div
+                key={p.full || i}
+                className="w-full bg-black"
+                // `content-visibility: auto` lets Safari drop the render trees for photos
+                // that are far off-screen, which is what stops a 40-photo column from
+                // triggering the "a problem repeatedly occurred" out-of-memory bail-out
+                // on lower-memory iPhones. The intrinsic-size hint keeps the scroll
+                // bar behaving while photos below the fold have not yet materialised.
+                style={{
+                  contentVisibility: "auto",
+                  containIntrinsicSize: "1px 60vw",
+                }}
+              >
                 <ImageWithFallback
                   // `full_lightbox` is the CDN's uncropped variant - portrait photos
                   // arrive portrait so `object-contain` letterboxes instead of hacking
