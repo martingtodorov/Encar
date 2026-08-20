@@ -84,7 +84,7 @@ import phones               # noqa: E402
 import ports as ports_mod   # noqa: E402
 import curate               # noqa: E402
 import sync as sync_mod      # noqa: E402
-from encar import encar, image_url, detail_photo_paths, under_contract, sales_status  # noqa: E402
+from encar import encar, image_url, full_image_url, detail_photo_paths, under_contract, sales_status  # noqa: E402
 from translate import (LANGS, HAIKU_MODEL, breaker_status,  # noqa: E402
                        cached_label_set,
                        schedule_translation,
@@ -2928,17 +2928,22 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     photos = []
     for path in detail_photo_paths(detail):
         photos.append({
-            # 1280x720: the main gallery on the desktop detail page AND the fullscreen
-            # lightbox both use this URL, so a single fetch covers both views. 1080p
-            # was tried and rolled back - the extra bytes did not translate to any
-            # visible sharpness on a laptop at ~662x372 CSS px, and doubled the bytes
-            # for every gallery photo.
+            # 1280x720: the main gallery on the desktop detail page. `widthRate + cw/ch`
+            # means this is a 16:9 landscape CROP - fine for the aspect-video hero card
+            # on the detail page, but wrong for the lightbox where a shopper expects to
+            # see the whole photo. `full` is used ONLY by the fixed-aspect hero; the
+            # lightbox reads `full_lightbox` below so a portrait source stays portrait.
             "full": image_url(path, 1280, 720),
             # Mobile viewport is at most 428 CSS px wide (iPhone Pro Max), so 900x506
             # is a comfortable 2x retina without shipping the desktop 1280x720 to a
-            # phone. A <picture> element in the swiper picks this variant below the
-            # `md` breakpoint.
+            # phone. Still landscape-cropped (same crop policy as `full`) because the
+            # mobile hero card is also aspect-video.
             "full_mobile": image_url(path, 900, 506),
+            # Uncropped variant used by the fullscreen lightbox on both mobile and
+            # desktop. `widthRate=1600` without `cw/ch` scales the source and keeps
+            # its native aspect - portrait photos come back portrait, so the lightbox
+            # `object-contain` letterboxes but does not chop the picture in half.
+            "full_lightbox": full_image_url(path, 1600),
             # 356x200 sharpens the 112x76 CSS mobile strip thumbnail on retina
             # (~224x152 physical) and the ~264x149 CSS desktop rail thumb (~528x298
             # physical) without shipping a full gallery-sized picture per thumbnail.

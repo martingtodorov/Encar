@@ -260,12 +260,35 @@ def image_url(path, w=640, h=480):
     #      down to a low-res sliver. The CDN honours the exact requested resolution
     #      instead of clamping to whatever the source's native aspect can produce
     #      (which is what `heightRate` did: a portrait source gave 379x506 for a
-    #      requested 900x506, so retina cards blurred).
+    #      requested 900x506, so retina cards blurred). Use `full_image_url` for
+    #      the gallery/lightbox where the crop is a bug, not a feature.
     #   3. Passing `wtmk=` explicitly asks for w_mark_04.png - a small transparent brand
     #      plate in the corner. Without it, the CDN falls back to the giant default mark
     #      that ruins every chat preview.
     base = path if path.startswith("/carpicture/") else f"/carpicture{path}"
     return (f"{CDN}{base}?impolicy=widthRate&rw={w}&cw={w}&ch={h}&cg=Center"
+            f"&wtmk={CDN}/wt_mark/w_mark_04.png")
+
+
+def full_image_url(path, max_side=1600):
+    """Uncropped variant for the gallery + lightbox.
+
+    Using the same `widthRate + cw/ch` crop as `image_url` was hacking the top and
+    bottom off portrait source photos at the CDN before they ever reached the
+    browser - `object-contain` in the lightbox then had nothing to work with.
+
+    This variant sends `impolicy=widthRate&rw=<N>` WITHOUT `cw`/`ch`, which is what
+    the CDN uses to scale-only (no crop): the source's native aspect is preserved,
+    so a portrait photo comes back portrait and the lightbox picks its own contain.
+    Empirically `impolicy=Resize` returns 503; `widthRate` without a crop rectangle
+    is the closest thing to a plain resize the CDN offers.
+    """
+    if not path:
+        return None
+    if path.startswith("http"):
+        return path
+    base = path if path.startswith("/carpicture/") else f"/carpicture{path}"
+    return (f"{CDN}{base}?impolicy=widthRate&rw={max_side}"
             f"&wtmk={CDN}/wt_mark/w_mark_04.png")
 
 

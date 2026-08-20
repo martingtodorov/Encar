@@ -994,7 +994,10 @@ export default function CarDetailPage() {
             {photos.map((p, i) => (
               <div key={p.full || i} className="w-full bg-black">
                 <ImageWithFallback
-                  src={p.full}
+                  // `full_lightbox` is the CDN's uncropped variant - portrait photos
+                  // arrive portrait so `object-contain` letterboxes instead of hacking
+                  // top and bottom off a 16:9 crop the way `full` does.
+                  src={p.full_lightbox || p.full}
                   alt={car?.title || ""}
                   fit="contain"
                   testId={i === 0 ? "detail-lightbox-photo" : undefined}
@@ -1009,7 +1012,9 @@ export default function CarDetailPage() {
           drag and trackpad swipe. The phone keeps the vertical column above. */}
       {shot !== null && (
         <Lightbox
-          images={photos.map((p) => p.full)}
+          // Uncropped variant so a portrait source displays fully - `p.full` is the
+          // 1280x720 hero card crop, which chops top and bottom off portrait photos.
+          images={photos.map((p) => p.full_lightbox || p.full)}
           thumbnails={photos.map((p) => p.thumb)}
           index={shot}
           label={car?.title || ""}
