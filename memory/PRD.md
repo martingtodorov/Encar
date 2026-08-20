@@ -15,6 +15,23 @@ Encar (uses the visitor's IP), with:
 * mobile.bg bot integration
 
 ## Recently completed (this session)
+* **Encar sync retire safety guard + submodel breadcrumb + one-line breadcrumbs** (2026-02-20).
+  Root-caused why the live catalogue was dropping day after day: a silent Encar 407/5xx
+  return would make `encar.count()` yield 0, the crawl walked 0 rows, and the retire pass
+  then flipped every `active: True` listing to `active: False`. Two lines of defence:
+  1) `encar.count()` returns `None` on transport failure (was 0), and `crawl_partitioned`
+     aborts before the retire pass runs; 2) even if a scope legitimately answers 0, the
+     retire pass refuses to run below `RETIRE_MIN_COVERAGE` (default 50%) of the previously
+     active scope. Result surfaces `retire_skipped` + `retire_skip_reason`.
+  * Files: `/app/backend/encar.py`, `/app/backend/sync.py`, tests in
+    `/app/backend/tests/test_sync_retire_guard.py` (3/3 pass).
+  * Breadcrumbs (`/app/frontend/src/components/Breadcrumbs.js`): last item is now a
+    `<Link>` when `to` is provided (buyer can jump from a car back to the model search
+    with one tap), year spans (`(2019-)`, `(2014-2021)`) are stripped from labels, and
+    the trail is single-line with `overflow-x-auto` on mobile so it never wraps to two
+    rows.
+  * Submodel: `CarDetailPage.js` breadcrumb items now run Home > Make > Model > Badge.
+
 * **HTML Sitemap page (`/bg/sitemap`, `/ro/sitemap`, `/en/sitemap`)** (2026-02-10).
   One indexable page listing every make and every model as real `<Link>` anchors so
   Googlebot can walk the whole catalogue in a single hop, distributing internal PageRank

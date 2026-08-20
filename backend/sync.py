@@ -84,6 +84,10 @@ async def run_full_sync(db, max_pages=None, page_size=PAGE):
                 S = pricing.merge_settings(sdoc.get("constants"))
 
                 total = await encar.count()
+                if total is None:
+                    raise RuntimeError(
+                        "the upstream count request failed - aborting so the retire "
+                        "pass does not wipe every active listing")
                 pages = (total + page_size - 1) // page_size
                 if max_pages:
                     pages = min(pages, max_pages)
@@ -311,6 +315,12 @@ async def _crawl_node(base, dims, count, sink, st, ctx=None):
         if lcount is None:
             lcount = await encar.count(lkey)
             st["probes"] += 1
+            if lcount is None:
+                # A probe failed. Do NOT split on a fabricated count of 0 - that would
+                # skip the whole right sibling and pretend the branch is empty. Bubble
+                # the failure so the parent scope can be marked failed too.
+                st["probe_failures"] = st.get("probe_failures", 0) + 1
+                raise RuntimeError(f"count probe failed for {lkey}")
             if ctx:
                 ctx["plan"][lkey] = lcount
         rcount = max(count - lcount, 0)   # exact: siblings partition the parent
@@ -482,6 +492,13 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
         total = plan.get(scope_key)
         if total is None:
             total = await encar.count(scope_key)
+            if total is None:
+                # Upstream refused to answer at all (soft-block, 407, network cut). A
+                # zero here would silently wipe every listing in this scope — abort so
+                # the retire pass never gets the chance.
+                raise RuntimeError(
+                    f"the upstream count request for {mfr or 'ALL'} failed - aborting "
+                    "before the retire pass can run")
             plan[scope_key] = total
         live["upstream"] += total
         await publish("crawl", force=True)
@@ -520,6 +537,30 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
     # The crawl finished, so there is nothing left to resume from.
     await db.sync_state.delete_one({"_id": resume_id})
 
+    # Sanity gate before retire. If Encar hiccups (429s, DNS, a soft-blocked IP), the
+    # count probe silently returns 0 and the crawl indexes nothing - but retire would
+    # then mark EVERY active listing inactive. That is what shrank the catalogue day
+    # after day. Refuse to retire when the crawl clearly did not cover the scope.
+    scope_prev_active_q = {"active": True}
+    if manufacturers:
+        scope_prev_active_q["manufacturer"] = {"$in": list(manufacturers)}
+    scope_prev_active = await db.listings.count_documents(scope_prev_active_q)
+    covered = len(seen)
+    # Genuine day-over-day catalogue churn is single-digit percent, so the floor is
+    # generous. Below ~50% coverage the crawl is almost certainly broken, not the
+    # inventory that halved overnight.
+    RETIRE_MIN_COVERAGE = float(os.environ.get("RETIRE_MIN_COVERAGE", "0.5"))
+    coverage_ratio = covered / scope_prev_active if scope_prev_active else 1.0
+    retire_skipped = False
+    retire_skip_reason = None
+    if retire and scope_prev_active >= 100 and coverage_ratio < RETIRE_MIN_COVERAGE:
+        retire_skipped = True
+        retire_skip_reason = (
+            f"crawl covered only {covered} of {scope_prev_active} previously-active "
+            f"listings ({coverage_ratio:.1%}); refusing to retire")
+        log.error(retire_skip_reason)
+        retire = False
+
     retired = 0
     if retire:
         scope_q = {"active": True, "last_crawl": {"$ne": run_id}}
@@ -534,6 +575,10 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
     result = {
         "run_id": run_id, "stats": st, "per_make": per_make,
         "distinct_ids": len(seen), "retired": retired,
+        "scope_prev_active": scope_prev_active,
+        "coverage_ratio": round(coverage_ratio, 4),
+        "retire_skipped": retire_skipped,
+        "retire_skip_reason": retire_skip_reason,
         "duration_s": round((datetime.now(timezone.utc) - started).total_seconds(), 1),
         "encar_requests": encar.stats["requests"],
     }
@@ -575,6 +620,8 @@ async def tag_transmission(db, manufacturers=None):
 async def _collect_manual(q):
     ids = []
     total = await encar.count(q)
+    if not total:                                    # None (failure) or 0 (empty)
+        return ids
     pages = max((total + PAGE - 1) // PAGE, 1)
     for p in range(pages):
         data = await encar.search(offset=p * PAGE, limit=PAGE, q=q)

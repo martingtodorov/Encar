@@ -342,11 +342,9 @@ export default function CarDetailPage() {
           already starts below it, and counting it twice left a phone with ~78px of nothing
           between the car bar and the first photo. */}
       <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-[72px] sm:px-6 lg:pt-2">
-        {/* Breadcrumbs: Home > Make > Model. The car title itself is intentionally NOT the
-            last chip - the H1 immediately below already shouts it, and repeating the exact
-            same string twice within 20 pixels of each other read as a bug. The Model chip
-            takes the "current page" slot instead: schema.org BreadcrumbList is happy with
-            either shape (three items or four), and Google's sitelinks strip still fires. */}
+        {/* Breadcrumbs: Home > Make > Model > Submodel. Each step is a Link to the
+            search filtered to that exact scope, so a buyer can jump back one level at a
+            time — tapping "W205" leads to every W205 we carry, not to the model page. */}
         {car && (
           <Breadcrumbs
             testId="car-breadcrumbs"
@@ -363,6 +361,14 @@ export default function CarDetailPage() {
                     label: car.model_t || car.model,
                     to: `/${lang}?make=${encodeURIComponent(car.manufacturer_raw || car.manufacturer || "")}`
                         + `&model=${encodeURIComponent(car.model_raw || car.model)}`,
+                  }]
+                : []),
+              ...(car.badge_raw || car.badge
+                ? [{
+                    label: car.badge_t || car.badge,
+                    to: `/${lang}?make=${encodeURIComponent(car.manufacturer_raw || car.manufacturer || "")}`
+                        + `&model=${encodeURIComponent(car.model_raw || car.model || "")}`
+                        + `&badge=${encodeURIComponent(car.badge_raw || car.badge)}`,
                   }]
                 : []),
             ]}

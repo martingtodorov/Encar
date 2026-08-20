@@ -148,8 +148,16 @@ class EncarClient:
             f"/search/car/list/general?count=true&q={quote(q)}&sr={sr}")
 
     async def count(self, q=BASE_Q):
+        """Number of upstream matches, or None if the request itself failed.
+
+        The old shape returned 0 on failure, which is indistinguishable from a legitimate
+        empty scope — and that ambiguity is exactly what let a bad crawl silently retire
+        the whole catalogue. `None` lets callers refuse to act instead of guessing.
+        """
         d = await self.search(0, 1, q)
-        return (d or {}).get("Count", 0)
+        if d is None:
+            return None
+        return d.get("Count", 0)
 
     # ── per-vehicle ──────────────────────────────────────────────────────────
     async def detail(self, listing_id):
