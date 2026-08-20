@@ -176,9 +176,13 @@ export default function Lightbox({ images, thumbnails, index, onClose, onChange,
 
       <div
         ref={stageRef}
-        className="flex min-h-0 w-full flex-1 cursor-grab items-center justify-center overflow-auto px-4 pb-2 pt-14 active:cursor-grabbing"
+        className="flex min-h-0 w-full flex-1 cursor-grab items-center justify-center overflow-hidden px-4 pb-2 pt-14 active:cursor-grabbing"
         data-allow-pinch-zoom="1"
-        style={{ touchAction: "pinch-zoom" }}
+        // `manipulation` allows pan AND pinch-zoom (the two we need on a phone), and
+        // disables the double-tap-to-zoom delay. `pinch-zoom` alone forbids panning, so
+        // once a buyer zoomed into a photo they were stuck: pinch-only means the browser
+        // must not perform any other actions such as scrolling or panning.
+        style={{ touchAction: "manipulation" }}
         onClick={(e) => e.stopPropagation()}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}

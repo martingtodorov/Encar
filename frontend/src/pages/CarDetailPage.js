@@ -119,29 +119,11 @@ export default function CarDetailPage() {
   const [error, setError] = useState(null);
   const [sold, setSold] = useState(null);
   const [active, setActive] = useState(0);
-  const [lightbox, setLightbox] = useState(false);
-  // Desktop opens the full lightbox; the phone keeps the vertical photo column, which
-  // reads better on a small screen than a one-at-a-time viewer.
   const [shot, setShot] = useState(null);
-  // While the phone lightbox is open, `zoomed` tracks whether the visitor has pinched
-  // the viewport. When they have, the DialogContent's own `overflow-y-auto` swallows
-  // vertical touch drag and only horizontal pan reaches the visual viewport — so
-  // toggling to `overflow-visible` while zoomed lets iOS pan in both axes.
-  const [lightboxZoomed, setLightboxZoomed] = useState(false);
-  useEffect(() => {
-    if (!lightbox || typeof window === "undefined") return undefined;
-    const vv = window.visualViewport;
-    if (!vv) return undefined;
-    const onResize = () => setLightboxZoomed(vv.scale > 1.02);
-    onResize();
-    vv.addEventListener("resize", onResize);
-    vv.addEventListener("scroll", onResize);
-    return () => {
-      vv.removeEventListener("resize", onResize);
-      vv.removeEventListener("scroll", onResize);
-      setLightboxZoomed(false);
-    };
-  }, [lightbox]);
+  // Mobile: tap the hero photo → open the vertical column of all photos. Tapping any
+  // photo inside that column then hands off to the single-photo lightbox (`shot`),
+  // which is where native pinch-zoom works cleanly.
+  const [lightbox, setLightbox] = useState(false);
 
   const openPhotos = (i) => {
     if (window.matchMedia("(min-width: 1024px)").matches) setShot(i);
@@ -987,22 +969,16 @@ export default function CarDetailPage() {
         )}
       </div>
 
-      {/* Tapping the main photo opens every photo as one vertical column, separated by
-          thin black bars - closer to how a phone gallery reads than a one-at-a-time
-          lightbox. */}
+      {/* Mobile viewer: a vertical column of every photo, close to how a phone gallery
+          reads. Tapping any photo inside hands off to the single-photo lightbox, which
+          is where iOS pinch-zoom actually works (no scrolling container to compete with
+          the visualViewport pan). */}
       <Dialog open={lightbox} onOpenChange={setLightbox}>
         <DialogContent
           data-testid="detail-lightbox"
           // The stock close button is absolute inside this scrolling column, so it slides
           // out of reach on the second photo. Hidden here in favour of the sticky one below.
-          //
-          // `overflow-visible` while pinch-zoomed: iOS Safari otherwise scrolls the
-          // container vertically and only pans the visual viewport horizontally, leaving
-          // half of the zoomed photo unreachable. Dropping the container's own scroll
-          // hands vertical pan back to the browser's native visualViewport gesture.
-          className={`max-w-4xl border-border bg-black p-0 [&>button]:hidden ${
-            lightboxZoomed ? "max-h-none overflow-visible" : "max-h-[92vh] overflow-y-auto"
-          }`}
+          className="max-h-[92vh] max-w-4xl overflow-y-auto border-border bg-black p-0 [&>button]:hidden"
         >
           <DialogTitle className="sr-only">{car?.title || t("allPhotos")}</DialogTitle>
           <DialogDescription className="sr-only">
@@ -1024,14 +1000,23 @@ export default function CarDetailPage() {
 
           <div className="flex flex-col gap-1.5 bg-black py-1.5">
             {photos.map((p, i) => (
-              <div
+              <button
                 key={p.full || i}
-                className="w-full bg-black"
+                type="button"
+                data-testid={`detail-lightbox-photo-${i}`}
+                onClick={() => {
+                  // Close the column and open the zoomable single-photo viewer at the
+                  // photo the visitor just tapped. `setShot` after the dialog transition
+                  // starts avoids a two-modal flash.
+                  setLightbox(false);
+                  setShot(i);
+                }}
+                className="block w-full bg-black text-left"
                 // `content-visibility: auto` lets Safari drop the render trees for photos
-                // that are far off-screen, which is what stops a 40-photo column from
-                // triggering the "a problem repeatedly occurred" out-of-memory bail-out
-                // on lower-memory iPhones. The intrinsic-size hint keeps the scroll
-                // bar behaving while photos below the fold have not yet materialised.
+                // that are far off-screen, which stops a 40-photo column from tripping
+                // the "a problem repeatedly occurred" out-of-memory bail-out on lower-
+                // memory iPhones. The intrinsic-size hint keeps the scroll bar behaving
+                // while photos below the fold have not yet materialised.
                 style={{
                   contentVisibility: "auto",
                   containIntrinsicSize: "1px 60vw",
@@ -1046,14 +1031,15 @@ export default function CarDetailPage() {
                   fit="contain"
                   testId={i === 0 ? "detail-lightbox-photo" : undefined}
                 />
-              </div>
+              </button>
             ))}
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Desktop viewer: one photo at a time with a thumbnail strip, arrows, keyboard,
-          drag and trackpad swipe. The phone keeps the vertical column above. */}
+      {/* Single-photo viewer: horizontal swipe navigates, native pinch-zoom works
+          because there is no scrolling container competing with the visualViewport pan,
+          and only the current photo is in memory. */}
       {shot !== null && (
         <Lightbox
           // Uncropped variant so a portrait source displays fully - `p.full` is the
