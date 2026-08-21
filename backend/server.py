@@ -3170,8 +3170,13 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
         "grade": (listing or {}).get("badge_t") or L((listing or {}).get("badge"))
         or cat.get("gradeEnglishName") or L(cat.get("gradeName")),
         "badge": (listing or {}).get("badge_t") or L((listing or {}).get("badge")),
+        # Raw upstream badge (submodel) so the breadcrumb can link back to the exact
+        # search slice: `/api/car-search` filters on the raw value, not the translated
+        # label ("1M Coupe" would never match "1M 쿠페").
+        "badge_raw": (listing or {}).get("badge") or "",
         "badge_detail": (listing or {}).get("badge_detail_t")
         or L((listing or {}).get("badge_detail")),
+        "badge_detail_raw": (listing or {}).get("badge_detail") or "",
         "year_month": cat.get("yearMonth"),
         "form_year": cat.get("formYear"),
         "origin_price_manwon": cat.get("originPrice"),

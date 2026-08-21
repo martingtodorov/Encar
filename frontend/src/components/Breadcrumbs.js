@@ -64,7 +64,7 @@ export const Breadcrumbs = ({ items = [], testId = "breadcrumbs" }) => {
                 <span
                   data-testid={`${testId}-item-${idx}`}
                   aria-current={isLast ? "page" : undefined}
-                  className="max-w-[52vw] truncate font-medium text-foreground sm:max-w-none"
+                  className="font-medium text-foreground"
                 >
                   {item.label}
                 </span>
@@ -73,10 +73,21 @@ export const Breadcrumbs = ({ items = [], testId = "breadcrumbs" }) => {
                   data-testid={`${testId}-item-${idx}`}
                   to={item.to}
                   aria-current={isLast ? "page" : undefined}
+                  // No `truncate` / max-w here: `truncate` on a flex-item Link that
+                  // never got `min-width:0` propagated caused the text to overflow its
+                  // clip on tap (the transitioning colour repainted the full string
+                  // before the row snapped back to the truncated width — visible as a
+                  // one-frame flicker). The `<ol>` scrolls horizontally on overflow,
+                  // so the trail stays on one line without clipping any label.
+                  //
+                  // `-webkit-tap-highlight-color: transparent` kills iOS Safari's dark
+                  // rectangle flash on tap, which was the second half of the "visual
+                  // glitch".
+                  style={{ WebkitTapHighlightColor: "transparent" }}
                   className={
                     isLast
-                      ? "max-w-[52vw] truncate font-medium text-foreground transition-colors hover:underline sm:max-w-none"
-                      : "max-w-[40vw] truncate text-muted-foreground transition-colors hover:text-foreground hover:underline sm:max-w-none"
+                      ? "font-medium text-foreground transition-colors hover:underline"
+                      : "text-muted-foreground transition-colors hover:text-foreground hover:underline"
                   }
                 >
                   {item.label}
