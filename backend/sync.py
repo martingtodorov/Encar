@@ -294,6 +294,10 @@ async def _crawl_node(base, dims, count, sink, st, ctx=None):
         if len(rows) < count:
             # upstream shrank/grew between the count probe and the fetch - benign
             st["short_leaves"] += 1
+            # Save the slice so the second-pass sweep can try again with a different
+            # sort key. The window drift is time-dependent, so re-fetching a minute
+            # later often catches the rows the first pass missed.
+            st.setdefault("retry_leaves", []).append({"key": key, "expected": count})
         await sink(rows)
         if ctx:
             # Only after the rows are written, so a slice is never marked done twice or

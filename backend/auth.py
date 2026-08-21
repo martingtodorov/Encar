@@ -18,6 +18,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -342,12 +343,22 @@ class Credentials(BaseModel):
     email: EmailStr
     password: str
     name: str = ""
+    # A working phone number is required at registration: it is how the office reaches
+    # the buyer to arrange inspection, shipping and payment. The frontend enforces the
+    # E.164 shape via `<PhoneInput required>`, and the backend re-checks here so a
+    # tampered request cannot land a phone-less account.
+    phone: str = ""
     lang: str = ""
     billing: Billing | None = None
     # The version of the terms and privacy policy the buyer was actually shown when they
     # ticked the box. Sent by the form, checked here: a registration with no acceptance is
     # refused outright rather than quietly stored as consent.
     terms_version: str = ""
+
+
+# E.164: leading '+', up to 15 digits after. Deliberately permissive on the low end
+# (7 digits) so short national plans (e.g. some Pacific ITU allocations) still pass.
+PHONE_E164 = re.compile(r"^\+\d{7,15}$")
 
 
 class LoginBody(BaseModel):
@@ -376,12 +387,20 @@ async def register(body: Credentials, request: Request, response: Response):
     accepted = body.terms_version.strip()[:32]
     if not accepted:
         raise HTTPException(400, "please accept the terms of service and the privacy policy")
+    # A working number is required at registration - the office reaches the buyer through
+    # it to arrange inspection, shipping and payment, and passwords resets fall back to it.
+    phone = (body.phone or "").strip()[:32]
+    if not phone:
+        raise HTTPException(400, {"code": "phone_required"})
+    if not PHONE_E164.match(phone):
+        raise HTTPException(400, {"code": "phone_invalid"})
     email = str(body.email).strip().lower()
     user = {
         "_id": str(uuid.uuid4()),
         "email": email,
         "email_norm": email,
         "name": body.name.strip(),
+        "phone": phone,
         "password_hash": ph.hash(body.password),
         # opaque handle given to authenticators, never the email
         "webauthn_user_id": bytes_to_base64url(secrets.token_bytes(32)),

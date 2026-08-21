@@ -7,6 +7,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { TERMS_VERSION } from "@/lib/legal";
 import { TERMS_HANDOFF } from "@/pages/AuthCallback";
 import { BLANK_BILLING, BillingFields } from "@/components/BillingFields";
+import { PhoneInput } from "@/components/PhoneInput";
+import { isValidPhone } from "@/lib/phone";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { HeaderBar } from "@/components/HeaderBar";
@@ -43,6 +45,9 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  // Required at registration; kept as an E.164 string ("+359881234567") thanks to
+  // `<PhoneInput>`, which is what the backend re-validates against.
+  const [phone, setPhone] = useState("");
   const [billing, setBilling] = useState(BLANK_BILLING);
   // No pre-ticked box: acceptance has to be an act, and the button stays dead until it is one.
   const [terms, setTerms] = useState(false);
@@ -89,11 +94,15 @@ export default function LoginPage() {
       setError(t("passwordTooShort", { n: MIN_PASSWORD }));
       return;
     }
+    if (mode === "register" && !isValidPhone(phone, lang)) {
+      setError(t(phone ? "phoneInvalid" : "phoneRequired"));
+      return;
+    }
     if (mode === "register")
       // Straight to the code screen: the letter is already on its way, and an address nobody
       // proves is an account we can never send a reset or a reservation to.
       run("register", async () => {
-        await register(email, password, name, billing, lang);
+        await register(email, password, name, phone, billing, lang);
         return "/verify-email";
       });
     else
@@ -269,6 +278,25 @@ export default function LoginPage() {
                 onChange={(e) => setName(e.target.value)}
                 autoComplete="name"
                 className="h-11 rounded-[10px] bg-card"
+              />
+            </div>
+          )}
+
+          {/* Phone is required at registration. The office reaches the buyer through it
+              to arrange inspection and shipping, and it is also the fallback channel for
+              password reset when the mailbox is compromised. */}
+          {registering && (
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-[12.5px] font-medium">
+                {t("phoneLabel")}
+                <span aria-hidden="true" className="ml-1 text-[hsl(var(--primary))]">*</span>
+              </Label>
+              <PhoneInput
+                testId="auth-phone"
+                value={phone}
+                onChange={setPhone}
+                required
+                showError
               />
             </div>
           )}

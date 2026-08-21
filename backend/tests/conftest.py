@@ -74,8 +74,27 @@ def _accepts_terms(url, kwargs):
         body["terms_version"] = "test"
 
 
+def _provides_phone(url, kwargs):
+    """Fill in a valid E.164 phone on registration when the test did not supply one.
+
+    `POST /auth/register` requires a working phone number - the office reaches the buyer
+    through it to arrange inspection and shipping. Same pattern as `_accepts_terms`: the
+    gate itself is exercised for real in test_registration_phone.py; every other suite
+    that only cares about the resulting session gets a valid number for free.
+
+    Only fills when the key is completely absent, so a test can opt out of the shim by
+    explicitly sending `phone=""` (or `phone="0881234567"`) and actually reach the gate.
+    """
+    if "/auth/register" not in url:
+        return
+    body = kwargs.get("json")
+    if isinstance(body, dict) and "phone" not in body:
+        body["phone"] = "+359881234567"
+
+
 def _patched(self, method, url, **kwargs):
     _accepts_terms(url, kwargs)
+    _provides_phone(url, kwargs)
     if _wants_token(method, url, kwargs.get("headers")):
         base = url.split("/api/")[0]
         token = _token_for(self, base)

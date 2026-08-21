@@ -152,15 +152,18 @@ export function AuthProvider({ children }) {
   }, []);
 
   const register = useCallback(
-    async (email, password, name, billing, lang = "") => {
+    async (email, password, name, phone, billing, lang = "") => {
       const local = favourites;
       const localSearches = searches;
       // billing and the accepted policy version travel WITH the registration: the address
       // typed on the sign-up form was being collected and then dropped on the floor here.
+      // `phone` is now a required top-level field (see `Credentials` in `/app/backend/auth.py`)
+      // — the office reaches the buyer through it to arrange inspection and shipping.
       const { user: u } = await apiRegister({
         email,
         password,
         name: name || "",
+        phone,
         lang,
         billing: billing || undefined,
         terms_version: TERMS_VERSION,
