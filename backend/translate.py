@@ -303,9 +303,11 @@ async def _llm_translate(chunk, lang, *, model=None):
 # handed to the LLM again. "가솔린+전기" literally reads "petrol + electricity"; buyers call
 # that car a hybrid, so that is what it is called on every page in every language.
 OVERRIDES = {
-    "가솔린+전기": {"bg": "Хибрид", "ro": "Hibrid", "en": "Hybrid"},
-    "디젤+전기": {"bg": "Дизелов хибрид", "ro": "Hibrid diesel", "en": "Diesel hybrid"},
-    "LPG+전기": {"bg": "Газов хибрид", "ro": "Hibrid GPL", "en": "LPG hybrid"},
+    "가솔린+전기": {"bg": "Хибрид", "ro": "Hibrid", "pl": "Hybryda", "en": "Hybrid"},
+    "디젤+전기": {"bg": "Дизелов хибрид", "ro": "Hibrid diesel",
+              "pl": "Hybryda diesel", "en": "Diesel hybrid"},
+    "LPG+전기": {"bg": "Газов хибрид", "ro": "Hibrid GPL",
+              "pl": "Hybryda LPG", "en": "LPG hybrid"},
 }
 
 

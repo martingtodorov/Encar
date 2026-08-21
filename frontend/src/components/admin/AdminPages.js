@@ -20,8 +20,8 @@ import { helpDoc } from "@/content/help";
 import { t as translate } from "@/i18n";
 import { Spinner, stampSofia } from "@/components/admin/AdminBits";
 
-const LANGS = ["bg", "ro", "en"];
-const LANG_LABEL = { bg: "Български", ro: "Română", en: "English" };
+const LANGS = ["bg", "ro", "pl", "en"];
+const LANG_LABEL = { bg: "Български", ro: "Română", pl: "Polski", en: "English" };
 const PAGE_LABEL = {
   home: "Home / search",
   "how-it-works": "How it works",

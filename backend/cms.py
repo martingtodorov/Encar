@@ -25,7 +25,7 @@ router = APIRouter()
 # Every page the owner can edit. "home" is the search page: it has SEO and the hero copy,
 # but no body of its own.
 SLUGS = ["home", "how-it-works", "faq", "fees", "contact", "terms", "privacy", "cookies"]
-LANGS = ["bg", "ro", "en"]
+LANGS = ["bg", "ro", "pl", "en"]
 BODY_SLUGS = [s for s in SLUGS if s != "home"]
 
 COMPANY_FIELDS = ["name", "eik", "vat", "address", "phone", "email", "site",

@@ -25,7 +25,7 @@ router = APIRouter()
 _db = None
 
 DOC_ID = "contract_template"
-LANGS = ("bg", "ro", "en")
+LANGS = ("bg", "ro", "pl", "en")
 BLANK = "\u2026" * 24                       # the dotted line of the paper original
 
 # What the buyer fills in. `required` decides whether the contract counts as complete.
@@ -153,7 +153,40 @@ Art. 3. The CLIENT has paid a deposit of {{deposit}}, with which the AGENT buys 
 AGENT: ............................        CLIENT: ............................
 """
 
-DEFAULT_BODIES = {"bg": _BG, "ro": _RO, "en": _EN}
+_PL = """UMOWA O ŚWIADCZENIE USŁUG DORADCZYCH W ZAKRESIE WYBORU, DOSTAWY I KUPNA-SPRZEDAŻY POJAZDÓW MECHANICZNYCH
+
+Nr {{contract_no}}
+
+Dnia {{date}}, w {{city}}, pomiędzy:
+
+{{seller_name}}, nr firmy: {{seller_eik}}, z siedzibą: {{seller_address}}, e-mail: {{seller_email}}, reprezentowaną przez {{seller_manager}} jako Zarządzającego, zwaną dalej ZLECENIOBIORCĄ,
+
+a
+
+{{buyer_name}}, PESEL {{buyer_egn}}, posiadaczem dowodu osobistego nr {{buyer_id_no}}, wydanego dnia {{buyer_id_date}} przez {{buyer_id_issuer}}, adres zameldowania {{buyer_address}}, telefon {{buyer_phone}}, e-mail {{buyer_email}}, zwanym dalej ZLECENIODAWCĄ,
+
+zwanymi łącznie STRONAMI, zawarto niniejszą umowę o następującej treści:
+
+PRZEDMIOT UMOWY
+
+§ 1. ZLECENIODAWCA oświadcza, iż pragnie uzyskać od ZLECENIOBIORCY usługi doradcze dotyczące zakupu pojazdu używanego i/lub uszkodzonego (zwanego dalej Towarem) na aukcjach i platformach samochodowych w Korei Południowej.
+
+§ 2. Towarem, którego dotyczy niniejsza umowa, jest:
+    Pojazd: {{car_title}}
+    Numer nadwozia (VIN): {{vin}}
+    Numer rejestracyjny (Korea): {{plate}}
+    Pierwsza rejestracja: {{year}}
+    Przebieg: {{mileage}}
+    Cena końcowa: {{car_price}}
+
+§ 3. ZLECENIODAWCA wpłacił zadatek w wysokości {{deposit}}, za który ZLECENIOBIORCA nabywa Towar na jego rachunek. Pozostała kwota w wysokości {{balance}} zostanie zapłacona przelewem bankowym. Po jej zapłaceniu zadatek jest zwracany ZLECENIODAWCY, a ZLECENIOBIORCA zatrzymuje wynagrodzenie w wysokości {{commission}}, zawarte w cenie końcowej.
+
+[Pozostałe postanowienia umowy są edytowane w panelu administracyjnym.]
+
+ZLECENIOBIORCA: ............................        ZLECENIODAWCA: ............................
+"""
+
+DEFAULT_BODIES = {"bg": _BG, "ro": _RO, "pl": _PL, "en": _EN}
 
 
 async def _doc():
@@ -162,6 +195,18 @@ async def _doc():
         doc = {"_id": DOC_ID, "seller": dict(DEFAULT_SELLER),
                "bodies": dict(DEFAULT_BODIES), "updated_at": _now()}
         await _db.settings.insert_one(doc)
+        return doc
+    # Back-fill: any language added AFTER the settings doc was first written (e.g. Polish
+    # rolled out later) would otherwise stay a blank template forever. On first read of
+    # this pod, drop the default body in for every lang the doc is missing.
+    bodies = doc.get("bodies") or {}
+    missing = {k: v for k, v in DEFAULT_BODIES.items() if k not in bodies}
+    if missing:
+        bodies.update(missing)
+        await _db.settings.update_one(
+            {"_id": DOC_ID},
+            {"$set": {"bodies": bodies, "updated_at": _now()}})
+        doc["bodies"] = bodies
     return doc
 
 
