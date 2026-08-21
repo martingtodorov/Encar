@@ -394,12 +394,17 @@ async def register(body: Credentials, request: Request, response: Response):
         raise HTTPException(400, {"code": "phone_required"})
     if not PHONE_E164.match(phone):
         raise HTTPException(400, {"code": "phone_invalid"})
+    # A name is required too: the office greets a buyer by name in every email and every
+    # generated contract, and "Dear ," in a legal document is a bad look.
+    name = body.name.strip()[:120]
+    if not name:
+        raise HTTPException(400, {"code": "name_required"})
     email = str(body.email).strip().lower()
     user = {
         "_id": str(uuid.uuid4()),
         "email": email,
         "email_norm": email,
-        "name": body.name.strip(),
+        "name": name,
         "phone": phone,
         "password_hash": ph.hash(body.password),
         # opaque handle given to authenticators, never the email

@@ -92,9 +92,24 @@ def _provides_phone(url, kwargs):
         body["phone"] = "+359881234567"
 
 
+def _provides_name(url, kwargs):
+    """Fill in a display name on registration when the test did not supply one.
+
+    `POST /auth/register` refuses accounts without a name — every contract and every
+    email greets the buyer by it. Same opt-out convention as `_provides_phone`: send an
+    explicit empty string to reach the backend gate in test_registration_name.py.
+    """
+    if "/auth/register" not in url:
+        return
+    body = kwargs.get("json")
+    if isinstance(body, dict) and "name" not in body:
+        body["name"] = "Test Buyer"
+
+
 def _patched(self, method, url, **kwargs):
     _accepts_terms(url, kwargs)
     _provides_phone(url, kwargs)
+    _provides_name(url, kwargs)
     if _wants_token(method, url, kwargs.get("headers")):
         base = url.split("/api/")[0]
         token = _token_for(self, base)

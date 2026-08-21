@@ -94,6 +94,10 @@ export default function LoginPage() {
       setError(t("passwordTooShort", { n: MIN_PASSWORD }));
       return;
     }
+    if (mode === "register" && !name.trim()) {
+      setError(t("nameRequired"));
+      return;
+    }
     if (mode === "register" && !isValidPhone(phone, lang)) {
       setError(t(phone ? "phoneInvalid" : "phoneRequired"));
       return;
@@ -270,6 +274,7 @@ export default function LoginPage() {
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="auth-name" className="text-[12.5px] font-medium">
                 {t("nameLabel")}
+                <span aria-hidden="true" className="ml-1 text-[hsl(var(--primary))]">*</span>
               </Label>
               <Input
                 id="auth-name"
@@ -277,6 +282,7 @@ export default function LoginPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 autoComplete="name"
+                required
                 className="h-11 rounded-[10px] bg-card"
               />
             </div>
