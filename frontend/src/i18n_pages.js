@@ -79,6 +79,32 @@ const PAGES = {
     purchasesPhotos: "photos",
     purchasesNoRef: "No bill of lading issued yet",
   },
+  pl: {
+    navPurchases: "Moje zakupy",
+    navFaq: "Najczęściej zadawane pytania",
+    navFees: "Opłaty i prowizje",
+    navSitemap: "Mapa strony",
+    sitemapTitle: "Mapa strony",
+    sitemapIntro:
+      "Wszystkie marki i modele dostępne teraz. Jedno kliknięcie do każdej strony ofert.",
+    sitemapCounts: "{makes} marek · {models} modeli",
+    footerExplore: "Odkrywaj",
+    footerHelp: "Pomoc",
+    footerAccountCol: "Konto",
+    purchasesTitle: "Moje zakupy",
+    purchasesBlurb:
+      "Samochody, które zarezerwowałeś depozytem. Ogłoszenie i wszystkie zdjęcia są przechowywane u nas, nawet gdy znikną z Encar.",
+    purchasesEmpty:
+      "Brak zakupów. Gdy wpłacisz depozyt za samochód, pojawi się tutaj na zawsze.",
+    purchasesBrowse: "Przeglądaj samochody",
+    purchasesTrack: "Śledź pojazd",
+    purchasesDeposit: "Depozyt wpłacony",
+    purchasesPaidOn: "Zapłacono",
+    purchasesArchived: "Ogłoszenie zarchiwizowane u nas",
+    purchasesArchiving: "Zapisujemy ogłoszenie i zdjęcia…",
+    purchasesPhotos: "zdjęć",
+    purchasesNoRef: "Konosament nie został jeszcze wystawiony",
+  },
 };
 
 export default PAGES;

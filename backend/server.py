@@ -2352,7 +2352,7 @@ async def og_image(listing_id: str, request: Request):
 # Digit grouping exactly as Intl.NumberFormat does it for the three page locales
 # (bg-BG NBSP and only from 10 000 up, ro-RO full stop, en-GB comma). Kept here because a
 # preview and the rendered page must quote the same car identically.
-_GROUPING = {"bg": ("\u00a0", 10000), "ro": (".", 1000), "en": (",", 1000)}
+_GROUPING = {"bg": ("\u00a0", 10000), "ro": (".", 1000), "pl": ("\u00a0", 1000), "en": (",", 1000)}
 
 
 def _fmt_int(n, lang: str) -> str:
@@ -2419,6 +2419,7 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
     blurb = {
         "bg": "крайна цена до България.",
         "ro": "preț final până în Bulgaria.",
+        "pl": "cena końcowa dostawy.",
         "en": "final price to Bulgaria.",
     }[lang]
     description = " · ".join([f for f in facts if f])
@@ -2439,7 +2440,7 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
         await _preview_image_url(raw_image, base)
         image = f"{base}/api/og/{listing_id}.jpg"
     target = f"{base}/{lang}/car/{listing_id}"
-    og_locale = {"bg": "bg_BG", "ro": "ro_RO", "en": "en_GB"}[lang]
+    og_locale = {"bg": "bg_BG", "ro": "ro_RO", "pl": "pl_PL", "en": "en_GB"}[lang]
 
     # Encar's own detail head is the reference (see fem.encar.com/cars/detail/*): one og:title,
     # A shopper hitting this URL from a chat gets one og:image, one og:description
@@ -3904,6 +3905,8 @@ async def geo_lang(request: Request):
         lang = "ro"
     elif country == "BG":
         lang = "bg"
+    elif country == "PL":
+        lang = "pl"
     elif country:
         lang = "en"
     else:

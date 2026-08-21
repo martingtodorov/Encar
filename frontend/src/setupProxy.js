@@ -23,15 +23,15 @@ module.exports = function setupPreviewShareLinks(app) {
     res.redirect(301, `${api}/api${req.url}`);
   });
 
-  app.get(/^\/(bg|ro|en)\/car\/([^/]+)\/?$/, (req, res, next) => {
+  app.get(/^\/(bg|ro|pl|en)\/car\/([^/]+)\/?$/, (req, res, next) => {
     if (!CRAWLER.test(req.headers["user-agent"] || "")) return next();
-    const [, lang, id] = req.url.split("?")[0].match(/^\/(bg|ro|en)\/car\/([^/]+)\/?$/);
+    const [, lang, id] = req.url.split("?")[0].match(/^\/(bg|ro|pl|en)\/car\/([^/]+)\/?$/);
     res.redirect(302, `${api}/api/share/car/${encodeURIComponent(id)}?lang=${lang}`);
   });
 
-  app.get(/^\/(bg|ro|en)\/track\/?$/, (req, res, next) => {
+  app.get(/^\/(bg|ro|pl|en)\/track\/?$/, (req, res, next) => {
     if (!CRAWLER.test(req.headers["user-agent"] || "")) return next();
-    const [, lang] = req.url.split("?")[0].match(/^\/(bg|ro|en)\/track\/?$/);
+    const [, lang] = req.url.split("?")[0].match(/^\/(bg|ro|pl|en)\/track\/?$/);
     const query = req.url.includes("?") ? `&${req.url.split("?")[1]}` : "";
     res.redirect(302, `${api}/api/share/track?lang=${lang}${query}`);
   });

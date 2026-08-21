@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "@/context/AppContext";
 import { useLangNav } from "@/hooks/useLangNav";
+import { LANGS as ALL_LANGS } from "@/i18n";
 
-const LANGS = [
-  { code: "bg", short: "BG" },
-  { code: "ro", short: "RO" },
-  { code: "en", short: "EN" },
-];
+// The menu only cares about the two-letter badge, and adding a new language should be a
+// one-file change (register it in `i18n.js` and every switcher picks it up). No local
+// hardcoded list here for that reason.
+const LANGS = ALL_LANGS.map(({ code, short }) => ({ code, short }));
 
 /**
  * Language switcher: a round badge with the current language, and a soft card underneath

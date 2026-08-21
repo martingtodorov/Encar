@@ -121,6 +121,46 @@ const NOTIFY = {
     deleteButton: "Delete my account for good",
     deleteDone: "Your account has been deleted",
   },
+  pl: {
+    pushTitle: "Powiadomienia push",
+    pushBlurb:
+      "Otrzymuj powiadomienia od razu, gdy nowy samochód pasuje do zapisanego wyszukiwania, cena zapisanego samochodu spada lub gdy zmienia się status Twojej wysyłki.",
+    pushIosHint:
+      "Na iPhonie/iPadzie: otwórz stronę w Safari → przycisk Udostępnij → „Dodaj do ekranu głównego”. Następnie otwórz aplikację z ekranu głównego i włącz tu powiadomienia.",
+    pushEnable: "Włącz powiadomienia",
+    pushDisable: "Wyłącz powiadomienia",
+    pushTest: "Wyślij test",
+    pushUnsupported: "Ta przeglądarka nie obsługuje powiadomień push",
+    pushDenied: "Powiadomienia są zablokowane w ustawieniach przeglądarki",
+    pushOn: "Włączone na tym urządzeniu",
+    pushDevices: "urządzeń z włączonymi powiadomieniami",
+    emailTitle: "Powiadomienia e-mail",
+    emailBlurb:
+      "Dostawaj e-maile o tym, co ważne dla Twoich samochodów, wyszukiwań i wysyłek.",
+    notifyWhat: "CO MAM WYSYŁAĆ",
+    evSavedSearch: "Nowy samochód pasuje do zapisanego wyszukiwania",
+    evPriceDrop: "Cena zapisanego samochodu spadła",
+    evShipment: "Moja wysyłka zmienia status",
+    evEnquiry: "Odpowiedź na jedno z moich zapytań",
+    notifySaved: "Twoje preferencje zostały zapisane",
+    phoneTitle: "Telefon kontaktowy",
+    phoneBlurb:
+      "Używamy Twojego telefonu tylko do fakturowania i gdy musimy się z Tobą skontaktować w sprawie już uzgodnionej transakcji. Najlepszy format międzynarodowy (+48…).",
+    phoneLabel: "TELEFON",
+    save: "Zapisz",
+    exportTitle: "Pobierz moje dane (RODO)",
+    exportBlurb:
+      "Twoje prawo dostępu i do przenoszenia danych. Pobiera plik ze wszystkim, co przechowujemy o Twoim koncie: profil, adres, ulubione samochody, zapisane wyszukiwania, zapytania, depozyty, wysyłki, urządzenia i historię zgód. Hasła i klucze 2FA są pominięte — to poświadczenia, nie dane osobowe.",
+    exportButton: "Pobierz plik",
+    exportBusy: "Tworzymy plik…",
+    exportDone: "Plik został pobrany",
+    deleteTitle: "Usuń moje konto (RODO)",
+    deleteBlurb:
+      "Twoje prawo do usunięcia danych zgodnie z RODO. Usuwamy Twoje ulubione samochody, zapisane wyszukiwania, zapytania, urządzenia i sesje. Wpłacone depozyty pozostają w księgach jako zanonimizowane zapisy, ponieważ są zapisem faktycznego przepływu pieniędzy.",
+    deleteConfirmLabel: "WPISZ „USUŃ”, ABY POTWIERDZIĆ",
+    deleteButton: "Usuń moje konto bezpowrotnie",
+    deleteDone: "Twoje konto zostało usunięte",
+  },
 };
 
 export default NOTIFY;

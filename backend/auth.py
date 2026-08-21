@@ -174,7 +174,7 @@ RESET_MAX_PER_DAY = 5
 def _lang(value):
     """Kept local on purpose: importing server.norm_lang here would be a circular import."""
     got = (value or "").strip().lower()[:2]
-    return got if got in ("bg", "ro", "en") else "en"
+    return got if got in ("bg", "ro", "pl", "en") else "en"
 
 
 def _new_code():
@@ -976,7 +976,7 @@ async def put_lang(body: LangIn, user=Depends(current_user)):
     the preference and lets IP/browser detection take over again.
     """
     code = (body.lang or "").strip().lower()[:2]
-    if code and code not in ("bg", "ro", "en"):
+    if code and code not in ("bg", "ro", "pl", "en"):
         raise HTTPException(400, "unsupported language")
     await _db.users.update_one({"_id": user["_id"]}, {"$set": {"lang": code}})
     return {"lang": code}

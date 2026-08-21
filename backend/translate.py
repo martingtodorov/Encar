@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 
 log = logging.getLogger("translate")
 
-LANGS = {"en": "English", "bg": "Bulgarian", "ro": "Romanian"}
+LANGS = {"en": "English", "bg": "Bulgarian", "ro": "Romanian", "pl": "Polish"}
 CHUNK = 60
 # Seconds to wait between batched LLM calls. Sized for a free-tier RPM allowance;
 # set TRANSLATE_CHUNK_PACE=0 on a paid key to run flat out.
