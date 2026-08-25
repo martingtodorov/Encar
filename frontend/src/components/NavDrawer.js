@@ -105,7 +105,13 @@ export const NavDrawer = () => {
               tap twice to get from BG to EN and gave no idea what was next. Theme stays a
               straight switch: with two states a menu is one tap too many. */}
           <div className="flex items-center gap-2.5 px-2">
-            <DropdownMenu>
+            {/* modal={false} on both menus: Radix's default is `modal: true`, which pins
+                `pointer-events: none` on <body> while the dropdown Portal is mounted.
+                If the outer Sheet unmounts (via `setOpen(false)` below) BEFORE the menu
+                finishes closing, Radix's cleanup misses the body style and every button
+                on the page reads as unresponsive until a full navigation happens. A
+                non-modal dropdown does not touch <body> at all, so nothing to leak. */}
+            <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
@@ -143,7 +149,7 @@ export const NavDrawer = () => {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <DropdownMenu>
+            <DropdownMenu modal={false}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
