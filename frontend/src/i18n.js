@@ -17,6 +17,7 @@ export const LANGS = [
 export const CURRENCIES = [
   { code: "EUR", symbol: "\u20ac" },
   { code: "RON", symbol: "lei" },
+  { code: "PLN", symbol: "z\u0142" },
 ];
 
 const STRINGS = {

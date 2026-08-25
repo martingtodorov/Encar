@@ -124,7 +124,14 @@ export const NavDrawer = () => {
                   <DropdownMenuItem
                     key={l.code}
                     data-testid={`language-option-${l.code}`}
-                    onSelect={() => switchLang(l.code)}
+                    onSelect={() => {
+                      // Close the outer Sheet at the same time as we swap the language.
+                      // If we do not, Radix keeps the Sheet's overlay mounted while the
+                      // route changes underneath it, and the whole page reads as frozen
+                      // because every tap after that lands on the invisible overlay.
+                      setOpen(false);
+                      switchLang(l.code);
+                    }}
                     className="justify-between text-[13.5px]"
                   >
                     {l.label}
@@ -155,7 +162,14 @@ export const NavDrawer = () => {
                   <DropdownMenuItem
                     key={c.code}
                     data-testid={`currency-option-${c.code}`}
-                    onSelect={() => setCurrency(c.code)}
+                    onSelect={() => {
+                      // Same reason as the language menu above: close the Sheet so the
+                      // page becomes tappable again. Radix leaves the overlay mounted
+                      // while state updates ripple through the tree, which reads as
+                      // "every button is broken" until the drawer is dismissed.
+                      setOpen(false);
+                      setCurrency(c.code);
+                    }}
                     className="justify-between text-[13.5px]"
                   >
                     {c.label || c.code}

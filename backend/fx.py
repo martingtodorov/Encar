@@ -4,6 +4,7 @@ fx_krw_eur = KRW per 1 EUR (divides the Encar price)
 usd_eur    = EUR per 1 USD (multiplies the USD fees)
 eur_bgn    = fixed by the Bulgarian currency board peg
 eur_ron    = live
+eur_pln    = live (Polish złoty per 1 EUR)
 
 A 1% haircut is held back on EUR/KRW as an exchange buffer (see HAIRCUT).
 
@@ -39,7 +40,8 @@ HAIRCUT = 0.99
 # relative move raises a flag for sync.reprice_if_fx_drifted() to act on.
 REPRICE_EPS = 0.002
 
-FALLBACK = {"fx_krw_eur": 1664.0, "usd_eur": 0.867, "eur_ron": 4.977, "eur_bgn": EUR_BGN_PEG}
+FALLBACK = {"fx_krw_eur": 1664.0, "usd_eur": 0.867, "eur_ron": 4.977,
+            "eur_pln": 4.35, "eur_bgn": EUR_BGN_PEG}
 
 
 async def _fetch_live():
@@ -52,6 +54,8 @@ async def _fetch_live():
                 out["fx_krw_eur"] = float(rates["KRW"])
             if rates.get("RON"):
                 out["eur_ron"] = float(rates["RON"])
+            if rates.get("PLN"):
+                out["eur_pln"] = float(rates["PLN"])
         r = await c.get("https://open.er-api.com/v6/latest/USD")
         if r.status_code == 200:
             rates = (r.json() or {}).get("rates") or {}
@@ -62,7 +66,7 @@ async def _fetch_live():
 
 def _apply_overrides(rates, overrides):
     manual = []
-    for k in ("fx_krw_eur", "usd_eur", "eur_ron"):
+    for k in ("fx_krw_eur", "usd_eur", "eur_ron", "eur_pln"):
         v = (overrides or {}).get(k)
         if v not in (None, "", 0):
             try:
@@ -104,8 +108,9 @@ async def get_rates(db, force=False):
         fresh = age < TTL_SECONDS
 
     if fresh:
-        rates = {k: doc[k] for k in ("fx_krw_eur", "usd_eur", "eur_ron") if k in doc}
+        rates = {k: doc[k] for k in ("fx_krw_eur", "usd_eur", "eur_ron", "eur_pln") if k in doc}
         rates.setdefault("eur_ron", FALLBACK["eur_ron"])
+        rates.setdefault("eur_pln", FALLBACK["eur_pln"])
         out = _apply_haircut(_apply_overrides(rates, overrides))
         out["fetched_at"] = doc["fetched_at"]
         out["source"] = doc.get("source", "cache")
@@ -119,7 +124,7 @@ async def get_rates(db, force=False):
 
     base = dict(FALLBACK)
     if doc:  # prefer last known good over hardcoded fallback
-        for k in ("fx_krw_eur", "usd_eur", "eur_ron"):
+        for k in ("fx_krw_eur", "usd_eur", "eur_ron", "eur_pln"):
             if doc.get(k):
                 base[k] = doc[k]
     base.update(live)
@@ -140,6 +145,7 @@ async def get_rates(db, force=False):
         "fx_krw_eur": base["fx_krw_eur"],
         "usd_eur": base["usd_eur"],
         "eur_ron": base["eur_ron"],
+        "eur_pln": base["eur_pln"],
         "fetched_at": now,
         "source": source,
     }

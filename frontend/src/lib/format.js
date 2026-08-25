@@ -1,11 +1,12 @@
 // Locale-correct money and number formatting.
-// Prices are computed in EUR by the backend; RON is a display conversion.
+// Prices are computed in EUR by the backend; RON and PLN are display conversions.
 
-const LOCALE = { bg: "bg-BG", ro: "ro-RO", en: "en-GB" };
+const LOCALE = { bg: "bg-BG", ro: "ro-RO", pl: "pl-PL", en: "en-GB" };
 
 export function convert(eur, currency, rates) {
   if (!Number.isFinite(eur)) return null;
   if (currency === "RON") return eur * (rates?.eur_ron ?? 4.977);
+  if (currency === "PLN") return eur * (rates?.eur_pln ?? 4.35);
   return eur;
 }
 

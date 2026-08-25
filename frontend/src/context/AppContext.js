@@ -37,9 +37,14 @@ function detectTheme() {
 
 export function AppProvider({ children }) {
   const [lang, setLangState] = useState(detectLang);
-  const [currency, setCurrencyState] = useState(
-    () => validCurrency(localStorage.getItem(LS_CUR)) || (detectLang() === "ro" ? "RON" : "EUR")
-  );
+  const [currency, setCurrencyState] = useState(() => {
+    const saved = validCurrency(localStorage.getItem(LS_CUR));
+    if (saved) return saved;
+    // Prime the market's home currency on the first visit. Overridden the moment the
+    // buyer picks something else from the header menu.
+    const l = detectLang();
+    return l === "ro" ? "RON" : l === "pl" ? "PLN" : "EUR";
+  });
   const [theme, setThemeState] = useState(detectTheme);
   const [rates, setRates] = useState(null);
   // The owner's own SEO titles, hero copy and company details. Seeded from the last visit's
@@ -109,11 +114,11 @@ export function AppProvider({ children }) {
   }, [theme]);
 
   // Switching language switches the market, so it switches the currency with it:
-  // Romanian buyers price in RON, everyone else in EUR.
+  // Polish buyers price in PLN, Romanian buyers in RON, everyone else in EUR.
   const setLang = useCallback((l) => {
     setLangState(l);
     localStorage.setItem(LS_LANG, l);
-    const cur = l === "ro" ? "RON" : "EUR";
+    const cur = l === "ro" ? "RON" : l === "pl" ? "PLN" : "EUR";
     setCurrencyState(cur);
     localStorage.setItem(LS_CUR, cur);
   }, []);

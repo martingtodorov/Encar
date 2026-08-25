@@ -244,7 +244,6 @@ export const FilterSidebar = ({
                 placeholderMin="0"
                 placeholderMax={String(priceCeiling)}
               />
-              <p className="text-[11px] leading-snug text-muted-foreground">{t("trust1Body")}</p>
             </AccordionContent>
           </AccordionItem>
 
