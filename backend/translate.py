@@ -308,7 +308,24 @@ OVERRIDES = {
               "pl": "Hybryda diesel", "en": "Diesel hybrid"},
     "LPG+전기": {"bg": "Газов хибрид", "ro": "Hibrid GPL",
               "pl": "Hybryda LPG", "en": "LPG hybrid"},
+    # Encar tags private-owner LPG cars with "(일반인 구입)" — literally "purchased by an
+    # individual". Buyers do not need to see that; it is LPG.
+    "LPG(일반인 구입)": {"bg": "LPG", "ro": "GPL", "pl": "LPG", "en": "LPG"},
+    "LPG (일반인 구입)": {"bg": "LPG", "ro": "GPL", "pl": "LPG", "en": "LPG"},
+    "LPG(일반인구입)": {"bg": "LPG", "ro": "GPL", "pl": "LPG", "en": "LPG"},
 }
+
+
+# The `(일반인 구입)` annotation appears inside longer strings too (badge_detail lines,
+# spec labels). Strip it before anything hits the LLM so the parenthetical never ends
+# up translated into a language-specific "purchase by an individual" tag that reads as
+# clutter on the car page.
+_KO_INDIVIDUAL_TAG = re.compile(r"\s*\(\s*일반인\s*구입\s*\)")
+
+
+def _strip_ko_annotations(s: str) -> str:
+    """Return `s` with Encar's private-owner LPG annotation removed."""
+    return _KO_INDIVIDUAL_TAG.sub("", s or "").strip()
 
 
 def _apply_overrides(out, sources, lang):
@@ -335,11 +352,19 @@ async def translate_many(db, texts, lang, *, model=None, type=None):
 
     uniq = []
     seen = set()
+    # Post-process incoming strings so an Encar-specific parenthetical never survives
+    # to the LLM. Multiple raw variants collapse onto one clean source, which keeps the
+    # dictionary compact and rules out "LPG (purchase by individual)"-style translations
+    # leaking back through.
+    src_of = {}
     for t in texts:
-        t = (t or "").strip()
-        if t and t not in seen:
-            seen.add(t)
-            uniq.append(t)
+        raw = (t or "").strip()
+        cleaned = _strip_ko_annotations(raw)
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            uniq.append(cleaned)
+        if raw:
+            src_of[raw] = cleaned
     if not uniq:
         return {}
 
@@ -407,6 +432,12 @@ async def translate_many(db, texts, lang, *, model=None, type=None):
             await db.translations.bulk_write(
                 [UpdateOne({"_id": d["_id"]}, {"$set": d}, upsert=True) for d in docs],
                 ordered=False)
+    # Remap cleaned-source translations back onto the raw sources callers actually
+    # passed in, so a `translate_many(db, ["LPG(일반인 구입)"], "bg")` still lands its
+    # value under the exact key the caller used.
+    for raw, cleaned in src_of.items():
+        if cleaned in out:
+            out[raw] = out[cleaned]
     return out
 
 

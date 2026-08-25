@@ -408,8 +408,18 @@ export async function setEnquiryStatus(id, status) {
   return data;
 }
 
-export async function getQuote(priceKrw) {
-  const { data } = await http.get("/pricing/quote", { params: { price_krw: priceKrw } });
+export async function getQuote(priceKrw, fuel = "") {
+  const { data } = await http.get("/pricing/quote", { params: { price_krw: priceKrw, fuel } });
+  return data;
+}
+
+export async function getPricingSettings() {
+  const { data } = await http.get("/settings");
+  return data;
+}
+
+export async function putPricingSettings(constants, { reprice = false } = {}) {
+  const { data } = await http.put("/settings", { constants, reprice });
   return data;
 }
 

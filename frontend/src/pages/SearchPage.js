@@ -846,23 +846,35 @@ export default function SearchPage() {
             <div className="mb-4 flex flex-wrap items-center gap-3">
               <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
                 <SheetContent side="left" className="flex w-[92vw] max-w-sm flex-col gap-0 bg-card p-0">
-                  <SheetHeader className="border-b border-border px-4 py-3 text-left">
+                  <SheetHeader className="shrink-0 border-b border-border px-4 py-3 text-left">
                     <SheetTitle className="text-[15px] font-semibold">{t("filters")}</SheetTitle>
                     <SheetDescription className="sr-only">{t("filters")}</SheetDescription>
                   </SheetHeader>
-                  <FilterSidebar
-                    filters={filters}
-                    setFilter={setFilter}
-                    toggleInArray={toggleInArray}
-                    facets={facetsForSidebar}
-                    onReset={resetAll}
-                    inSheet
-                    tax={tax}
-                    onTaxChange={changeTax}
-                    onTaxLabels={setTaxLabels}
-                    onTaxSlugs={learnSlugs}
-                  />
-                  <div className="flex gap-2 border-t border-border bg-card px-4 py-3">
+                  {/* Middle band takes whatever is left over between the header and the sticky
+                      button row; `min-h-0` lets the flex child actually shrink (flex items
+                      default to `min-height:auto`, which was why a filter list taller than the
+                      phone viewport pushed Clear/Show past the bottom of the screen). */}
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                    <FilterSidebar
+                      filters={filters}
+                      setFilter={setFilter}
+                      toggleInArray={toggleInArray}
+                      facets={facetsForSidebar}
+                      onReset={resetAll}
+                      inSheet
+                      tax={tax}
+                      onTaxChange={changeTax}
+                      onTaxLabels={setTaxLabels}
+                      onTaxSlugs={learnSlugs}
+                    />
+                  </div>
+                  {/* `shrink-0` + `pb-[env(safe-area-inset-bottom)]`: Clear and Show stay pinned
+                      to the bottom of the viewport on iOS, clear of the home-indicator swipe
+                      bar, however long the filter list gets. */}
+                  <div
+                    className="flex shrink-0 gap-2 border-t border-border bg-card px-4 py-3"
+                    style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+                  >
                     <Button
                       data-testid="sheet-reset-button"
                       variant="outline"

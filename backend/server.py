@@ -187,7 +187,9 @@ async def publish_prices(items):
         krw = it.get("price_krw")
         if not krw:
             continue
-        landed, live = pricing.quick_sale_eur(krw, rates["fx_krw_eur"], rates["usd_eur"], S)
+        landed, live = pricing.quick_sale_eur(
+            krw, rates["fx_krw_eur"], rates["usd_eur"], S,
+            is_ev=pricing.is_ev_fuel(it.get("fuel_type")))
         if live > (it.get("sale_eur") or 0):
             it["sale_eur"] = live
             if it.get("landed_eur") is not None:
@@ -327,8 +329,11 @@ NO_TRANSLATE_KEYS = {"description", "description_original", "vin", "vehicle_no",
                      # search page. Translating them into "Chevrolet" would break the
                      # `curate.expand()` lookup that folds a merged make's cars back into
                      # its parent — the search filter reads listings.manufacturer, which
-                     # is stored in Korean.
-                     "manufacturer_raw", "model_raw"}
+                     # is stored in Korean. `badge_raw` and `badge_detail_raw` MUST be on
+                     # this list too: the submodel breadcrumb passes them straight through
+                     # to `?badges=...`, and translating them to Bulgarian earlier meant
+                     # the click landed on zero cars because Mongo stores Korean.
+                     "manufacturer_raw", "model_raw", "badge_raw", "badge_detail_raw"}
 
 # How many never-before-seen Korean phrases one detail page will translate inline
 # before deferring the rest to the background. Generous, because these phrase sets are
@@ -867,7 +872,8 @@ async def search(body: SearchBody, request: Request):
             if not krw:
                 continue
             q = pricing.price_car(krw, rates["fx_krw_eur"], rates["usd_eur"],
-                                  sdoc.get("constants"))
+                                  sdoc.get("constants"),
+                                  is_ev=pricing.is_ev_fuel(it.get("fuel_type")))
             q["suggested_sale"] = max(q["suggested_sale"], it.get("sale_eur") or 0)
             it["admin"] = pricing.admin_range(q)
     else:
@@ -3112,8 +3118,9 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     price_krw = (listing or {}).get("price_krw") or (adv.get("price") or 0) * 10_000
     rates = await fx_mod.get_rates(db)
     sdoc = await db.settings.find_one({"_id": "pricing"}) or {}
+    is_ev = pricing.is_ev_fuel((listing or {}).get("fuel_type") or cat.get("fuelType"))
     quote = pricing.price_car(price_krw, rates["fx_krw_eur"], rates["usd_eur"],
-                              sdoc.get("constants")) if price_krw else None
+                              sdoc.get("constants"), is_ev=is_ev) if price_krw else None
     # The row the buyer clicked carries a stored price; keep whichever is higher so the
     # price never changes between the ad and the car page (see publish_prices).
     if quote:
@@ -3242,12 +3249,17 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
 
 
 @api.get("/pricing/quote")
-async def pricing_quote(price_krw: float = Query(..., gt=0)):
-    """Full landed-cost breakdown for a KRW price - drives the detail-page panel."""
+async def pricing_quote(price_krw: float = Query(..., gt=0), fuel: str = ""):
+    """Full landed-cost breakdown for a KRW price - drives the detail-page panel.
+
+    `fuel` accepts either the raw upstream Korean value (`"전기"`) or the empty string;
+    when set to an electric marker, the quote includes the admin-configured EV surcharge.
+    """
     rates = await fx_mod.get_rates(db)
     sdoc = await db.settings.find_one({"_id": "pricing"}) or {}
     return jsonable(pricing.price_car(price_krw, rates["fx_krw_eur"], rates["usd_eur"],
-                                      sdoc.get("constants")))
+                                      sdoc.get("constants"),
+                                      is_ev=pricing.is_ev_fuel(fuel)))
 
 
 @api.get("/settings")

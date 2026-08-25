@@ -9,6 +9,17 @@ function takes a settings dict rather than reading module globals.
 
 import math
 
+# Encar's raw label for a pure electric car. Hybrids like "가솔린+전기" (petrol+electric) do
+# NOT get the EV surcharge — the freight-forwarder only marks vehicles with a full
+# traction battery as Class 9 dangerous goods.
+EV_FUEL_TYPES = {"전기", "수소"}
+
+
+def is_ev_fuel(fuel_type):
+    """Whether a listing's raw upstream fuel type triggers the EV shipping surcharge."""
+    return (fuel_type or "").strip() in EV_FUEL_TYPES
+
+
 # Mirror of expenses.yaml. Values change; the formula structure does not.
 DEFAULT_SETTINGS = {
     "IMPORT_DUTY_RATE": 0.10,
@@ -22,6 +33,10 @@ DEFAULT_SETTINGS = {
     "SHIPPING_USD": 0.0,
     "MARINE_INSURANCE": 0.0,
     "DOMESTIC_TOTAL": 1600.0,            # inland_transport_bg 900 + extra_cost_buffer 700
+    # Electric cars ship on a different vessel schedule and need a special dangerous-goods
+    # (Class 9 lithium battery) declaration, which the freight-forwarder charges extra for.
+    # Applied only when the listing's fuel type is electric.
+    "EV_EXTRA_SHIPPING_EUR": 0.0,
     "MARGIN_PCT": 0.016,
     "MARGIN_MIN_EUR": 600.0,
     "MARGIN_TIER_THRESHOLD_EUR": 50000.0,
@@ -48,14 +63,17 @@ def merge_settings(overrides=None):
     return s
 
 
-def compute_landed(price_krw, fx_krw_eur, usd_eur, customs_base_fraction, S):
-    """Spec section 3."""
+def compute_landed(price_krw, fx_krw_eur, usd_eur, customs_base_fraction, S, is_ev=False):
+    """Spec section 3, with an EV surcharge that lands only on electric cars."""
     encar_eur = price_krw / fx_krw_eur
     car_eur = encar_eur * S["AUTOWINI_MULTIPLIER"] + S["AUTOWINI_FEE_USD"] * usd_eur
     customs_base = max(car_eur * customs_base_fraction, S["CUSTOMS_MIN_USD"] * usd_eur)
     duty = customs_base * S["IMPORT_DUTY_RATE"]
     vat = (customs_base + duty) * S["VAT_RATE"]
     shipping_eur = S["SHIPPING_USD"] * usd_eur
+    # Battery packs ship as Class 9 dangerous goods, so the forwarder charges more for
+    # any electric car. Zero for combustion.
+    ev_extra_eur = S["EV_EXTRA_SHIPPING_EUR"] if is_ev else 0.0
     landed = (
         car_eur
         + shipping_eur
@@ -63,6 +81,7 @@ def compute_landed(price_krw, fx_krw_eur, usd_eur, customs_base_fraction, S):
         + duty
         + (0.0 if S["VAT_RECLAIMABLE"] else vat)
         + S["DOMESTIC_TOTAL"]
+        + ev_extra_eur
     )
     return {
         "encar_eur": encar_eur,
@@ -76,6 +95,8 @@ def compute_landed(price_krw, fx_krw_eur, usd_eur, customs_base_fraction, S):
         "shipping_eur": shipping_eur,
         "marine_insurance": S["MARINE_INSURANCE"],
         "domestic_total": S["DOMESTIC_TOTAL"],
+        "ev_extra_eur": ev_extra_eur,
+        "is_ev": bool(is_ev),
         "landed": landed,
     }
 
@@ -95,12 +116,13 @@ def sale_from_landed(landed, S):
     }
 
 
-def price_car(price_krw, fx_krw_eur, usd_eur, settings=None):
+def price_car(price_krw, fx_krw_eur, usd_eur, settings=None, is_ev=False):
     """Full pricing incl. the dual customs scenario (spec section 6) -> profit range."""
     S = merge_settings(settings)
-    primary = compute_landed(price_krw, fx_krw_eur, usd_eur, S["CUSTOMS_BASE_FRACTION"], S)
+    primary = compute_landed(price_krw, fx_krw_eur, usd_eur, S["CUSTOMS_BASE_FRACTION"], S,
+                             is_ev=is_ev)
     secondary = compute_landed(price_krw, fx_krw_eur, usd_eur,
-                               S["CUSTOMS_BASE_FRACTION_SECONDARY"], S)
+                               S["CUSTOMS_BASE_FRACTION_SECONDARY"], S, is_ev=is_ev)
     margin = sale_from_landed(primary["landed"], S)
     sale = margin["suggested_sale"]
     return {
@@ -153,6 +175,8 @@ def admin_range(quote):
         "duty": round(quote.get("duty") or 0, 2),
         "vat": round(quote.get("vat") or 0, 2),
         "domestic_total": round(quote.get("domestic_total") or 0, 2),
+        "ev_extra_eur": round(quote.get("ev_extra_eur") or 0, 2),
+        "is_ev": bool(quote.get("is_ev")),
         "landed_low": round(lo, 2),
         "landed_high": round(hi, 2),
         "customs_base_low": round(quote.get("customs_base_secondary") or 0, 2),
@@ -165,15 +189,16 @@ def admin_range(quote):
     }
 
 
-def quick_sale_eur(price_krw, fx_krw_eur, usd_eur, S):
+def quick_sale_eur(price_krw, fx_krw_eur, usd_eur, S, is_ev=False):
     """Hot path used when repricing 200k+ listings: landed + sale only, no dict churn."""
     encar_eur = price_krw / fx_krw_eur
     car_eur = encar_eur * S["AUTOWINI_MULTIPLIER"] + S["AUTOWINI_FEE_USD"] * usd_eur
     customs_base = max(car_eur * S["CUSTOMS_BASE_FRACTION"], S["CUSTOMS_MIN_USD"] * usd_eur)
     duty = customs_base * S["IMPORT_DUTY_RATE"]
     vat = 0.0 if S["VAT_RECLAIMABLE"] else (customs_base + duty) * S["VAT_RATE"]
+    ev_extra_eur = S["EV_EXTRA_SHIPPING_EUR"] if is_ev else 0.0
     landed = (car_eur + S["SHIPPING_USD"] * usd_eur + S["MARINE_INSURANCE"]
-              + duty + vat + S["DOMESTIC_TOTAL"])
+              + duty + vat + S["DOMESTIC_TOTAL"] + ev_extra_eur)
     base = max(landed * S["MARGIN_PCT"], S["MARGIN_MIN_EUR"])
     tier = S["MARGIN_TIER_PCT"] * max(0.0, landed - S["MARGIN_TIER_THRESHOLD_EUR"])
     return landed, charm(landed + base + tier)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Activity, BadgeEuro, BookOpen, FileText, Inbox, Layers, PieChart, RefreshCcw, ScrollText, Ship, ShieldCheck, Sparkles, Users, FileSignature } from "lucide-react";
+import { Activity, BadgeEuro, BookOpen, FileText, Inbox, Layers, PieChart, RefreshCcw, ScrollText, Ship, ShieldCheck, Sparkles, Truck, Users, FileSignature } from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
@@ -22,6 +22,7 @@ import { AdminConsent } from "@/components/admin/AdminConsent";
 import { AdminTraffic } from "@/components/admin/AdminTraffic";
 import { AdminRecommendations } from "@/components/admin/AdminRecommendations";
 import { AdminDictionary } from "@/components/admin/AdminDictionary";
+import { AdminPricing } from "@/components/admin/AdminPricing";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
@@ -30,6 +31,7 @@ const TABS = [
   { id: "enquiries", label: "Enquiries", icon: Inbox },
   { id: "sync", label: "Catalogue sync", icon: RefreshCcw },
   { id: "shipments", label: "Shipments", icon: Ship },
+  { id: "pricing", label: "Shipping surcharges", icon: Truck },
   { id: "deposits", label: "Deposits", icon: BadgeEuro },
   { id: "buyers", label: "Buyers", icon: Users },
   { id: "taxonomy", label: "Models & trims", icon: Layers },
@@ -117,6 +119,7 @@ export default function AdminPage() {
           {tab === "enquiries" && <AdminEnquiries />}
           {tab === "sync" && <AdminCatalogueSync />}
           {tab === "shipments" && <AdminShipments />}
+          {tab === "pricing" && <AdminPricing />}
           {tab === "deposits" && <AdminDeposits />}
           {tab === "buyers" && <AdminBuyers />}
           {tab === "taxonomy" && <AdminTaxonomy />}

@@ -51,7 +51,7 @@ export const QuickViewDialog = ({ car, open, onOpenChange }) => {
     }
     let cancelled = false;
     setLoading(true);
-    getQuote(car.price_krw)
+    getQuote(car.price_krw, car.fuel_type || car.fuelType || "")
       .then((q) => !cancelled && setQuote(q))
       .catch(() => !cancelled && setQuote(null))
       .finally(() => !cancelled && setLoading(false));

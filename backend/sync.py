@@ -116,7 +116,8 @@ async def run_full_sync(db, max_pages=None, page_size=PAGE):
                         if not doc["_id"] or not doc["price_krw"]:
                             continue
                         landed, sale = pricing.quick_sale_eur(
-                            doc["price_krw"], rates["fx_krw_eur"], rates["usd_eur"], S)
+                            doc["price_krw"], rates["fx_krw_eur"], rates["usd_eur"], S,
+                            is_ev=pricing.is_ev_fuel(doc.get("fuel_type")))
                         doc["landed_eur"] = round(landed, 2)
                         doc["sale_eur"] = sale
                         doc["search_text"] = _search_text(doc)
@@ -453,7 +454,8 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
                 st["dropped_no_price"] = st.get("dropped_no_price", 0) + 1
                 continue
             landed, sale = pricing.quick_sale_eur(
-                doc["price_krw"], rates["fx_krw_eur"], rates["usd_eur"], S)
+                doc["price_krw"], rates["fx_krw_eur"], rates["usd_eur"], S,
+                is_ev=pricing.is_ev_fuel(doc.get("fuel_type")))
             doc["landed_eur"] = round(landed, 2)
             doc["sale_eur"] = sale
             doc["search_text"] = _search_text(doc)
@@ -912,12 +914,15 @@ async def reprice_all(db, batch=5000):
 
     updated = 0
     ops = []
-    cursor = db.listings.find({}, {"price_krw": 1})
+    # `fuel_type` is needed for the EV surcharge — cheap projection.
+    cursor = db.listings.find({}, {"price_krw": 1, "fuel_type": 1})
     async for doc in cursor:
         krw = doc.get("price_krw") or 0
         if not krw:
             continue
-        landed, sale = pricing.quick_sale_eur(krw, rates["fx_krw_eur"], rates["usd_eur"], S)
+        landed, sale = pricing.quick_sale_eur(
+            krw, rates["fx_krw_eur"], rates["usd_eur"], S,
+            is_ev=pricing.is_ev_fuel(doc.get("fuel_type")))
         ops.append(UpdateOne({"_id": doc["_id"]},
                              {"$set": {"landed_eur": round(landed, 2), "sale_eur": sale}}))
         if len(ops) >= batch:
