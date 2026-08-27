@@ -359,3 +359,20 @@ code {
     border-top: 1px solid hsl(var(--border));
 }
 
+
+/* Search filter drawer: when Make/Model is picked, App.js's pathname-keyed
+   `SearchPage` remounts. `sheetOpen` state is persisted at module scope so
+   the drawer stays open logically, but Radix ALSO plays the slide-in-from-left
+   entrance on the fresh Content and the fade-in on the fresh Overlay every
+   remount — the visitor sees the whole sheet whip back in, twice, per pick.
+   `.suppress-sheet-anim` is toggled on the body for exactly the two-frame
+   window that follows the remount and disables Radix animations globally
+   for that window. Because it comes off after ~32ms, subsequent dialog opens
+   animate normally; nothing else on the page uses `animate-in` / `animate-out`
+   utilities so this is safe to leave broad. */
+body.suppress-sheet-anim [data-state="open"],
+body.suppress-sheet-anim [data-state="closed"] {
+    animation: none !important;
+    transition: none !important;
+}
+

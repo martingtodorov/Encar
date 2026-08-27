@@ -165,6 +165,40 @@ export default function SearchPage() {
       return v;
     });
   }, []);
+  // The sheet ALSO plays its slide-in-from-left animation on every remount, because
+  // Radix marks a fresh SheetContent as `data-state=open` from tick zero and the
+  // CSS entrance fires. The visitor sees the drawer whip back in every time they
+  // pick a make or model. Suppress it only for the one render that follows the
+  // remount: `!animate-none` on the SheetContent kills the entrance keyframes, and
+  // a microtask lets the browser paint the already-open sheet before we re-enable
+  // animations, so subsequent open/close is animated as before.
+  const [suppressSheetAnim, setSuppressSheetAnim] = useState(persistedSheetOpen);
+  useEffect(() => {
+    if (!suppressSheetAnim) return undefined;
+    // Body class + a global CSS rule (in index.css) kills the overlay fade-in
+    // AND the content slide-in for the one remount only. Without it, only
+    // the sheet-content class we pass below is suppressed — the black backdrop
+    // still fades in over 500ms on the strip of page visible to the right of
+    // the drawer, which reads as "the sheet just opened".
+    document.body.classList.add("suppress-sheet-anim");
+    // Two rAFs guarantees the browser has committed the current paint before we
+    // let CSS animations back on — one is enough on most browsers but Safari
+    // sometimes runs the entrance keyframes on the SAME frame the class is
+    // toggled, which reintroduces the flicker we are trying to remove.
+    let cancelled = false;
+    const raf1 = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        setSuppressSheetAnim(false);
+        document.body.classList.remove("suppress-sheet-anim");
+      });
+    });
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf1);
+      document.body.classList.remove("suppress-sheet-anim");
+    };
+  }, []); // once per mount
 
   const headerHidden = useScrollDirection(140);
 
@@ -865,7 +899,12 @@ export default function SearchPage() {
           <section className="min-w-0">
             <div className="mb-4 flex flex-wrap items-center gap-3">
               <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-                <SheetContent side="left" className="flex w-[92vw] max-w-sm flex-col gap-0 bg-card p-0">
+                <SheetContent
+                  side="left"
+                  className={`flex w-[92vw] max-w-sm flex-col gap-0 bg-card p-0 ${
+                    suppressSheetAnim ? "!animate-none !duration-0" : ""
+                  }`}
+                >
                   <SheetHeader className="shrink-0 border-b border-border px-4 py-3 text-left">
                     <SheetTitle className="text-[15px] font-semibold">{t("filters")}</SheetTitle>
                     <SheetDescription className="sr-only">{t("filters")}</SheetDescription>
