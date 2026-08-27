@@ -3115,15 +3115,29 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     desc_t, desc_pending = desc_ko, False
 
     # ── pricing ─────────────────────────────────────────────────────────────────
-    price_krw = (listing or {}).get("price_krw") or (adv.get("price") or 0) * 10_000
+    # `advertisement.price` is the freshest snapshot we have of Encar's current
+    # asking price: it comes back on every `/car_details` re-fetch (every few
+    # hours), whereas `listing.price_krw` only refreshes when the car is still
+    # in a search result page and our crawler visits that page. As soon as a
+    # listing drops out of the sync (inactive), `listing.price_krw` freezes at
+    # the last value — but the dealer can still edit the price on Encar. So
+    # trust the advertisement over the search-projection: if Encar gave us a
+    # number in the detail, use it. Fall back to the stored search price only
+    # when the detail arrived without a price (very old cached entries).
+    adv_krw = (adv.get("price") or 0) * 10_000
+    price_krw = adv_krw or (listing or {}).get("price_krw") or 0
     rates = await fx_mod.get_rates(db)
     sdoc = await db.settings.find_one({"_id": "pricing"}) or {}
     is_ev = pricing.is_ev_fuel((listing or {}).get("fuel_type") or cat.get("fuelType"))
     quote = pricing.price_car(price_krw, rates["fx_krw_eur"], rates["usd_eur"],
                               sdoc.get("constants"), is_ev=is_ev) if price_krw else None
     # The row the buyer clicked carries a stored price; keep whichever is higher so the
-    # price never changes between the ad and the car page (see publish_prices).
-    if quote:
+    # price never changes between the ad and the car page (see publish_prices). Only
+    # applies to ACTIVE listings — an inactive listing has no ad grid to be consistent
+    # with, and its stored `sale_eur` is by definition stale (frozen from the last sync
+    # before the car dropped out of search), so honouring "higher of the two" would
+    # keep showing a price the dealer has since cut on Encar.
+    if quote and (listing or {}).get("active"):
         stored = (listing or {}).get("sale_eur") or 0
         if stored > quote["suggested_sale"]:
             quote["suggested_sale"] = stored
