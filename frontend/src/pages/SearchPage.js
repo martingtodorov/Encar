@@ -54,6 +54,12 @@ let pendingRestore = null;
 // component, exactly like `pendingRestore`.
 let tasteSnapshot = { key: null, taste: null };
 
+// Whether the mobile filter drawer was open on the previous mount. Picking Make or Model
+// changes the URL path, App.js keys SearchPage on the pathname, and the whole page
+// remounts - which would otherwise slam the drawer shut mid-selection. Kept at module
+// scope so it survives the remount but not a full reload.
+let persistedSheetOpen = false;
+
 // The state last painted for a given URL. A Back from a car remounts this page, and until the
 // English slugs in the query string have been translated back the page cannot search at all —
 // which is why Back used to paint a grid of skeletons and empty dropdowns for a few hundred
@@ -144,7 +150,21 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(!restored);
   const [error, setError] = useState(null);
   const [catalogueSize, setCatalogueSize] = useState(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // Picking Make or Model changes the URL path (`/bg` -> `/bg/bmw` -> `/bg/bmw/m2-g87`),
+  // which flips App.js's `searchKey` and remounts SearchPage from scratch. That would
+  // reset a plain useState back to `false` mid-selection and slam the drawer shut, so
+  // we keep the last value in a module-level flag and seed useState from it. Submodel
+  // stays in the query string, so it never hit this bug — this fixes the make/model
+  // path only. Cleared to false on unmount so a real navigation (Back, follow a link)
+  // does not resurrect the sheet on the next visit.
+  const [sheetOpen, setSheetOpenRaw] = useState(persistedSheetOpen);
+  const setSheetOpen = useCallback((next) => {
+    setSheetOpenRaw((prev) => {
+      const v = typeof next === "function" ? next(prev) : next;
+      persistedSheetOpen = v;
+      return v;
+    });
+  }, []);
 
   const headerHidden = useScrollDirection(140);
 
