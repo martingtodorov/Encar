@@ -169,36 +169,42 @@ export default function SearchPage() {
   // Radix marks a fresh SheetContent as `data-state=open` from tick zero and the
   // CSS entrance fires. The visitor sees the drawer whip back in every time they
   // pick a make or model. Suppress it only for the one render that follows the
-  // remount: `!animate-none` on the SheetContent kills the entrance keyframes, and
-  // a microtask lets the browser paint the already-open sheet before we re-enable
-  // animations, so subsequent open/close is animated as before.
-  const [suppressSheetAnim, setSuppressSheetAnim] = useState(persistedSheetOpen);
+  // remount: a body class disables Radix animations. The class is added
+  // synchronously during the useState initializer so it lands on the DOM BEFORE
+  // the Portal commits its Content and Overlay, and it STAYS on until the user
+  // closes the sheet. Toggling it off earlier would restart the entrance
+  // animation, because the browser treats an `animation-name` change from
+  // `none` back to a real keyframes value as a fresh animation trigger. When the
+  // user actually closes the drawer (`sheetOpen` -> false), the class comes off
+  // and the very next open animates normally, remount or not.
+  const [suppressSheetAnim, setSuppressSheetAnim] = useState(() => {
+    if (typeof document !== "undefined" && persistedSheetOpen) {
+      document.body.classList.add("suppress-sheet-anim");
+      return true;
+    }
+    return false;
+  });
   useEffect(() => {
-    if (!suppressSheetAnim) return undefined;
-    // Body class + a global CSS rule (in index.css) kills the overlay fade-in
-    // AND the content slide-in for the one remount only. Without it, only
-    // the sheet-content class we pass below is suppressed — the black backdrop
-    // still fades in over 500ms on the strip of page visible to the right of
-    // the drawer, which reads as "the sheet just opened".
-    document.body.classList.add("suppress-sheet-anim");
-    // Two rAFs guarantees the browser has committed the current paint before we
-    // let CSS animations back on — one is enough on most browsers but Safari
-    // sometimes runs the entrance keyframes on the SAME frame the class is
-    // toggled, which reintroduces the flicker we are trying to remove.
-    let cancelled = false;
-    const raf1 = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (cancelled) return;
-        setSuppressSheetAnim(false);
-        document.body.classList.remove("suppress-sheet-anim");
-      });
-    });
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(raf1);
+    if (suppressSheetAnim && !sheetOpen) {
+      setSuppressSheetAnim(false);
       document.body.classList.remove("suppress-sheet-anim");
-    };
-  }, []); // once per mount
+    }
+  }, [sheetOpen, suppressSheetAnim]);
+  useEffect(
+    () => () => {
+      // Only strip on a real unmount (visitor left the page WITH the sheet
+      // still open — a click on a car card, say). During a Make/Model remount
+      // the module-scope `persistedSheetOpen` is still true, so we leave the
+      // class in place and let the fresh mount's initializer keep it on. The
+      // React 18 strict-mode simulated unmount also hits this cleanup, but at
+      // that point the fresh mount has already re-added the class, so the
+      // guard is what prevents strict mode from stripping it under us.
+      if (!persistedSheetOpen) {
+        document.body.classList.remove("suppress-sheet-anim");
+      }
+    },
+    []
+  );
 
   const headerHidden = useScrollDirection(140);
 
