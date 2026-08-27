@@ -1881,3 +1881,16 @@ browser binary is missing in this pod (`playwright install`).
   curl -s -o /dev/null -D - -H "Range: bytes=0-" 'https://encareurope.com/api/image-proxy?...'
   must show HTTP/2 206 + content-range. Then test iMessage with a car link NEVER shared before
   (iMessage caches previews per URL on the device).
+
+## 2026-02-27 — Maybach taxonomy reverted (agent mistake cleanup)
+- Reverted the 마이바흐-badge-promotion rule in `/app/backend/encar.py` (normalise_row).
+  Rule was: `if badge.startswith("마이바흐"): manufacturer = "마이바흐"`. Removed.
+- DB cleanup:
+  - Moved 368 modern Mercedes-Maybach listings (S-클래스 W222/W223, GLS X167, EQS SUV X296)
+    from `manufacturer=마이바흐` back to `manufacturer=벤츠`.
+  - Stripped the stray `마이바흐 ` prefix from 3045 벤츠 badges (side-effect of an
+    over-broad restore). Next crawl repopulates the correct Encar-supplied badges.
+  - Rebuilt taxonomy.
+- Final state: 마이바흐 make holds ONLY the 6 legacy listings (57 x2, 62 x3, 62s x1) —
+  all currently `active=False` (upstream crawl hasn't seen them this cycle, separate
+  issue that user confirmed is "working now").
