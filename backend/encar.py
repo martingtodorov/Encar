@@ -324,12 +324,25 @@ def normalise_row(row, recency=None):
     price_manwon = float(row.get("Price") or 0)
     photos = photo_paths(row)
 
+    manufacturer = row.get("Manufacturer") or ""
+    model = row.get("Model") or ""
+    badge = row.get("Badge") or ""
+
+    # Encar files Mercedes-Maybach cars under Manufacturer="벤츠" (Mercedes) with the
+    # Maybach marque tucked into the Badge string ("마이바흐 S580 4MATIC"). Buyers browse
+    # by marque, so promote it: the car ships as a Maybach, the S-Class badge stays for
+    # search on the underlying trim. Same pattern potentially exists for AMG/BRABUS/
+    # Alpina, but the office asked for Maybach first — start narrow, extend later.
+    if badge.startswith("마이바흐"):
+        manufacturer = "마이바흐"
+        badge = badge[len("마이바흐"):].strip()
+
     doc = {
         "_id": str(row.get("Id")),
         "vehicle_key": vehicle_key(photos, row.get("Id")),
-        "manufacturer": row.get("Manufacturer") or "",
-        "model": row.get("Model") or "",
-        "badge": row.get("Badge") or "",
+        "manufacturer": manufacturer,
+        "model": model,
+        "badge": badge,
         "badge_detail": row.get("BadgeDetail") or "",
         # Encar marks cars with a pending sale as SalesStatus=CONTRACT
         "sales_status": row.get("SalesStatus") or "",
