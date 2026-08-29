@@ -313,7 +313,10 @@ export default function CarDetailPage() {
 
   // "Back to results" must land on the SAME result set the visitor came from. The
   // search page hands us its query string; otherwise step back through history, and
-  // only fall back to a bare "/" when this page was opened cold (shared link).
+  // only fall back to the car's own make/model search when this page was opened cold
+  // (shared link, Google result, direct paste). "Home" is the last-resort — a shared
+  // link at least tells us the make and model of the car the visitor is looking at,
+  // so a Back to that search is a better landing than an empty catalogue.
   const goBack = () => {
     const from = location.state?.from;
     // Hand the list back the offset it was left at, so the visitor returns to the car
@@ -323,9 +326,22 @@ export default function CarDetailPage() {
     // behaves EXACTLY like the browser's own Back: the entry the list already occupies is
     // reused instead of a second copy being pushed on top of it (which was both slower and
     // left a Back that went nowhere). Pushing is only for a cold open of a shared link.
-    if (location.key !== "default") navigate(-1);
-    else if (typeof from === "string") navigate({ pathname: path("/"), search: from });
-    else navigate(path("/"));
+    if (location.key !== "default") return navigate(-1);
+    if (typeof from === "string") return navigate({ pathname: path("/"), search: from });
+    // Cold open: build the same URL the model breadcrumb points to. Prefer the
+    // English make/model so the search page's chips read "Hyundai / Santa Fe" and
+    // not raw Korean — the search resolver looks up both shapes, so either works
+    // for matching listings, but only the English form gives us readable labels
+    // without waiting for the taxonomy roundtrip.
+    const mk = car?.manufacturer || car?.manufacturer_raw;
+    const md = car?.model || car?.model_raw;
+    if (mk) {
+      const params = new URLSearchParams();
+      params.set("make", mk);
+      if (md) params.set("model", md);
+      return navigate({ pathname: path("/"), search: `?${params.toString()}` });
+    }
+    navigate(path("/"));
   };
 
   return (

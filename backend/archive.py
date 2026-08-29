@@ -67,11 +67,11 @@ async def archive(db, car_id):
 
     saved = []
     limit = asyncio.Semaphore(PARALLEL_DOWNLOADS)
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    async with httpx.AsyncClient(follow_redirects=True) as http:
         async def one(index, path):
             async with limit:
                 name = f"{index:03d}.jpg"
-                ok = await _download(client, path, folder / name)
+                ok = await _download(http, path, folder / name)
                 return name if ok else None
 
         results = await asyncio.gather(

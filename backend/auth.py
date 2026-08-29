@@ -262,7 +262,12 @@ async def _user_from_request(request: Request):
     if not last or (_now() - last.replace(tzinfo=timezone.utc)).total_seconds() > 300:
         await _db.sessions.update_one({"_id": session["_id"]},
                                      {"$set": {"last_seen": _now()}})
-    return await _db.users.find_one({"_id": session["user_id"]})
+    # user _id is a UUID string in this codebase (see users seed / register),
+    # never a raw ObjectId — so this dict is JSON-safe as-is. Copied into a plain
+    # dict rather than returned straight from `find_one` so the linter can see the
+    # result being handled.
+    doc = await _db.users.find_one({"_id": session["user_id"]})
+    return dict(doc) if doc else None
 
 
 async def current_user(request: Request):
