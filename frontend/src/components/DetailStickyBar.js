@@ -36,11 +36,10 @@ export const DetailStickyBar = ({ car, price, saved, onToggleSave, showAfter = 3
       // The offset is the header's 4rem PLUS whatever pushed the header down — the admin
       // traffic bar sets `--admin-bar-h`, and a hardcoded top-16 left this bar underneath
       // the menu, with the car's name hidden.
-      // The car page's header never hides, so its bottom edge is simply
-      // `admin bar + header height` — a value that only changes on resize. Reading
-      // the scroll-tracked `--header-bottom` here made the bar jitter against the
-      // menu by a frame during rubber-band scrolling on iOS.
-      className={`fixed inset-x-0 top-[calc(var(--admin-bar-h,0px)_+_var(--header-h,4rem))] z-30 -mt-px border-b border-border bg-card/95 shadow-sm backdrop-blur-md transition-all duration-200 ${
+      // Glued to the header's live bottom edge. The header's height is constant now
+      // (the Dynamic-Island inset is reserved once on <body>, not on the header), so
+      // this value only moves when the header itself moves.
+      className={`fixed inset-x-0 top-[max(var(--safe-top,0px),var(--header-bottom,4rem))] z-30 -mt-px border-b border-border bg-card/95 shadow-sm backdrop-blur-md transition-all duration-200 ${
         show
           ? "pointer-events-auto translate-y-0 opacity-100"
           : "pointer-events-auto translate-y-0 opacity-100 lg:pointer-events-none lg:-translate-y-2 lg:opacity-0 lg:shadow-none"

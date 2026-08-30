@@ -76,11 +76,10 @@ export const NotificationsPrompt = () => {
       // top-0 z-40, so anything else with the same top+z-index simply stacks on
       // top of it and hides the logo/menu. This banner lives at the very top of
       // document flow — it scrolls away with the page like any first-visit nag.
-      // Still needs `padding-top: env(safe-area-inset-top)` because we ARE only
-      // rendered in standalone mode, and `viewport-fit=cover` sends our top edge
-      // behind the Dynamic Island on iPhones with no browser chrome above us.
-      style={{ paddingTop: "calc(env(safe-area-inset-top, 0px) + 8px)" }}
-      className="relative z-40 flex items-center gap-3 border-b border-border bg-card px-3 pb-2 shadow-sm sm:px-4"
+      // Sits at the very top of document flow, above the header, and scrolls away with
+      // the page. No safe-area padding of its own: in standalone <body> already
+      // reserves the Dynamic-Island inset for the whole document.
+      className="relative z-40 flex items-center gap-3 border-b border-border bg-card px-3 py-2 shadow-sm sm:px-4"
     >
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))]">
         <Bell className="h-4 w-4" aria-hidden="true" />

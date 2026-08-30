@@ -547,23 +547,20 @@ body.suppress-sheet-anim [data-state="closed"] {
 }
 
 /* When there is a bottom tab bar, every page needs safe-area padding so the
-   floating capsule does not eat the last row of content. Applied on the body
-   in `LangLayout` so children scroll clear of it without knowing the bar is
-   there. */
+   floating capsule does not eat the last row of content. The TOP inset is reserved
+   here too, once, on <body>: the document simply starts below the Dynamic Island.
+   The header used to carry that padding itself and grow/shrink while a banner
+   above it scrolled away — a per-frame height change that made every bar hanging
+   off the header (car title, filters) jitter against it. Applied via the
+   `pwa-standalone` class from `LangLayout`. */
 body.pwa-standalone {
+    padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 78px);
 }
 
-/* Homescreen PWA on iPhones extends the WebView under the Dynamic Island / notch
-   (thanks to `viewport-fit=cover`), so the sticky header's logo and burger button
-   end up behind the island — unreachable. The reserve is dynamic: whatever is
-   already above the header (the notifications prompt at scroll 0) counts towards
-   it via `--header-top`, and it grows back to the full inset as that scrolls away
-   and the header locks to the top edge. A static padding was either a double gap
-   or, once the prompt scrolled off, no protection at all. */
-body.pwa-standalone [data-testid="header-bar"] {
-    padding-top: max(0px, calc(env(safe-area-inset-top, 0px) - var(--header-top, 0px)));
-}
+/* The sticky header parks BELOW the island (its sticky offset includes
+   `--safe-top`), so it needs no padding of its own and its height is now constant
+   on every device — which is exactly what keeps the car-title bar glued to it. */
 
 /* Sheets that dock to the top edge of the viewport (the burger pop-down menu, the
    filters drawer) are `top: 0` by Radix default, which in a homescreen PWA puts
