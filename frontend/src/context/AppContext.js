@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { getCmsSite, getFx } from "@/lib/api";
 import { setCompany } from "@/content/company";
 import { EMPTY_SITE, cachedSite, rememberSite } from "@/lib/cmsCache";
@@ -57,20 +57,28 @@ export function AppProvider({ children }) {
     }
     return hit || EMPTY_SITE;
   });
-  const [favourites, setFavourites] = useState(() => {
+  // Favourites and saved searches are ACCOUNT data: they live on the server and nowhere
+  // else. They used to be mirrored into localStorage, which meant a signed-out visitor
+  // built up a private list the server could never see — so saved-search alerts could
+  // never fire for it — and it left personal data on what may be a shared phone. In
+  // memory only now, hydrated from the account on sign-in (see `AuthContext`).
+  const [favourites, setFavourites] = useState([]);
+  const [searches, setSearches] = useState([]);
+  // Whether there is an account behind the lists. A ref, not state, so the mutators below
+  // stay referentially stable — they are in the dependency arrays of half the app.
+  const authedRef = useRef(false);
+  const setAuthed = useCallback((value) => {
+    authedRef.current = !!value;
+  }, []);
+
+  // One-time cleanup: whatever earlier versions left in localStorage is now stale
+  // personal data with no owner.
+  useEffect(() => {
     try {
-      return JSON.parse(localStorage.getItem(LS_FAV) || "[]");
-    } catch (e) {
-      return [];
-    }
-  });
-  const [searches, setSearches] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem(LS_SEARCHES) || "[]");
-    } catch (e) {
-      return [];
-    }
-  });
+      localStorage.removeItem(LS_FAV);
+      localStorage.removeItem(LS_SEARCHES);
+    } catch { /* privacy mode: nothing was stored anyway */ }
+  }, []);
 
   useEffect(() => {
     getFx()
@@ -133,10 +141,11 @@ export function AppProvider({ children }) {
   }, []);
 
   const toggleFavourite = useCallback((id, car = null) => {
+    // No account, no list: saving is gated in the UI, and this is the backstop.
+    if (!authedRef.current) return;
     setFavourites((prev) => {
       const adding = !prev.includes(id);
       const next = adding ? [...prev, id] : prev.filter((x) => x !== id);
-      localStorage.setItem(LS_FAV, JSON.stringify(next));
       // Favouriting is the strongest taste signal there is, so it feeds the profile that
       // drives the landing recommendations.
       if (adding && car) noteFavourite(car);
@@ -144,22 +153,22 @@ export function AppProvider({ children }) {
     });
   }, []);
 
-  // Used when signing in: the account's list becomes the source of truth locally.
+  // Used when signing in: the account's list becomes the source of truth.
   const replaceFavourites = useCallback((ids) => {
-    const next = Array.from(new Set(ids || []));
-    localStorage.setItem(LS_FAV, JSON.stringify(next));
-    setFavourites(next);
+    setFavourites(Array.from(new Set(ids || [])));
   }, []);
 
   // ── saved searches: a stored query string plus a name ──────────────────────
   const writeSearches = useCallback((next) => {
-    localStorage.setItem(LS_SEARCHES, JSON.stringify(next));
     setSearches(next);
     return next;
   }, []);
 
   const saveSearch = useCallback(
     ({ name, query, total }) => {
+      // Same backstop as favourites: a search with no account behind it would be a list
+      // the server never sees, and therefore alerts that never fire.
+      if (!authedRef.current) return null;
       const item = {
         id: `s_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
         name,
@@ -171,49 +180,31 @@ export function AppProvider({ children }) {
         lang,            // the alert email speaks the language the search was saved in
         created_at: new Date().toISOString(),
       };
-      setSearches((prev) => {
-        const next = [item, ...prev.filter((s) => s.query !== query)].slice(0, 60);
-        localStorage.setItem(LS_SEARCHES, JSON.stringify(next));
-        return next;
-      });
+      setSearches((prev) => [item, ...prev.filter((s) => s.query !== query)].slice(0, 60));
       return item;
     },
     [lang]
   );
 
-  // "Email me when a new car matches this search". The backend keeps its own baseline per
-  // search, so turning it on never mails out cars that were already in the index.
+  // "Notify me when a new car matches this search". The backend keeps its own baseline per
+  // search, so turning it on never announces cars that were already in the index.
   const toggleSearchAlerts = useCallback((id) => {
-    setSearches((prev) => {
-      const next = prev.map((s) => (s.id === id ? { ...s, alerts: !s.alerts } : s));
-      localStorage.setItem(LS_SEARCHES, JSON.stringify(next));
-      return next;
-    });
+    setSearches((prev) => prev.map((s) => (s.id === id ? { ...s, alerts: !s.alerts } : s)));
   }, []);
 
   const renameSearch = useCallback((id, name) => {
-    setSearches((prev) => {
-      const next = prev.map((s) => (s.id === id ? { ...s, name } : s));
-      localStorage.setItem(LS_SEARCHES, JSON.stringify(next));
-      return next;
-    });
+    setSearches((prev) => prev.map((s) => (s.id === id ? { ...s, name } : s)));
   }, []);
 
   const removeSearch = useCallback((id) => {
-    setSearches((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      localStorage.setItem(LS_SEARCHES, JSON.stringify(next));
-      return next;
-    });
+    setSearches((prev) => prev.filter((s) => s.id !== id));
   }, []);
 
   const markSearchSeen = useCallback((id, total) => {
     setSearches((prev) => {
       const item = prev.find((s) => s.id === id);
       if (!item || item.seen_total === total) return prev;
-      const next = prev.map((s) => (s.id === id ? { ...s, seen_total: total } : s));
-      localStorage.setItem(LS_SEARCHES, JSON.stringify(next));
-      return next;
+      return prev.map((s) => (s.id === id ? { ...s, seen_total: total } : s));
     });
   }, []);
 
@@ -244,6 +235,7 @@ export function AppProvider({ children }) {
       isFavourite: (id) => favourites.includes(id),
       searches,
       saveSearch,
+      setAuthed,
       toggleSearchAlerts,
       renameSearch,
       removeSearch,
@@ -254,7 +246,8 @@ export function AppProvider({ children }) {
     }),
     [lang, setLang, currency, setCurrency, theme, toggleTheme, rates, cms, favourites,
      toggleFavourite, replaceFavourites, searches, saveSearch, renameSearch,
-     removeSearch, markSearchSeen, replaceSearches, isSearchSaved, toggleSearchAlerts]
+     removeSearch, markSearchSeen, replaceSearches, isSearchSaved, toggleSearchAlerts,
+     setAuthed]
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

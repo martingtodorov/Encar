@@ -71,6 +71,7 @@ const NOTIFY = {
     notifyPromptLoginBody:
       "Известията вървят по запазените ти търсения и коли, а те живеят в профила ти.",
     notifyPromptLogin: "Вход",
+    notifyPromptLater: "Не сега",
     pwaTabBarAria: "Основна навигация",
     // Short labels tuned for a 5-tab bar on a 360-390px phone. The full menu strings
     // ("Търсене на автомобили", "Любими търсения" …) truncate with ellipsis when they
@@ -152,6 +153,7 @@ const NOTIFY = {
     notifyPromptLoginBody:
       "Notificările urmăresc căutările și mașinile tale salvate, iar acestea sunt în contul tău.",
     notifyPromptLogin: "Conectare",
+    notifyPromptLater: "Nu acum",
     pwaTabBarAria: "Navigare principală",
     pwaTabSearch: "Caută",
     pwaTabSaved: "Favorite",
@@ -230,6 +232,7 @@ const NOTIFY = {
     notifyPromptLoginBody:
       "Notifications follow your saved searches and cars, and those live in your account.",
     notifyPromptLogin: "Sign in",
+    notifyPromptLater: "Not now",
     pwaTabBarAria: "Main navigation",
     pwaTabSearch: "Search",
     pwaTabSaved: "Saved",
@@ -308,6 +311,7 @@ const NOTIFY = {
     notifyPromptLoginBody:
       "Powiadomienia dotyczą Twoich zapisanych wyszukiwań i samochodów, a te są w Twoim koncie.",
     notifyPromptLogin: "Zaloguj się",
+    notifyPromptLater: "Nie teraz",
     pwaTabBarAria: "Nawigacja główna",
     pwaTabSearch: "Szukaj",
     pwaTabSaved: "Ulubione",

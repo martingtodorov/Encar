@@ -8,6 +8,7 @@ import { SiteFooter } from "@/components/SiteFooter";
 import { AdminTrafficBar } from "@/components/AdminTrafficBar";
 import { InstallBanner } from "@/components/InstallBanner";
 import { NotificationsPrompt } from "@/components/NotificationsPrompt";
+import { NotifyConsentDialog } from "@/components/NotifyConsentDialog";
 import { PwaTabBar } from "@/components/PwaTabBar";
 import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { LANGS } from "@/i18n";
@@ -132,6 +133,9 @@ export const LangLayout = () => {
           Only one of them can ever be visible because they gate on opposite states
           of `display-mode: standalone`. */}
       {standalone ? <NotificationsPrompt /> : <InstallBanner />}
+      {/* Asks for push the instant a buyer signs in inside the installed app. Renders
+          nothing until that transition happens. */}
+      {standalone ? <NotifyConsentDialog /> : null}
       <ScrollToTop />
       <Outlet />
       <SiteFooter />

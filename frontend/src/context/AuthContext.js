@@ -1,12 +1,10 @@
 import { getConsent, markSignedIn, setConsent } from "@/lib/taste";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   apiGoogleSession,
   apiLogin,
   apiLogout,
   apiMe,
-  apiMergeFavourites,
-  apiMergeSearches,
   apiPasskeyLoginOptions,
   apiPasskeyLoginVerify,
   apiPasskeyRegisterOptions,
@@ -34,31 +32,29 @@ function message(e, fallback) {
 }
 
 export function AuthProvider({ children }) {
-  const { favourites, replaceFavourites, searches, replaceSearches } = useApp();
+  const { favourites, replaceFavourites, searches, replaceSearches, setAuthed } = useApp();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   // Drives the one-time passkey offer: set by registration, cleared once it is answered.
   const [justRegistered, setJustRegistered] = useState(false);
 
-  // Fold whatever the browser collected while logged out into the account, then adopt
-  // the account's list locally so the two never silently diverge.
+  // Which account's lists are actually in memory. The debounced writers below refuse to
+  // run until this matches the signed-in user: before hydration the lists are empty, and
+  // an empty PUT would erase every favourite and saved search on the account.
+  const hydratedFor = useRef(null);
+
+  // Take the account's lists as they are. There is nothing to merge any more: favourites
+  // and saved searches are only ever created while signed in, so the server copy is the
+  // only copy — a signed-out browser holds nothing to fold in.
   const adopt = useCallback(
-    async (nextUser, localIds, localSearches) => {
+    (nextUser) => {
+      hydratedFor.current = nextUser?.id || null;
       setUser(nextUser);
-      try {
-        const { ids } = await apiMergeFavourites(localIds || []);
-        replaceFavourites(ids);
-      } catch (e) {
-        /* favourites sync is best-effort; never block sign-in on it */
-      }
-      try {
-        const { items } = await apiMergeSearches(localSearches || []);
-        replaceSearches(items);
-      } catch (e) {
-        /* same for saved searches */
-      }
+      setAuthed(!!nextUser);
+      replaceFavourites(nextUser?.favourites || []);
+      replaceSearches(nextUser?.saved_searches || []);
     },
-    [replaceFavourites, replaceSearches]
+    [replaceFavourites, replaceSearches, setAuthed]
   );
 
   useEffect(() => {
@@ -73,9 +69,8 @@ export function AuthProvider({ children }) {
       try {
         const { user: u } = await apiMe();
         if (!alive) return;
-        setUser(u);
-        if (u?.favourites?.length) replaceFavourites(u.favourites);
-        if (u?.saved_searches?.length) replaceSearches(u.saved_searches);
+        // Straight from the account: these lists have no local counterpart to reconcile.
+        adopt(u);
       } catch (e) {
         /* not signed in */
       } finally {
@@ -85,11 +80,12 @@ export function AuthProvider({ children }) {
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Keep the account copy up to date while signed in.
   useEffect(() => {
-    if (!user) return;
+    if (!user || hydratedFor.current !== user.id) return;
     const id = setTimeout(() => {
       apiPutFavourites(favourites).catch(() => {});
     }, 800);
@@ -97,7 +93,7 @@ export function AuthProvider({ children }) {
   }, [favourites, user?.id]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || hydratedFor.current !== user.id) return;
     const id = setTimeout(() => {
       apiPutSearches(searches).catch(() => {});
     }, 800);
@@ -106,42 +102,36 @@ export function AuthProvider({ children }) {
 
   const login = useCallback(
     async (email, password) => {
-      const local = favourites;
-      const localSearches = searches;
       const answer = await apiLogin({ email, password });
       // With 2FA on the password buys a ticket, not a session: the caller collects the code.
       if (answer.mfa_required) return answer;
-      await adopt(answer.user, local, localSearches);
+      adopt(answer.user);
       return answer.user;
     },
-    [adopt, favourites, searches]
+    [adopt]
   );
 
   /** Google sign-in, second half: exchange the one-time id for a session of our own. */
   const googleSession = useCallback(
     async (sessionId, termsVersion = "") => {
-      const local = favourites;
-      const localSearches = searches;
       const answer = await apiGoogleSession(sessionId, termsVersion);
       if (answer.mfa_required) return answer;
-      await adopt(answer.user, local, localSearches);
+      adopt(answer.user);
       return answer;
     },
-    [adopt, favourites, searches]
+    [adopt]
   );
 
   /** Second step of a password sign-in: the code from the app, or a recovery code. */
   const loginMfa = useCallback(
     async (pendingId, code, recovery = false) => {
-      const local = favourites;
-      const localSearches = searches;
       const { data } = await http.post("/auth/2fa/login", {
         pending_id: pendingId, code, recovery,
       });
-      await adopt(data.user, local, localSearches);
+      adopt(data.user);
       return data.user;
     },
-    [adopt, favourites, searches]
+    [adopt]
   );
 
   /** Re-read the account after a change made outside this context (2FA, billing). */
@@ -153,8 +143,6 @@ export function AuthProvider({ children }) {
 
   const register = useCallback(
     async (email, password, name, phone, billing, lang = "") => {
-      const local = favourites;
-      const localSearches = searches;
       // billing and the accepted policy version travel WITH the registration: the address
       // typed on the sign-up form was being collected and then dropped on the floor here.
       // `phone` is now a required top-level field (see `Credentials` in `/app/backend/auth.py`)
@@ -168,11 +156,11 @@ export function AuthProvider({ children }) {
         billing: billing || undefined,
         terms_version: TERMS_VERSION,
       });
-      await adopt(u, local, localSearches);
+      adopt(u);
       setJustRegistered(true);
       return u;
     },
-    [adopt, favourites, searches]
+    [adopt]
   );
 
   /** The six digits from the email. On success the user object carries email_verified. */
@@ -186,26 +174,26 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(async () => {
     await apiLogout().catch(() => {});
+    hydratedFor.current = null;
     setUser(null);
+    setAuthed(false);
     // Saving requires an account, so nothing that belonged to one may be left behind on
     // what could well be a shared machine.
     replaceFavourites([]);
     replaceSearches([]);
-  }, [replaceFavourites, replaceSearches]);
+  }, [replaceFavourites, replaceSearches, setAuthed]);
 
   /** One tap, no email typed: the authenticator picks the passkey for this site. */
   const passkeyLogin = useCallback(async () => {
-    const local = favourites;
-    const localSearches = searches;
     const start = await apiPasskeyLoginOptions();
     const credential = await getCredential(start.options);
     const { user: u } = await apiPasskeyLoginVerify({
       flow_id: start.flow_id,
       credential,
     });
-    await adopt(u, local, localSearches);
+    adopt(u);
     return u;
-  }, [adopt, favourites, searches]);
+  }, [adopt]);
 
   const addPasskey = useCallback(async () => {
     const start = await apiPasskeyRegisterOptions();

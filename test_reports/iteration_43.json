@@ -1,0 +1,33 @@
+{
+  "summary": "Frontend-only verification of iteration 43 scope: server-only favourites/saved-searches storage, notify banner + notify consent dialog in PWA mode, PWA tab bar pill (slide + drag-scrub), sticky bar overlap regression on search & detail pages, and burger/filters drawer close-ability. 9/9 requested scenarios pass, with two informational notes (see below). Nothing blocking.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "SearchPage mobile (390px), header behaviour on scroll",
+        "issues": [
+          "On scroll DOWN the header (data-testid=header-bar) translates off-screen (bounding y=-64) even though it is declared position:sticky top:0 — probably a hide-on-scroll wrapper. The floating filters bar then takes its place at y=0. Not a bug per se (matches the visible design), but the review spec literally reads 'below the header with NO gap and NO overlap'; verify the intended UX is the takeover, not header-stays-plus-filters-below. On scroll UP the floating filters bar sits flush under the header (gap ~-1..0 px)."
+        ]
+      }
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_43.json"],
+  "action_items": [
+    "Confirm the intended scroll-down UX for the search page mobile header: current build hides the header on scroll-down and lets the floating-filters-bar (position:fixed, top:0) occupy the slot. Review spec wording ('directly below the header with NO gap') can be read as header stays visible + filters below; if that is what you want, remove the hide-on-scroll wrapper on the search page. Detail page already keeps the header visible with detail-sticky-bar flush below (measured gap = 0 px)."
+  ],
+  "critical_code_review_comments": [
+    "PwaTabBar.js uses setPointerCapture on the .lg-tabs container, then relies on the child NavLink's own click event to navigate on a plain tap. In real browsers this works (verified by dispatching a native PointerEvent sequence — navigation fires, execution context is destroyed). It does NOT work through Playwright's page.click() (which drives mouse events, not the same pointer capture flow), which made every plain page.click on pwa-tab-* a no-op during automation. Real device taps are fine; but future automated tests will keep tripping on this — consider dispatching pointerdown/up in tests, or moving the tap navigation onto onClick fallbacks so page.click() also works.",
+    "AppContext.js one-time cleanup of legacy LS keys is fine, but it runs on every mount — could be gated to only fire when the keys actually exist, saves a couple of try/removeItem cycles on every visit.",
+    "SignInGate.js: when user is loading and requireAccount is called, it returns false silently — the click handler that called it likely still no-ops UI (no toast, no dialog). If the session is still resolving on a slow connection a tap on the heart appears to do nothing. Minor UX polish."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped)", "frontend": "100% (all 9 review scenarios pass — server-only storage, gate-on-signed-out, reload persistence, logout cleanup, PWA notify banner, notify consent dialog, tab bar pill + drag, sticky bars, drawers)"},
+  "test_credentials": "admin@encarskin.com / AdminTest2026! — worked",
+  "seed_data_creation": "Left the admin account with 2 favourites (42341529, 41728299) and 1 saved search ('BMW', query=make=bmw) so the reload-persistence run had something to preserve. Main agent can wipe these via the profile page if they get in the way of the next test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "PWA mode is emulated by adding an init script BEFORE navigation: (1) Object.defineProperty(window.navigator,'standalone',{get:()=>true,configurable:true}); (2) monkey-patch window.matchMedia so '(display-mode: standalone)' returns matches:true — useDisplayMode reads that; (3) Object.defineProperty(Notification,'permission',{get:()=>'default',configurable:true}) + Notification.requestPermission=()=>Promise.resolve('default'). Also clear localStorage 'encar.notify.dismissed_until' before each PWA run. IMPORTANT for tab bar testing: Playwright's page.click() does NOT trigger the pill-tap navigation because the code listens only to PointerEvents with setPointerCapture; use page.evaluate to dispatch pointerdown+pointerup+click natively, or use page.mouse.down/move/up (which DOES work end-to-end for drag-scrub, confirmed by /bg -> /bg/track navigation). Backend enforces CSRF, so raw fetch POSTs from evaluate need the x-csrf-token header pulled from the csrf_token cookie. Server holds favourites at GET /api/auth/favourites {ids:[...]} and saved searches at GET /api/auth/saved-searches {items:[...]}. localStorage keys 'encar.favourites' and 'encar.searches' are always null (verified before login, after login, after saving, after 2x reload, and after logout).",
+  "rca_of_the_issue": "No functional issue found. The 'header hides on scroll-down' observation on the search page is intentional-looking behaviour (hide-on-scroll wrapper), not a bug — the sticky-bar spec is satisfied because the floating filters bar (position:fixed top:0) takes over the same slot with no gap, and on the detail page the header stays put with detail-sticky-bar flush beneath (measured gap 0.00 px)."
+}
