@@ -42,7 +42,7 @@ const NOTIFY = {
     deleteDone: "Акаунтът е изтрит",
     // ── Install banner + notifications prompt + PWA tab bar ─────────────────
     installBannerAria: "Добави приложението към началния екран",
-    installBannerTitle: "Добави приложението — получавай известия за колите ти",
+    installBannerTitle: "Добави приложението — получавай известия за колите си",
     installBannerBody:
       "Разбирай пръв, когато нова кола отговаря на запазено търсене или цената падне.",
     installBannerCta: "Как",
