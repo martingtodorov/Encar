@@ -440,8 +440,8 @@ body.suppress-sheet-anim [data-state="closed"] {
     /* Frosted-blur strong enough for the colour behind to bleed through, gentle
        enough that individual shapes stay hinted rather than smeared to mush.
        28px hits Apple's Liquid Glass "you can still tell what's behind" band. */
-    backdrop-filter: blur(6px) saturate(150%) brightness(1.03);
-    -webkit-backdrop-filter: blur(6px) saturate(150%) brightness(1.03);
+    backdrop-filter: blur(3px) saturate(140%) brightness(1.02);
+    -webkit-backdrop-filter: blur(3px) saturate(140%) brightness(1.02);
 }
 
 .lg-tint {
