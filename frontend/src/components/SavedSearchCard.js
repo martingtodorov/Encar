@@ -91,7 +91,7 @@ export const SavedSearchCard = ({ item, state, onOpen, onRename, onRemove, onTog
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             data-testid={`saved-search-view-${item.id}`}
             onClick={() => onOpen(item)}
@@ -131,12 +131,15 @@ export const SavedSearchCard = ({ item, state, onOpen, onRename, onRemove, onTog
             )}
             {item.alerts ? t("alertsOn") : t("alertsOff")}
           </Button>
+          {/* Trash was `ml-auto` before, which pushed it past the viewport as soon as the
+              alerts label made the row overflow. Wrapping the row and letting delete flow
+              inline keeps every action reachable on a 360-390px phone. */}
           <Button
             data-testid={`saved-search-delete-${item.id}`}
             variant="ghost"
             onClick={() => onRemove(item.id)}
             aria-label={t("delete")}
-            className="ml-auto h-9 w-9 rounded-[10px] p-0 text-muted-foreground hover:text-[hsl(var(--primary))]"
+            className="h-9 w-9 rounded-[10px] p-0 text-muted-foreground hover:text-[hsl(var(--primary))]"
           >
             <Trash2 className="h-4 w-4" aria-hidden="true" />
           </Button>

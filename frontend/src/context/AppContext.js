@@ -165,7 +165,9 @@ export function AppProvider({ children }) {
         name,
         query,
         seen_total: total ?? null,
-        alerts: false,   // opt-in: "email me when a new car matches this search"
+        alerts: true,    // opt-out: new saved searches ping the buyer by email as soon
+                         // as a matching car arrives, since that is why most people save
+                         // one in the first place — they can flip it off from the list.
         lang,            // the alert email speaks the language the search was saved in
         created_at: new Date().toISOString(),
       };
