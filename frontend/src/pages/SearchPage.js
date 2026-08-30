@@ -782,7 +782,10 @@ export default function SearchPage() {
         data-testid="floating-filters-bar"
         className={`fixed inset-x-0 z-30 -mt-px transition-all duration-300 lg:hidden ${
           headerHidden
-            ? "top-[calc(var(--admin-bar-h,0px)_+_var(--safe-top,0px))]"
+            // Header gone: the bar becomes the topmost thing on screen, so it must
+            // OWN the Dynamic-Island strip (card background + inset as padding)
+            // instead of starting below it and leaving a floating empty gap.
+            ? "top-[var(--admin-bar-h,0px)] bg-card pt-[var(--safe-top,0px)]"
             : "top-[var(--header-bottom,4rem)]"
         } ${
           triggerOffscreen
