@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { ArrowLeft } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -10,9 +11,47 @@ import { HeaderNav } from "@/components/HeaderNav";
 export const HeaderBar = ({ hidden = false, onBack, flush = false }) => {
   const { t } = useApp();
   const { path } = useLangNav();
+  const ref = useRef(null);
+
+  // Publish the header's REAL rendered height (which in a homescreen PWA includes the
+  // Dynamic-Island safe-area padding) so every bar that has to hang below it can use
+  // one number instead of re-deriving `4rem + env(...)` and drifting out of sync.
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return undefined;
+    // `--header-bottom` is the live y of the header's bottom edge: at scroll 0 with a
+    // banner above us that is lower than the sticky offset, and it follows the
+    // hide-on-scroll transform too. Bars that must hug the header read this, so they
+    // can never end up underneath it.
+    let raf = 0;
+    const publish = () => {
+      raf = 0;
+      const r = node.getBoundingClientRect();
+      const root = document.documentElement.style;
+      root.setProperty("--header-h", `${Math.round(r.height)}px`);
+      root.setProperty("--header-bottom", `${Math.max(0, Math.round(r.bottom))}px`);
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(publish);
+    };
+    publish();
+    const ro = new ResizeObserver(schedule);
+    ro.observe(node);
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    window.addEventListener("orientationchange", schedule);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      ro.disconnect();
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("orientationchange", schedule);
+    };
+  }, []);
 
   return (
     <header
+      ref={ref}
       data-testid="header-bar"
       data-hidden={hidden ? "true" : "false"}
       // `flush`: something sits immediately below (the mobile filter bar), and the

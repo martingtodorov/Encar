@@ -411,7 +411,10 @@ body.suppress-sheet-anim [data-state="closed"] {
        reserves ~34px on iPhones with a home indicator; a big cushion on top made the
        bar float mid-screen. A hair (2px) keeps a visible gap from the very edge on
        phones that report a zero inset (older Androids). */
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 2px);
+    /* Sit BELOW the home-indicator cushion, not on top of it: the full safe-area
+       inset (~34px on iPhone) floated the capsule mid-screen. Drop most of it and
+       keep a small visible gap; phones reporting a zero inset fall back to 6px. */
+    bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) - 14px));
     height: 60px;
     z-index: 45;
     border-radius: 30px;
@@ -437,8 +440,8 @@ body.suppress-sheet-anim [data-state="closed"] {
     /* Frosted-blur strong enough for the colour behind to bleed through, gentle
        enough that individual shapes stay hinted rather than smeared to mush.
        28px hits Apple's Liquid Glass "you can still tell what's behind" band. */
-    backdrop-filter: blur(28px) saturate(190%) brightness(1.06) contrast(1.04);
-    -webkit-backdrop-filter: blur(28px) saturate(190%) brightness(1.06) contrast(1.04);
+    backdrop-filter: blur(12px) saturate(170%) brightness(1.04);
+    -webkit-backdrop-filter: blur(12px) saturate(170%) brightness(1.04);
 }
 
 .lg-tint {
@@ -565,15 +568,24 @@ body.pwa-standalone:has([data-testid="notify-prompt"]) [data-testid="header-bar"
     padding-top: 0;
 }
 
-/* The car page's condensed title/price/save bar (`DetailStickyBar`) is `fixed` at
-   `4rem + 1px` from the top — the exact bottom edge of the header. That formula
-   knows nothing about the Dynamic-Island safe-area we just added to the header
-   in standalone, so on iPhone the bar slid up UNDER the logo/menu row. Same
-   offset math, plus the top inset when standalone, keeps it hugging the header
-   bottom on every device. */
-body.pwa-standalone [data-testid="detail-sticky-bar"] {
-    top: calc(var(--admin-bar-h, 0px) + env(safe-area-inset-top, 0px) + 4rem + 1px);
+/* Bars that hang off the bottom edge of the header (`DetailStickyBar`, the mobile
+   "change filters" bar) no longer guess `4rem + env(safe-area-inset-top)`: the
+   header measures itself and publishes `--header-h`, which already contains the
+   Dynamic-Island padding when standalone. Guessing was why the car-title bar kept
+   sliding under the logo/menu row on iPhone.
+
+   `--safe-top` is the island inset, but ONLY in a homescreen PWA — a browser tab
+   has Safari's own chrome above us and must stay at 0. It is used by bars that
+   pin to the very top of the viewport after the header scrolls away. */
+:root {
+    --safe-top: 0px;
 }
-body.pwa-standalone:has([data-testid="notify-prompt"]) [data-testid="detail-sticky-bar"] {
-    top: calc(var(--admin-bar-h, 0px) + 4rem + 1px);
+body.pwa-standalone {
+    --safe-top: env(safe-area-inset-top, 0px);
+}
+/* Once the header hides on scroll-down, the filters bar becomes the topmost thing
+   on screen, so it has to paint the island strip itself — otherwise the page
+   content shows through above it. */
+body.pwa-standalone [data-testid="floating-filters-bar"] {
+    background: hsl(var(--card));
 }

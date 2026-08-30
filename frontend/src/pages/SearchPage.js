@@ -779,10 +779,11 @@ export default function SearchPage() {
         // to edge, so there is no gap and nothing of the menu is ever covered. z-30 keeps
         // it under the header's z-40. Both offsets add `--admin-bar-h`, because the admin
         // traffic bar is pinned above everything and pushes the header down with it.
+        data-testid="floating-filters-bar"
         className={`fixed inset-x-0 z-30 -mt-px transition-all duration-300 lg:hidden ${
           headerHidden
-            ? "top-[var(--admin-bar-h,0px)]"
-            : "top-[calc(var(--admin-bar-h,0px)_+_4rem)]"
+            ? "top-[calc(var(--admin-bar-h,0px)_+_var(--safe-top,0px))]"
+            : "top-[var(--header-bottom,4rem)]"
         } ${
           triggerOffscreen
             ? "pointer-events-auto opacity-100"
