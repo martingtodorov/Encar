@@ -13,26 +13,19 @@ export const HeaderBar = ({ hidden = false, onBack, flush = false }) => {
   const { path } = useLangNav();
   const ref = useRef(null);
 
-  // Publish the header's REAL rendered height (which in a homescreen PWA includes the
-  // Dynamic-Island safe-area padding) so every bar that has to hang below it can use
-  // one number instead of re-deriving `4rem + env(...)` and drifting out of sync.
+  // The header's height is constant (the Dynamic-Island inset is reserved once on
+  // <body>), so it only has to be measured on resize — no scroll listener. Bars that
+  // hang below the header derive their position from `--header-h` in pure CSS.
   useEffect(() => {
     const node = ref.current;
     if (!node) return undefined;
-    // `--header-bottom` is the live y of the header's bottom edge: at scroll 0 with a
-    // banner above us that is lower than the sticky offset, and it follows the
-    // hide-on-scroll transform too. Bars that must hug the header read this, so they
-    // can never end up underneath it.
     let raf = 0;
     const publish = () => {
       raf = 0;
-      const r = node.getBoundingClientRect();
-      const root = document.documentElement.style;
-      root.setProperty("--header-h", `${Math.round(r.height)}px`);
-      // NOT clamped at 0: while the header slides away its bottom goes negative, and
-      // the bars glued to it need that live value to travel with it instead of
-      // jumping. Consumers clamp with `max(var(--safe-top), ...)` in CSS.
-      root.setProperty("--header-bottom", `${Math.round(r.bottom)}px`);
+      document.documentElement.style.setProperty(
+        "--header-h",
+        `${Math.round(node.getBoundingClientRect().height)}px`
+      );
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(publish);
@@ -40,14 +33,10 @@ export const HeaderBar = ({ hidden = false, onBack, flush = false }) => {
     publish();
     const ro = new ResizeObserver(schedule);
     ro.observe(node);
-    window.addEventListener("scroll", schedule, { passive: true });
-    window.addEventListener("resize", schedule);
     window.addEventListener("orientationchange", schedule);
     return () => {
       if (raf) cancelAnimationFrame(raf);
       ro.disconnect();
-      window.removeEventListener("scroll", schedule);
-      window.removeEventListener("resize", schedule);
       window.removeEventListener("orientationchange", schedule);
     };
   }, []);
