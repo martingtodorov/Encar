@@ -354,11 +354,9 @@ export default function CarDetailPage() {
         onToggleSave={() => requireAccount("car") && toggleFavourite(id, car)}
       />
 
-      {/* Mobile clears the always-visible car bar; desktop only needs the normal gap. The
-          admin traffic bar must NOT be added here: it sits in normal flow, so this container
-          already starts below it, and counting it twice left a phone with ~78px of nothing
-          between the car bar and the first photo. */}
-      <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-[72px] sm:px-6 lg:pt-2">
+      {/* The car bar is now sticky IN FLOW on mobile, so it reserves its own height —
+          no manual `pt-[72px]` compensation (that used to double up as a gap). */}
+      <div className="mx-auto max-w-[1280px] px-4 pb-5 pt-3 sm:px-6 lg:pt-2">
         {/* Breadcrumbs: Home > Make > Model > Submodel. Each step is a Link to the
             search filtered to that exact scope, so a buyer can jump back one level at a
             time — tapping "W205" leads to every W205 we carry, not to the model page. */}

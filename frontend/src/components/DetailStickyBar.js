@@ -36,11 +36,12 @@ export const DetailStickyBar = ({ car, price, saved, onToggleSave, showAfter = 3
       // The offset is the header's 4rem PLUS whatever pushed the header down — the admin
       // traffic bar sets `--admin-bar-h`, and a hardcoded top-16 left this bar underneath
       // the menu, with the car's name hidden.
-      // Pure CSS position: header offset + header height. No JS scroll tracking —
-      // publishing the header's live bottom edge from a rAF meant this bar was always
-      // one frame behind it, which read as the bar "following" the menu instead of
-      // being part of it.
-      className={`fixed inset-x-0 top-[calc(var(--admin-bar-h,0px)_+_var(--safe-top,0px)_+_var(--header-h,4rem))] z-30 -mt-px border-b border-border bg-card/95 shadow-sm backdrop-blur-md transition-all duration-200 ${
+      // `sticky` on mobile, NOT `fixed`: a fixed bar is welded to the viewport while the
+      // sticky header travels with the content during iOS rubber-band overscroll, so the
+      // two visibly came apart. Sticky and adjacent to the header in flow means they move
+      // as one piece. Desktop keeps it `fixed` because there it is hidden until scroll and
+      // must not reserve a 64px hole at the top of the page.
+      className={`sticky top-[calc(var(--admin-bar-h,0px)_+_var(--safe-top,0px)_+_var(--header-h,4rem))] z-30 -mt-px border-b border-border bg-card/95 shadow-sm backdrop-blur-md transition-all duration-200 lg:fixed lg:inset-x-0 ${
         show
           ? "pointer-events-auto translate-y-0 opacity-100"
           : "pointer-events-auto translate-y-0 opacity-100 lg:pointer-events-none lg:-translate-y-2 lg:opacity-0 lg:shadow-none"
