@@ -505,10 +505,24 @@ body.suppress-sheet-anim [data-state="closed"] {
     gap: 2px;
     height: 100%;
     padding: 5px 8px;
+    /* The bar owns horizontal gestures: scrubbing a finger across it moves the pill
+       and picks a tab on release, so the browser must not steal the drag for a
+       pan/scroll. */
+    touch-action: none;
+}
+
+/* While a finger is scrubbing, the pill has to feel attached to it — the 460ms
+   page-change ease would lag visibly behind the gesture. Two classes deep on purpose:
+   it has to beat `.lg-pill-anim`, which is declared later in the file. */
+.lg-pill.lg-pill-drag {
+    /* Under the finger the pill IS the finger: easing the position reads as lag. The
+       swell still animates, hence only `translate`/`width` are dropped. */
+    transition: scale 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .lg-tab {
     position: relative;
+    z-index: 1;
     flex: 1 1 0;
     display: flex;
     flex-direction: column;
@@ -527,6 +541,11 @@ body.suppress-sheet-anim [data-state="closed"] {
         transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1),
         color 160ms ease;
     -webkit-tap-highlight-color: transparent;
+    /* No long-press link preview / context menu on a tab bar: iOS shows a page
+       thumbnail sheet for <a> elements, which reads as the app misbehaving. */
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .lg-tab:active {
@@ -552,21 +571,43 @@ body.suppress-sheet-anim [data-state="closed"] {
     white-space: nowrap;
 }
 
-/* Selected tab: solid low-opacity pill (NOT another blur). Positioned behind
-   the icon so the icon reads on top of the highlight. */
-.lg-tab-pill {
+/* The travelling selection pill: ONE element for the whole bar, moved to the active
+   tab, instead of a pill rendered inside each tab — a single element can animate
+   between two positions, five separate ones can only blink in and out. The spring-ish
+   ease is Apple's own tab-bar curve. `lg-pill-anim` is added only AFTER the first
+   measurement, otherwise it would slide in from x=0 on every cold load. */
+.lg-pill {
     position: absolute;
-    /* Wraps the whole tab with breathing room on every side, so the icon and label
-       sit inside the bubble rather than filling it edge to edge. */
-    top: 0;
-    left: 1px;
-    right: 1px;
-    bottom: 0;
-    /* Fully rounded, like the capsule it sits inside — a smaller radius made the
-       bubble read as a rounded rectangle against the bar's pill silhouette. */
+    top: 5px;
+    bottom: 5px;
+    left: 0;
+    z-index: 0;
     border-radius: 9999px;
     background: hsl(var(--primary) / 0.14);
     box-shadow: inset 0 0 0 0.5px hsl(var(--primary) / 0.25);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.lg-pill-ready {
+    opacity: 1;
+}
+
+.lg-pill-anim {
+    /* Position rides on the `translate` property, NOT `transform`: that keeps it
+       independent from `scale`, so the pill can grow under the finger while its x is
+       being written raw on every pointer move. */
+    transition:
+        translate 460ms cubic-bezier(0.32, 0.72, 0, 1),
+        width 460ms cubic-bezier(0.32, 0.72, 0, 1),
+        scale 220ms cubic-bezier(0.34, 1.56, 0.64, 1),
+        opacity 200ms ease;
+}
+
+/* Finger down on the pill: it swells slightly, like a physical button being pressed
+   into the glass. Only `scale` animates during a drag — `translate` stays raw. */
+.lg-pill.lg-pill-grab {
+    scale: 1.06 1.12;
 }
 
 .lg-tab-active {
