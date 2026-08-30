@@ -67,6 +67,10 @@ const NOTIFY = {
     notifyPromptSuccess: "Известията са включени",
     notifyPromptDenied: "Известията са блокирани в настройките на браузъра",
     notifyPromptFailed: "Не успяхме да включим известията",
+    notifyPromptLoginTitle: "Влез, за да получаваш известия",
+    notifyPromptLoginBody:
+      "Известията вървят по запазените ти търсения и коли, а те живеят в профила ти.",
+    notifyPromptLogin: "Вход",
     pwaTabBarAria: "Основна навигация",
     // Short labels tuned for a 5-tab bar on a 360-390px phone. The full menu strings
     // ("Търсене на автомобили", "Любими търсения" …) truncate with ellipsis when they
@@ -144,6 +148,10 @@ const NOTIFY = {
     notifyPromptSuccess: "Notificările sunt activate",
     notifyPromptDenied: "Notificările sunt blocate în setările browserului",
     notifyPromptFailed: "Nu am putut activa notificările",
+    notifyPromptLoginTitle: "Conectează-te pentru notificări",
+    notifyPromptLoginBody:
+      "Notificările urmăresc căutările și mașinile tale salvate, iar acestea sunt în contul tău.",
+    notifyPromptLogin: "Conectare",
     pwaTabBarAria: "Navigare principală",
     pwaTabSearch: "Caută",
     pwaTabSaved: "Favorite",
@@ -218,6 +226,10 @@ const NOTIFY = {
     notifyPromptSuccess: "Notifications are on",
     notifyPromptDenied: "Notifications are blocked in your browser settings",
     notifyPromptFailed: "We could not turn notifications on",
+    notifyPromptLoginTitle: "Sign in to get notifications",
+    notifyPromptLoginBody:
+      "Notifications follow your saved searches and cars, and those live in your account.",
+    notifyPromptLogin: "Sign in",
     pwaTabBarAria: "Main navigation",
     pwaTabSearch: "Search",
     pwaTabSaved: "Saved",
@@ -292,6 +304,10 @@ const NOTIFY = {
     notifyPromptSuccess: "Powiadomienia są włączone",
     notifyPromptDenied: "Powiadomienia są zablokowane w ustawieniach przeglądarki",
     notifyPromptFailed: "Nie udało się włączyć powiadomień",
+    notifyPromptLoginTitle: "Zaloguj się, aby otrzymywać powiadomienia",
+    notifyPromptLoginBody:
+      "Powiadomienia dotyczą Twoich zapisanych wyszukiwań i samochodów, a te są w Twoim koncie.",
+    notifyPromptLogin: "Zaloguj się",
     pwaTabBarAria: "Nawigacja główna",
     pwaTabSearch: "Szukaj",
     pwaTabSaved: "Ulubione",

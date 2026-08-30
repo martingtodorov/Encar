@@ -3,7 +3,9 @@ import { Bell, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import { useDisplayMode } from "@/hooks/useDisplayMode";
+import { useLangNav } from "@/hooks/useLangNav";
 import { pushSupported, enablePush } from "@/lib/push";
 
 const DISMISS_KEY = "encar.notify.dismissed_until";
@@ -19,9 +21,16 @@ const SHOW_AFTER_MS = 1500;
  * asks when the browser permission is `default` (neither granted nor denied). The
  * permission request itself has to be triggered by a real user gesture — otherwise
  * Safari drops it — so the banner ships a real button rather than firing on mount.
+ *
+ * A visitor who is not signed in gets the same banner asking them to sign in first.
+ * There is deliberately no anonymous push: every notification this app sends is about a
+ * saved search or a saved car, and those live on the account, so a device with no
+ * account behind it would subscribe to silence.
  */
 export const NotificationsPrompt = () => {
   const { t } = useApp();
+  const { user } = useAuth();
+  const { go } = useLangNav();
   const standalone = useDisplayMode();
   const [visible, setVisible] = useState(false);
   const [pending, setPending] = useState(false);
@@ -65,47 +74,62 @@ export const NotificationsPrompt = () => {
     }
   };
 
+  // Signed out: the button becomes a way into the account instead of a permission
+  // request, and the copy says why. Dismissal and colour stay identical.
+  const needsAccount = !user;
+  const title = needsAccount ? t("notifyPromptLoginTitle") : t("notifyPromptTitle");
+  const body = needsAccount ? t("notifyPromptLoginBody") : t("notifyPromptBody");
+  const cta = needsAccount
+    ? t("notifyPromptLogin")
+    : (pending ? t("notifyPromptEnabling") : t("notifyPromptEnable"));
+
+  const onCta = () => {
+    if (!needsAccount) return enable();
+    setVisible(false);
+    return go("/login");
+  };
+
   if (!visible) return null;
 
   return (
     <div
       data-testid="notify-prompt"
       role="region"
-      aria-label={t("notifyPromptTitle")}
+      aria-label={title}
       // Same reasoning as InstallBanner: NOT sticky. The HeaderBar is sticky at
       // top-0 z-40, so anything else with the same top+z-index simply stacks on
       // top of it and hides the logo/menu. This banner lives at the very top of
       // document flow — it scrolls away with the page like any first-visit nag.
-      // Sits at the very top of document flow, above the header, and scrolls away with
-      // the page. No safe-area padding of its own: in standalone <body> already
-      // reserves the Dynamic-Island inset for the whole document.
-      className="relative z-40 flex items-center gap-3 border-b border-border bg-card px-3 py-2 shadow-sm sm:px-4"
+      // Same colour as the install banner (primary red on white text): the two are the
+      // same conversation, one before the app is added and one after, so they should not
+      // look like two different systems talking.
+      className="relative z-40 flex items-center gap-3 border-b border-border bg-[hsl(var(--primary))] px-3 py-2 text-primary-foreground shadow-sm sm:px-4"
     >
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[hsl(var(--primary))]/10 text-[hsl(var(--primary))]">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/15 text-primary-foreground">
         <Bell className="h-4 w-4" aria-hidden="true" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13.5px] font-semibold leading-tight text-foreground">
-          {t("notifyPromptTitle")}
+        <span className="block truncate text-[13.5px] font-semibold leading-tight">
+          {title}
         </span>
-        <span className="mt-0.5 hidden text-[12px] leading-tight text-muted-foreground sm:block">
-          {t("notifyPromptBody")}
+        <span className="mt-0.5 hidden text-[12px] leading-tight opacity-90 sm:block">
+          {body}
         </span>
       </span>
       <Button
         data-testid="notify-prompt-enable"
-        onClick={enable}
+        onClick={onCta}
         disabled={pending}
-        className="h-8 shrink-0 rounded-full bg-[hsl(var(--primary))] px-3 text-[12.5px] font-semibold text-primary-foreground hover:brightness-110"
+        className="h-8 shrink-0 rounded-full bg-white/95 px-3 text-[12.5px] font-semibold text-[hsl(var(--primary))] hover:bg-white"
       >
-        {pending ? t("notifyPromptEnabling") : t("notifyPromptEnable")}
+        {cta}
       </Button>
       <button
         type="button"
         data-testid="notify-prompt-dismiss"
         onClick={dismiss}
         aria-label={t("notifyPromptDismiss")}
-        className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+        className="ml-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/85 hover:bg-white/10 hover:text-white"
       >
         <X className="h-4 w-4" aria-hidden="true" />
       </button>
