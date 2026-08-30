@@ -567,15 +567,18 @@ body.pwa-standalone [data-testid="header-bar"] {
 
 /* Sheets that dock to the top edge of the viewport (the burger pop-down menu, the
    filters drawer) are `top: 0` by Radix default, which in a homescreen PWA puts
-   their title row AND their close button behind the Dynamic Island. Moving the
-   whole panel down by the inset — rather than padding it — keeps the absolutely
-   positioned close button reachable too. */
-body.pwa-standalone [data-testid="nav-drawer-panel"] {
-    top: env(safe-area-inset-top, 0px);
-}
+   their title row behind the Dynamic Island. They stay at `top: 0` on purpose —
+   moving the panel down instead exposed the dialog's black overlay in the island
+   strip — and reserve the inset as padding, so the panel's own card background
+   keeps painting under the island. The close button is absolutely positioned
+   against the border edge, which padding does not move, so it is offset too. */
+body.pwa-standalone [data-testid="nav-drawer-panel"],
 body.pwa-standalone [data-testid="filters-sheet-panel"] {
-    top: env(safe-area-inset-top, 0px);
-    height: auto;
+    padding-top: env(safe-area-inset-top, 0px);
+}
+body.pwa-standalone [data-testid="nav-drawer-panel"] > button[type="button"],
+body.pwa-standalone [data-testid="filters-sheet-panel"] > button[type="button"] {
+    top: calc(0.75rem + env(safe-area-inset-top, 0px));
 }
 
 /* Bars that hang off the bottom edge of the header (`DetailStickyBar`, the mobile
