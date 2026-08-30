@@ -78,6 +78,8 @@ export const PwaTabBar = () => {
           Chromium-only and the actual iOS PWA runs on Safari, so we ship the frosted
           approximation everywhere and let Chromium enjoy the extra crispness. */}
       <span className="lg-blur" aria-hidden="true" />
+      {/* Layer 2: refraction — the edge-only lens bend (see `.lg-refract`). */}
+      <span className="lg-refract" aria-hidden="true" />
       <span className="lg-tint" aria-hidden="true" />
       {/* Layer 3: specular rim — a lit bezel that reads as convex glass. */}
       <span className="lg-rim" aria-hidden="true" />
