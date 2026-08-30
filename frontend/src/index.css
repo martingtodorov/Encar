@@ -415,7 +415,7 @@ body.suppress-sheet-anim [data-state="closed"] {
        inset (~34px on iPhone) floated the capsule mid-screen. Drop most of it and
        keep a small visible gap; phones reporting a zero inset fall back to 6px. */
     bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) - 14px));
-    height: 60px;
+    height: 66px;
     z-index: 45;
     border-radius: 30px;
     isolation: isolate; /* own compositing context — keeps backdrop-filter cheap */
@@ -482,8 +482,9 @@ body.suppress-sheet-anim [data-state="closed"] {
     display: flex;
     align-items: stretch;
     justify-content: space-around;
+    gap: 2px;
     height: 100%;
-    padding: 4px 6px;
+    padding: 5px 8px;
 }
 
 .lg-tab {
@@ -493,8 +494,8 @@ body.suppress-sheet-anim [data-state="closed"] {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 2px;
-    padding: 2px 4px;
+    gap: 3px;
+    padding: 4px 6px;
     color: hsl(var(--foreground));
     font-size: 10.5px;
     line-height: 1;
@@ -516,8 +517,8 @@ body.suppress-sheet-anim [data-state="closed"] {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 26px;
+    height: 26px;
 }
 
 .lg-tab-label {
@@ -535,13 +536,13 @@ body.suppress-sheet-anim [data-state="closed"] {
    the icon so the icon reads on top of the highlight. */
 .lg-tab-pill {
     position: absolute;
-    top: 3px;
-    left: 4px;
-    right: 4px;
-    /* Covers icon AND label: the pill used to stop above the text (`bottom: 20px`),
-       which read as a highlight on the glyph alone. */
-    bottom: 3px;
-    border-radius: 16px;
+    /* Wraps the whole tab with breathing room on every side, so the icon and label
+       sit inside the bubble rather than filling it edge to edge. */
+    top: 0;
+    left: 1px;
+    right: 1px;
+    bottom: 0;
+    border-radius: 18px;
     background: hsl(var(--primary) / 0.14);
     box-shadow: inset 0 0 0 0.5px hsl(var(--primary) / 0.25);
 }
