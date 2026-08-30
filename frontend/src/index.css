@@ -407,27 +407,20 @@ body.suppress-sheet-anim [data-state="closed"] {
     position: fixed;
     left: 12px;
     right: 12px;
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+    /* Sit as close to the home indicator as the safe area allows. `env()` already
+       reserves ~34px on iPhones with a home indicator; a big cushion on top made the
+       bar float mid-screen. A hair (2px) keeps a visible gap from the very edge on
+       phones that report a zero inset (older Androids). */
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 2px);
     height: 60px;
     z-index: 45;
     border-radius: 30px;
     isolation: isolate; /* own compositing context — keeps backdrop-filter cheap */
     overflow: hidden;
     transform: translateZ(0);
-    will-change: transform, opacity;
-    transition:
-        transform 320ms cubic-bezier(0.34, 1.56, 0.64, 1),
-        opacity 320ms ease;
     box-shadow:
         0 10px 30px rgba(0, 0, 0, 0.24),
         0 2px 6px rgba(0, 0, 0, 0.12);
-}
-
-/* Minimised state — shrinks the capsule as the visitor scrolls a list down,
-   restores on scroll up (mirrors `.tabBarMinimizeBehavior(.onScrollDown)`). */
-.lg-tabbar.lg-tabbar-min {
-    transform: translateY(120%);
-    opacity: 0.85;
 }
 
 .lg-blur,
@@ -441,8 +434,11 @@ body.suppress-sheet-anim [data-state="closed"] {
 
 .lg-blur {
     z-index: 0;
-    backdrop-filter: blur(22px) saturate(180%) brightness(1.06) contrast(1.04);
-    -webkit-backdrop-filter: blur(22px) saturate(180%) brightness(1.06) contrast(1.04);
+    /* Frosted-blur strong enough for the colour behind to bleed through, gentle
+       enough that individual shapes stay hinted rather than smeared to mush.
+       28px hits Apple's Liquid Glass "you can still tell what's behind" band. */
+    backdrop-filter: blur(28px) saturate(190%) brightness(1.06) contrast(1.04);
+    -webkit-backdrop-filter: blur(28px) saturate(190%) brightness(1.06) contrast(1.04);
 }
 
 .lg-tint {
@@ -553,4 +549,31 @@ body.suppress-sheet-anim [data-state="closed"] {
    there. */
 body.pwa-standalone {
     padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 78px);
+}
+
+/* Homescreen PWA on iPhones extends the WebView under the Dynamic Island / notch
+   (thanks to `viewport-fit=cover`), which means our sticky site header ends up
+   with its logo and burger button behind the island — unreachable. Push the
+   header content down by the top safe-area inset ONLY when standalone; a plain
+   browser tab has its own browser chrome above and doesn't need the offset.
+   Skipped when the notifications prompt is above the header (it already reserves
+   the island's height for us), so the two do not stack a double gap. */
+body.pwa-standalone [data-testid="header-bar"] {
+    padding-top: env(safe-area-inset-top, 0px);
+}
+body.pwa-standalone:has([data-testid="notify-prompt"]) [data-testid="header-bar"] {
+    padding-top: 0;
+}
+
+/* The car page's condensed title/price/save bar (`DetailStickyBar`) is `fixed` at
+   `4rem + 1px` from the top — the exact bottom edge of the header. That formula
+   knows nothing about the Dynamic-Island safe-area we just added to the header
+   in standalone, so on iPhone the bar slid up UNDER the logo/menu row. Same
+   offset math, plus the top inset when standalone, keeps it hugging the header
+   bottom on every device. */
+body.pwa-standalone [data-testid="detail-sticky-bar"] {
+    top: calc(var(--admin-bar-h, 0px) + env(safe-area-inset-top, 0px) + 4rem + 1px);
+}
+body.pwa-standalone:has([data-testid="notify-prompt"]) [data-testid="detail-sticky-bar"] {
+    top: calc(var(--admin-bar-h, 0px) + 4rem + 1px);
 }

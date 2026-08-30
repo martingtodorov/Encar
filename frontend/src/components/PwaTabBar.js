@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Search, Heart, Bookmark, Ship, Share2 } from "lucide-react";
 import { toast } from "sonner";
@@ -31,31 +30,6 @@ export const PwaTabBar = () => {
   const { path } = useLangNav();
   const location = useLocation();
   const standalone = useDisplayMode();
-  const [minimized, setMinimized] = useState(false);
-
-  // Minimize on scroll down, restore on scroll up. Mirrors iOS 26's
-  // `.tabBarMinimizeBehavior(.onScrollDown)` so long lists don't fight the bar for
-  // vertical real estate.
-  useEffect(() => {
-    if (!standalone) return undefined;
-    let lastY = window.scrollY || 0;
-    let ticking = false;
-    const onScroll = () => {
-      if (ticking) return;
-      ticking = true;
-      requestAnimationFrame(() => {
-        const y = window.scrollY || 0;
-        const delta = y - lastY;
-        if (Math.abs(delta) > 8) {
-          setMinimized(delta > 0 && y > 80);
-          lastY = y;
-        }
-        ticking = false;
-      });
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, [standalone]);
 
   if (!standalone) return null;
 
@@ -95,7 +69,10 @@ export const PwaTabBar = () => {
     <nav
       data-testid="pwa-tabbar"
       aria-label={t("pwaTabBarAria")}
-      className={`lg-tabbar ${minimized ? "lg-tabbar-min" : ""}`}
+      // Deliberately static: hiding on scroll-down and springing back on scroll-up made
+      // the whole bar feel jittery on long lists, and the visitor complained. The bar
+      // now stays anchored to the safe-area bottom for the whole session.
+      className="lg-tabbar"
     >
       {/* Layer 1: base blur + adaptive tint. Real refraction (SVG displacement) is
           Chromium-only and the actual iOS PWA runs on Safari, so we ship the frosted

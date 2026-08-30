@@ -95,7 +95,15 @@ export const InstallBanner = () => {
         data-testid="install-banner"
         role="region"
         aria-label={t("installBannerAria")}
-        className="sticky top-0 z-40 flex items-center gap-3 border-b border-border bg-[hsl(var(--primary))] px-3 py-2 text-primary-foreground shadow-sm sm:px-4"
+        // Deliberately NOT sticky. Two prior bugs came from making it stick:
+        //   * the header AND car-detail's sticky title stack at top-0 with z-40, and any
+        //     top-of-page bar competes with them for that slot — the car title vanished
+        //     underneath our own logo.
+        //   * on standalone iOS with `viewport-fit=cover`, a sticky top row would live
+        //     behind the Dynamic Island and be unreachable.
+        // Non-sticky, the banner scrolls away naturally and every other bar keeps its
+        // place. Visitors who dismiss it get the 30-day cookie either way.
+        className="relative z-40 flex items-center gap-3 border-b border-border bg-[hsl(var(--primary))] px-3 py-2 text-primary-foreground shadow-sm sm:px-4"
       >
         <button
           type="button"
