@@ -909,6 +909,7 @@ export default function SearchPage() {
               <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
                 <SheetContent
                   side="left"
+                  data-testid="filters-sheet-panel"
                   className={`flex w-[92vw] max-w-sm flex-col gap-0 bg-card p-0 ${
                     suppressSheetAnim ? "!animate-none !duration-0" : ""
                   }`}

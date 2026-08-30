@@ -565,6 +565,19 @@ body.pwa-standalone [data-testid="header-bar"] {
     padding-top: max(0px, calc(env(safe-area-inset-top, 0px) - var(--header-top, 0px)));
 }
 
+/* Sheets that dock to the top edge of the viewport (the burger pop-down menu, the
+   filters drawer) are `top: 0` by Radix default, which in a homescreen PWA puts
+   their title row AND their close button behind the Dynamic Island. Moving the
+   whole panel down by the inset — rather than padding it — keeps the absolutely
+   positioned close button reachable too. */
+body.pwa-standalone [data-testid="nav-drawer-panel"] {
+    top: env(safe-area-inset-top, 0px);
+}
+body.pwa-standalone [data-testid="filters-sheet-panel"] {
+    top: env(safe-area-inset-top, 0px);
+    height: auto;
+}
+
 /* Bars that hang off the bottom edge of the header (`DetailStickyBar`, the mobile
    "change filters" bar) no longer guess `4rem + env(safe-area-inset-top)`: the
    header measures itself and publishes `--header-h`, which already contains the
