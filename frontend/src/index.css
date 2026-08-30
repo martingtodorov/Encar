@@ -440,8 +440,8 @@ body.suppress-sheet-anim [data-state="closed"] {
     /* Frosted-blur strong enough for the colour behind to bleed through, gentle
        enough that individual shapes stay hinted rather than smeared to mush.
        28px hits Apple's Liquid Glass "you can still tell what's behind" band. */
-    backdrop-filter: blur(12px) saturate(170%) brightness(1.04);
-    -webkit-backdrop-filter: blur(12px) saturate(170%) brightness(1.04);
+    backdrop-filter: blur(6px) saturate(150%) brightness(1.03);
+    -webkit-backdrop-filter: blur(6px) saturate(150%) brightness(1.03);
 }
 
 .lg-tint {
@@ -555,17 +555,14 @@ body.pwa-standalone {
 }
 
 /* Homescreen PWA on iPhones extends the WebView under the Dynamic Island / notch
-   (thanks to `viewport-fit=cover`), which means our sticky site header ends up
-   with its logo and burger button behind the island — unreachable. Push the
-   header content down by the top safe-area inset ONLY when standalone; a plain
-   browser tab has its own browser chrome above and doesn't need the offset.
-   Skipped when the notifications prompt is above the header (it already reserves
-   the island's height for us), so the two do not stack a double gap. */
+   (thanks to `viewport-fit=cover`), so the sticky header's logo and burger button
+   end up behind the island — unreachable. The reserve is dynamic: whatever is
+   already above the header (the notifications prompt at scroll 0) counts towards
+   it via `--header-top`, and it grows back to the full inset as that scrolls away
+   and the header locks to the top edge. A static padding was either a double gap
+   or, once the prompt scrolled off, no protection at all. */
 body.pwa-standalone [data-testid="header-bar"] {
-    padding-top: env(safe-area-inset-top, 0px);
-}
-body.pwa-standalone:has([data-testid="notify-prompt"]) [data-testid="header-bar"] {
-    padding-top: 0;
+    padding-top: max(0px, calc(env(safe-area-inset-top, 0px) - var(--header-top, 0px)));
 }
 
 /* Bars that hang off the bottom edge of the header (`DetailStickyBar`, the mobile
@@ -583,9 +580,19 @@ body.pwa-standalone:has([data-testid="notify-prompt"]) [data-testid="header-bar"
 body.pwa-standalone {
     --safe-top: env(safe-area-inset-top, 0px);
 }
-/* Once the header hides on scroll-down, the filters bar becomes the topmost thing
-   on screen, so it has to paint the island strip itself — otherwise the page
-   content shows through above it. */
-body.pwa-standalone [data-testid="floating-filters-bar"] {
+/* Homescreen PWA only: paint the Dynamic-Island strip permanently in the card
+   colour. Without it, whatever scrolls under the island shows through once the
+   header hides, and any bar pinned below the inset looks like it is floating over
+   a hole. Sits above the header (z-40) but below the tab bar (z-45) and never
+   swallows taps. */
+body.pwa-standalone::before {
+    content: "";
+    position: fixed;
+    top: var(--admin-bar-h, 0px);
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-top, 0px);
     background: hsl(var(--card));
+    z-index: 44;
+    pointer-events: none;
 }

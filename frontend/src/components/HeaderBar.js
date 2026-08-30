@@ -29,7 +29,14 @@ export const HeaderBar = ({ hidden = false, onBack, flush = false }) => {
       const r = node.getBoundingClientRect();
       const root = document.documentElement.style;
       root.setProperty("--header-h", `${Math.round(r.height)}px`);
-      root.setProperty("--header-bottom", `${Math.max(0, Math.round(r.bottom))}px`);
+      // How far below the viewport top the header currently sits (0 once it is stuck).
+      // The island padding is derived from this in CSS, so the header only reserves
+      // the Dynamic-Island height when nothing else is above it doing that job.
+      root.setProperty("--header-top", `${Math.max(0, Math.round(r.top))}px`);
+      // NOT clamped at 0: while the header slides away its bottom goes negative, and
+      // the bars glued to it need that live value to travel with it instead of
+      // jumping. Consumers clamp with `max(var(--safe-top), ...)` in CSS.
+      root.setProperty("--header-bottom", `${Math.round(r.bottom)}px`);
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(publish);

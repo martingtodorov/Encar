@@ -780,14 +780,12 @@ export default function SearchPage() {
         // it under the header's z-40. Both offsets add `--admin-bar-h`, because the admin
         // traffic bar is pinned above everything and pushes the header down with it.
         data-testid="floating-filters-bar"
-        className={`fixed inset-x-0 z-30 -mt-px transition-all duration-300 lg:hidden ${
-          headerHidden
-            // Header gone: the bar becomes the topmost thing on screen, so it must
-            // OWN the Dynamic-Island strip (card background + inset as padding)
-            // instead of starting below it and leaving a floating empty gap.
-            ? "top-[var(--admin-bar-h,0px)] bg-card pt-[var(--safe-top,0px)]"
-            : "top-[var(--header-bottom,4rem)]"
-        } ${
+        // Glued to the header's live bottom edge (`--header-bottom` tracks the
+        // hide-on-scroll transform frame by frame), so the bar travels UP WITH the
+        // header instead of jumping to a second offset — the jump is what made it
+        // flash behind the menu for a split second. Only opacity/transform are
+        // transitioned; animating `top` would re-introduce the lag.
+        className={`fixed inset-x-0 top-[max(var(--safe-top,0px),var(--header-bottom,4rem))] z-30 -mt-px transition-[opacity,transform] duration-300 lg:hidden ${
           triggerOffscreen
             ? "pointer-events-auto opacity-100"
             : "pointer-events-none -translate-y-16 opacity-0"
