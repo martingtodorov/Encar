@@ -109,28 +109,28 @@ export const PwaTabBar = () => {
         <Tab
           testid="pwa-tab-search"
           to={path("/")}
-          label={t("navSearch")}
+          label={t("pwaTabSearch")}
           icon={Search}
           active={activeTab === "search"}
         />
         <Tab
           testid="pwa-tab-saved"
           to={path("/saved")}
-          label={t("savedCars")}
+          label={t("pwaTabSaved")}
           icon={Heart}
           active={activeTab === "saved"}
         />
         <Tab
           testid="pwa-tab-searches"
           to={path("/searches")}
-          label={t("savedSearches")}
+          label={t("pwaTabSearches")}
           icon={Bookmark}
           active={activeTab === "searches"}
         />
         <Tab
           testid="pwa-tab-track"
           to={path("/track")}
-          label={t("navTrack")}
+          label={t("pwaTabTrack")}
           icon={Ship}
           active={activeTab === "track"}
         />

@@ -6,6 +6,10 @@ import { CookieBar } from "@/components/CookieBar";
 import { ScrollToTop } from "@/components/ScrollToTop";
 import { SiteFooter } from "@/components/SiteFooter";
 import { AdminTrafficBar } from "@/components/AdminTrafficBar";
+import { InstallBanner } from "@/components/InstallBanner";
+import { NotificationsPrompt } from "@/components/NotificationsPrompt";
+import { PwaTabBar } from "@/components/PwaTabBar";
+import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { LANGS } from "@/i18n";
 import { stripLang } from "@/lib/seo";
 import { allows, onConsentChange } from "@/lib/consent";
@@ -109,14 +113,33 @@ export const LangLayout = () => {
     return () => clearTimeout(timer.current);
   }, [pathname, valid]);
 
+  // Standalone (homescreen PWA) needs extra bottom padding on <body> so the floating
+  // Liquid Glass tab bar does not cover the last row of content. The class flips
+  // reactively if the OS toggles display-mode mid-session (rare on desktop, real on
+  // Chrome/Edge multi-window PWAs).
+  const standalone = useDisplayMode();
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    document.body.classList.toggle("pwa-standalone", standalone);
+    return () => document.body.classList.remove("pwa-standalone");
+  }, [standalone]);
+
   if (!valid) return <LangRedirect />;
   return (
     <>
       <AdminTrafficBar />
+      {/* Install nag shown in a browser tab; enable-push nag shown once installed.
+          Only one of them can ever be visible because they gate on opposite states
+          of `display-mode: standalone`. */}
+      {standalone ? <NotificationsPrompt /> : <InstallBanner />}
       <ScrollToTop />
       <Outlet />
       <SiteFooter />
       <CookieBar />
+      {/* Floating Liquid Glass bottom bar — only in standalone. Rendered after the
+          footer so it stacks above every fixed layer while never appearing in a
+          plain browser tab (that already has Safari/Chrome's own toolbar). */}
+      <PwaTabBar />
     </>
   );
 };
