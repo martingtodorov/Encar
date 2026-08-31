@@ -14,7 +14,36 @@ Encar (uses the visitor's IP), with:
 * strict GDPR compliance
 * mobile.bg bot integration
 
-## Recently completed (this session)
+## Recently completed (2026-08-31 session) — full detail in CHANGELOG.md
+* **PWA Liquid Glass tab bar finished**: blur down to 3px, saturation 112%, see-through
+  white/dark tint, rim refraction layer (no chromatic aberration — added then removed on
+  request), capsule lowered clear of the home indicator, ONE travelling active pill that
+  slides between tabs, swells under the finger, and supports drag-to-scrub (release picks the
+  tab). Long-press link preview disabled.
+* **Dynamic Island / sticky-bar overlaps root-caused and fixed**: the island inset is now
+  reserved once on `<body>`, the header has a constant height and publishes only `--header-h`,
+  and dependent bars position themselves in pure CSS (no rAF scroll tracking). `DetailStickyBar`
+  is `sticky` on mobile so it cannot separate from the sticky header during iOS overscroll.
+* **Favourites + saved searches are SERVER-ONLY.** No localStorage copy at all; legacy keys are
+  deleted on load; mutators no-op when signed out; a `hydratedFor` guard stops an un-hydrated
+  empty list from wiping the account. Cookie policy updated accordingly (bg/ro/en).
+* **Notifications**: banner recoloured to the install banner's red; signed-out visitors are sent
+  to sign in instead of being offered push (nothing server-side exists to notify them about);
+  new `NotifyConsentDialog` asks for push the moment a buyer signs in inside the installed app.
+* **Lightbox zoom is ours, not the browser's**: native zoom disabled; pinch, double-tap, pan,
+  wheel/ctrl+wheel, macOS Safari `gesturechange`, `+`/`−`/`0` keys and an on-screen −/%/+
+  control. Native zoom disabled entirely in the multi-photo column.
+
+## Awaiting user decision
+* **Production domain**: user says the real URL is `encareurope.com` or `encareu.com`. Nothing is
+  hardcoded — `PUBLIC_SITE_URL` (backend) and `REACT_APP_SITE_URL` (frontend) drive canonicals,
+  sitemaps, OG tags and email links, and are set at deploy time (they must stay on the preview
+  host in preview). Open questions: (1) which domain is canonical, so the other can 301 to it;
+  (2) whether to serve `robots.txt` dynamically from `PUBLIC_SITE_URL` — it currently hardcodes
+  the preview host in its `Sitemap:` line. `src/content/company.js` also defaults to
+  `encareurope.com` (overridden by Admin CMS).
+
+## Recently completed (earlier sessions)
 * **Encar sync retire safety guard + submodel breadcrumb + one-line breadcrumbs** (2026-02-20).
   Root-caused why the live catalogue was dropping day after day: a silent Encar 407/5xx
   return would make `encar.count()` yield 0, the crawl walked 0 rows, and the retire pass

@@ -122,8 +122,24 @@ export default function CarDetailPage() {
   const [shot, setShot] = useState(null);
   // Mobile: tap the hero photo → open the vertical column of all photos. Tapping any
   // photo inside that column then hands off to the single-photo lightbox (`shot`),
-  // which is where native pinch-zoom works cleanly.
+  // which owns the zoom (pinch + double tap, ours, not the browser's).
   const [lightbox, setLightbox] = useState(false);
+
+  // No zoom at all in the photo column. `touch-action: pan-y` on the panel covers
+  // Chrome/Android, but Safari's pinch arrives as `gesture*` events on the document and
+  // is only stoppable here — and only with a non-passive listener.
+  useEffect(() => {
+    if (!lightbox) return undefined;
+    const stop = (e) => e.preventDefault();
+    document.addEventListener("gesturestart", stop, { passive: false });
+    document.addEventListener("gesturechange", stop, { passive: false });
+    document.addEventListener("gestureend", stop, { passive: false });
+    return () => {
+      document.removeEventListener("gesturestart", stop);
+      document.removeEventListener("gesturechange", stop);
+      document.removeEventListener("gestureend", stop);
+    };
+  }, [lightbox]);
 
   const openPhotos = (i) => {
     if (window.matchMedia("(min-width: 1024px)").matches) setShot(i);
@@ -993,6 +1009,10 @@ export default function CarDetailPage() {
           // The stock close button is absolute inside this scrolling column, so it slides
           // out of reach on the second photo. Hidden here in favour of the sticky one below.
           className="max-h-[92vh] max-w-4xl overflow-y-auto border-border bg-black p-0 [&>button]:hidden"
+          // Native zoom off entirely in the photo column: `pan-y` leaves scrolling intact
+          // but forbids pinch, and the `gesture*` handlers below stop Safari's own
+          // document zoom. Zooming here dragged the sticky close button out of reach.
+          style={{ touchAction: "pan-y" }}
         >
           <DialogTitle className="sr-only">{car?.title || t("allPhotos")}</DialogTitle>
           <DialogDescription className="sr-only">

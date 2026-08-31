@@ -1894,3 +1894,114 @@ browser binary is missing in this pod (`playwright install`).
 - Final state: 마이바흐 make holds ONLY the 6 legacy listings (57 x2, 62 x3, 62s x1) —
   all currently `active=False` (upstream crawl hasn't seen them this cycle, separate
   issue that user confirmed is "working now").
+
+## 2026-08-31 — PWA polish, server-only account lists, custom lightbox zoom
+
+### PWA / Liquid Glass tab bar (`PwaTabBar.js`, `index.css`)
+- Blur walked down on user request: 28px -> 12 -> 6 -> **3px**, saturation 190% -> **112%**,
+  `brightness`/`contrast` dropped (they read as "washed out" at low blur).
+- Tint: light `rgba(255,255,255,.48)`, dark `rgba(18,18,22,.48)` — see-through veil per user.
+- Capsule sits lower: `bottom: max(8px, calc(env(safe-area-inset-bottom) - 14px))`. Earlier
+  `- 24px` overlapped the iPhone home-indicator line (user caught it), `+ 2px` floated too high.
+- Height 60 -> 66px, radius 33px (true capsule), icon 32 -> 26px, tab padding 4px/6px.
+- REFRACTION (`.lg-refract`, new layer between blur and tint): a much stronger blur
+  (22px/sat 240%) MASKED to the outer rim by two union-composited gradient masks (horizontal +
+  vertical). Safari does NOT support SVG displacement maps in `backdrop-filter`, so real
+  Apple-style refraction is impossible in a browser; an SVG filter there would have voided the
+  whole `backdrop-filter` and killed the blur on iPhone.
+- Chromatic aberration was added on request, then REMOVED entirely on request. Rim is neutral
+  white on all four edges again.
+- Active pill: was one `.lg-tab-pill` per tab (could only blink); now ONE `.lg-pill` for the
+  bar, positioned by measuring the active tab. Covers icon AND label, `border-radius: 9999px`.
+- Pill motion: position rides the CSS `translate` property (NOT `transform`) so `scale` can be
+  animated independently. Page change = 460ms `cubic-bezier(.32,.72,0,1)` slide; finger down =
+  `scale: 1.06 1.12` swell (220ms, slight overshoot); during a drag `translate` is written raw
+  with no transition (easing there reads as lag).
+- DRAG-TO-SCRUB: pointer capture on `.lg-tabs`, `touch-action: none`, free-form clamped x under
+  the finger, nearest-tab resolution on release, `go(TAB_ROUTES[key])` to navigate, and a
+  one-shot `suppressClick` so the anchor's retargeted click does not navigate twice. Plain taps
+  still navigate natively.
+- BUG FOUND+FIXED while testing: `go()` already applies the language prefix, so
+  `go(path("/searches"))` produced `/bg/bg/searches`, which SearchPage parsed as make/model
+  slugs (make=bg, model=searches).
+- Long-press link preview killed: `-webkit-touch-callout: none` + `onContextMenu` prevented.
+
+### Dynamic Island / sticky bar overlaps (the recurring one)
+- ROOT CAUSE of the "car title bar follows the menu" / jitter complaints: the header carried a
+  DYNAMIC `padding-top` (island inset minus whatever was above it), so its height changed on
+  every scroll frame while a banner scrolled away, and every bar hanging off it chased the
+  change. Second cause: those bars read a `--header-bottom` published from a rAF scroll
+  listener, i.e. always one frame behind.
+- FIX: the island inset is reserved ONCE on `body.pwa-standalone { padding-top: env(...) }`.
+  Header height is constant, sticky at `calc(var(--admin-bar-h) + var(--safe-top))`, and
+  publishes only `--header-h` (ResizeObserver, no scroll listener). Dependent bars position
+  themselves in pure CSS from `--header-h`. `--header-bottom` and `--header-top` are gone.
+- `DetailStickyBar` is now `sticky` on mobile / `fixed` on `lg`. It was `fixed` while the
+  header is `sticky`: during iOS rubber-band overscroll a fixed bar is welded to the viewport
+  while a sticky header travels with the content, so the two visibly came apart. Removed the
+  matching `pt-[72px]` compensation on the detail container (the bar reserves its own height).
+- Pop-down sheets (burger menu, filters drawer) reserve the inset as `padding-top` and offset
+  their absolutely-positioned close button by `calc(.75rem + inset)`. First attempt moved the
+  whole panel down with `top: env(...)` and exposed the dialog's BLACK overlay in the island
+  strip (user reported "black above the menu").
+- `body.pwa-standalone::before` paints the island strip in the card colour (z-index 44, below
+  the tab bar, above the header) so nothing shows through once the header scrolls away.
+
+### Notifications
+- `NotificationsPrompt` recoloured to the install banner's red (`--primary` + white text).
+- Signed-out visitors are NOT offered push. Copy switches to "sign in to get notifications" and
+  the CTA goes to `/login`. Reason (user's call): every notification is about a saved search or
+  saved car, both of which live on the account, so an anonymous device would subscribe to
+  silence — and `searchwatch.py` only walks `db.users`.
+- NEW `NotifyConsentDialog.js`: asks for push the moment a buyer signs in INSIDE the installed
+  app. Fires on the signed-out -> signed-in transition only (gated on `loading` so a restored
+  session on cold start is not mistaken for a login). Shares the 30-day dismissal key with the
+  banner; "Not now" snoozes 7 days. New i18n keys in bg/ro/en/pl: `notifyPromptLoginTitle`,
+  `notifyPromptLoginBody`, `notifyPromptLogin`, `notifyPromptLater`.
+
+### Favourites + saved searches are now SERVER-ONLY (user: "Всичко трябва да е в сървъра")
+- `AppContext`: both lists are in-memory only, hydrated from the account. All `localStorage`
+  writes removed; a mount effect deletes the legacy `encar.favourites` / `encar.searches` keys.
+  `authedRef` + `setAuthed` make every mutator a no-op when signed out (backstop behind the
+  existing `requireAccount` UI gate).
+- `AuthContext`: merge-on-login is gone (nothing local exists to merge) — `adopt(user)` takes
+  `user.favourites` / `user.saved_searches` straight from `_public(user)`.
+- SAFETY GUARD: `hydratedFor` ref. The two debounced (800ms) PUT syncs refuse to run until the
+  in-memory lists belong to the signed-in user, otherwise an un-hydrated empty list could
+  overwrite and erase the whole account list.
+- GDPR: the cookie policy in `src/content/legal.js` (bg/ro/en) declared those two localStorage
+  entries. Those bullets were removed — the policy no longer describes storage we do not do.
+
+### Lightbox zoom is OURS, not the browser's (`Lightbox.jsx`)
+- Single-photo viewer: native zoom disabled (`touch-action: none`) and replaced with pinch,
+  double-tap (2.5x at the tapped point), one-finger pan while zoomed (swipe still navigates at
+  1x), clamped to 1x–4x with translation limited so the photo's edge never enters the frame.
+  Zoom-to-point maths: `t1 = p - (s1/s0)(p - t0)`.
+- Desktop: double-click, wheel-to-zoom at the cursor, ctrl+wheel (trackpad pinch on
+  Chrome/Firefox), macOS Safari trackpad pinch driven from `gesturechange`'s `e.scale` (Safari
+  does not send ctrl+wheel — it was only being cancelled), `+` `−` `0` keys, and an on-screen
+  −/%/+ control (`lightbox-zoom-out|reset|in`) that doubles as the "you are zoomed" cue.
+- Multi-photo column (`detail-lightbox`): native zoom off entirely — `touch-action: pan-y` plus
+  document-level `gesture*` prevention while open (Safari's pinch is only stoppable there).
+  Zooming used to drag the sticky close button out of reach.
+- BUG FOUND+FIXED by simulated-pinch testing: `zoomRef` was synced by an effect, so when
+  `touchmove` and `touchend` land in the same task (a quick pinch) `touchend` read a stale 1x,
+  concluded the photo was not zoomed and threw the gesture away. Gesture handlers now write
+  `zoomRef` synchronously via `applyZoom()` and mirror into state for rendering.
+- Touch/gesture/wheel listeners are attached by hand with `{passive: false}`: React registers
+  touchstart/touchmove/wheel passively at the root, where `preventDefault()` is ignored.
+
+### Notes
+- Production domain (user): **encareurope.com** or **encareu.com**. Nothing is hardcoded —
+  `PUBLIC_SITE_URL` (backend) and `REACT_APP_SITE_URL` (frontend) drive canonicals, sitemaps,
+  OG tags and email links; they stay on the preview host in preview and are set at deploy.
+  Two things would still point at the preview host in production:
+  `frontend/public/robots.txt` (hardcoded Sitemap line) and the default in
+  `src/content/company.js`. AWAITING USER DECISION: which domain is canonical, and whether to
+  serve robots.txt dynamically from `PUBLIC_SITE_URL`.
+- Testing agent iteration_43: 9/9 frontend scenarios pass, `retest_needed: false`. It left
+  2 favourites (42341529, 41728299) and 1 saved search ("BMW") on the admin account.
+- REMINDER: the preview host is `encar-multi-lang.preview.emergentagent.com`. `encar-eu...`
+  from an older handoff is stale and returns "Preview Unavailable". Also: opening the app on
+  `localhost:3000` shows "Network Error" because the frontend calls the external backend URL —
+  always test against the preview host.
