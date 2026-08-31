@@ -15,6 +15,19 @@ import time
 
 import httpx
 
+from encar import image_url
+
+# The card tier the WEBSITE uses is 570x320 (16:9, centre-cropped, small watermark). Emails
+# render the same crop at half that, which is also 2x the 150x84 box in `_digest_car`, so the
+# picture stays sharp on a retina phone. One constant, so an email can never quietly drift to
+# a different photo or a different aspect than the site.
+CARD_W, CARD_H = 300, 169
+
+
+def car_thumb(photos):
+    """The car's lead photo, cropped exactly like its card on the website."""
+    return image_url((photos or [None])[0], CARD_W, CARD_H)
+
 log = logging.getLogger("mailer")
 
 # `configured()` only proves a key STRING is present. Resend can still reject it, and `_send`
@@ -244,10 +257,15 @@ async def send_price_drop(to, rows, lang="en"):
     """One email per person, listing every car of theirs that fell.
 
     One message per car would punish exactly the people who save the most cars.
+
+    Rendered with the same car block as the weekly digest, so a price drop arrives with the
+    car's PHOTO — the identical crop the website shows on its cards. It used to be a bare
+    line of text: the one email whose whole job is "look at this car again" was the one that
+    never showed the car.
     """
     t = DROP.get(lang) or DROP["en"]
     body = "".join(
-        _row(_esc(r["title"]), f'€{r["now_eur"]:,.0f} · {t["cut"]} {r["cut_pct"]}%')
+        _digest_car(r, lang, note=f'{t["cut"]} {r["cut_pct"]}%')
         for r in rows)
     html = _shell(t["heading"],
                   f'<tr><td colspan="2" style="padding:0 0 12px;color:#111">{t["body"]}'
@@ -357,9 +375,11 @@ def _digest_car(car, lang, note=""):
              f'{note}</div>') if note else ""
     title = _car_link(car["car_id"], _esc(car.get("title") or ""), lang)
     photo = car.get("image") or ""
-    img = (f'<img src="{photo}" width="150" height="100" alt="" '
+    # 150x84 is CARD_W:CARD_H halved. Email clients honour the width/height ATTRIBUTES, so a
+    # box in a different ratio than the file squashes the car rather than cropping it.
+    img = (f'<img src="{photo}" width="150" height="84" alt="" '
            'style="display:block;border:0;outline:none;text-decoration:none;'
-           'width:150px;height:100px;object-fit:cover;border-radius:8px;background:#eeeef0">'
+           'width:150px;height:84px;object-fit:cover;border-radius:8px;background:#eeeef0">'
            ) if photo else "&nbsp;"
     return (
         '<tr><td colspan="2" style="padding:0 0 10px">'

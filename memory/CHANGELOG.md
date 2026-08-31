@@ -2061,3 +2061,29 @@ browser binary is missing in this pod (`playwright install`).
   in any state. If the owner still perceives a mismatch, it is that dimming, not the border.
 - Dead `onShare` removed from `PwaTabBar` (it referenced `toast` after the import was dropped
   along with the share tab — a blocking lint error).
+
+### Car photos in emails (2026-08-31)
+- ROOT CAUSE, and it was worse than a wrong size: the price-drop email had NO photo at all.
+  `send_price_drop` rendered the text-only `_row()`, and `pricewatch.py` never even fetched
+  `photos` from Mongo. The one email whose entire job is "look at this car again" was the one
+  that never showed the car.
+- `mailer.car_thumb(photos)` + `CARD_W, CARD_H = 300, 169` is now the single source for every
+  email thumbnail. It is the same CDN transform the website's card uses (`image_url(p, 570,
+  320)` — same `impolicy`, same centre crop, same watermark), at half the size, which is also
+  2x the 150x84 box for retina. VERIFIED: email src and site src differ only in the size
+  numbers.
+- `send_price_drop` now renders each car with `_digest_car` (photo + title + price/year/km),
+  passing the cut as the red `note` line. `pricewatch.py` projection gained `photos`,
+  `year_month`, `mileage`; rows now carry `image`, `price_eur`, `year`, `mileage` (`now_eur`
+  became `price_eur` — it had exactly one reader). The push notification path is untouched: it
+  only reads `title`, `cut_pct`, `car_id`.
+- `_digest_car`'s photo box was 150x100 (3:2) while the file is 16:9 — email clients honour the
+  width/height ATTRIBUTES, so that squashed every car. Now 150x84.
+- `digest.py` uses `mailer.car_thumb()` in both places instead of its own `image_url(..., 300,
+  200)`, so digest and price-drop can no longer drift to different crops. Its now-unused
+  `image_url` import was removed.
+- `send_new_matches` was left alone: it has no callers anywhere (dead code — new-match alerts go
+  out as push, and the weekly digest carries the email).
+- Verified by building the real email HTML against a live listing: `<img>` present, absolute
+  https URL, 150x84 attrs, localised subject, cut note rendered, no `&nbsp;` placeholder.
+  DELIVERY still cannot be verified — the Resend API key is invalid.

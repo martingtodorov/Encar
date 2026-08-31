@@ -22,7 +22,6 @@ import mailer
 import notify
 import searchwatch
 import translate
-from encar import image_url
 
 log = logging.getLogger("digest")
 
@@ -88,7 +87,7 @@ async def top_viewed(db, limit=6, days=7):
     return [{
         "car_id": c["_id"],
         "title": searchwatch._title(c) or c["_id"],
-        "image": image_url((c.get("photos") or [None])[0], 300, 200),
+        "image": mailer.car_thumb(c.get("photos")),
         "price_eur": c.get("sale_eur") or 0,
         "year": (c.get("year_month") or 0) // 100 or None,
         "mileage": c.get("mileage"),
@@ -132,7 +131,7 @@ async def run(db, force=False):
                 "cars": [{
                     "car_id": c["_id"],
                     "title": searchwatch._title(c) or c["_id"],
-                    "image": image_url((c.get("photos") or [None])[0], 300, 200),
+                    "image": mailer.car_thumb(c.get("photos")),
                     "price_eur": c.get("sale_eur") or 0,
                     "year": (c.get("year_month") or 0) // 100 or None,
                     "mileage": c.get("mileage"),

@@ -52,8 +52,11 @@ async def run(db, notify_first_seen=False):
             continue
         cars = await db.listings.find(
             {"_id": {"$in": ids}},
+            # `photos`, `year_month` and `mileage` are here for the email: it shows the car's
+            # own photo and the same facts as the weekly digest, not just a line of text.
             {"manufacturer": 1, "model": 1, "manufacturer_t": 1, "model_t": 1,
-             "price_krw": 1, "sale_eur": 1, "active": 1}).to_list(len(ids))
+             "price_krw": 1, "sale_eur": 1, "active": 1,
+             "photos": 1, "year_month": 1, "mileage": 1}).to_list(len(ids))
 
         fallen = []
         for car in cars:
@@ -90,7 +93,11 @@ async def run(db, notify_first_seen=False):
         await _english(db, [f["car"] for f in fallen])
         rows = [{"title": _title(f["car"]) or f["car"]["_id"],
                  "car_id": f["car"]["_id"],
-                 "now_eur": f["car"].get("sale_eur") or 0,
+                 # Same keys the digest's car block reads, so both emails render identically.
+                 "image": mailer.car_thumb(f["car"].get("photos")),
+                 "price_eur": f["car"].get("sale_eur") or 0,
+                 "year": (f["car"].get("year_month") or 0) // 100 or None,
+                 "mileage": f["car"].get("mileage"),
                  "cut_pct": round((f["was_krw"] - f["now_krw"]) / f["was_krw"] * 100, 1)}
                 for f in fallen]
 
