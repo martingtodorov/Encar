@@ -2005,3 +2005,59 @@ browser binary is missing in this pod (`playwright install`).
   from an older handoff is stale and returns "Preview Unavailable". Also: opening the app on
   `localhost:3000` shows "Network Error" because the frontend calls the external backend URL —
   always test against the preview host.
+
+## 2026-08-31 (later) — My Encar tab, share buttons, canonical domain
+
+### PWA tab bar: share slot became "My Encar"
+- 5th tab is now the account (`UserRound`, `pwaTabAccount`): `/account` when signed in,
+  `/login` when not. It is a real route tab, so the pill lands on it, and it stays lit on
+  `/account`, `/login` and `/register`. Sharing moved to where the shared thing is.
+- CRITICAL BUG FOUND BY TESTING: plain taps on tabs stopped navigating when drag-to-scrub
+  introduced `setPointerCapture` — a captured pointer retargets the follow-up `click` to the
+  capture container, so the NavLink's own click never fired. `onPointerUp` now performs the
+  navigation for EVERY pointer interaction (tap included) and swallows the retargeted click.
+  Releasing more than 60px above/below the bar cancels instead of navigating. Keyboard
+  activation still reaches the anchor (a click with no pointer sequence).
+
+### Share buttons (standalone only, `useShare` hook in `src/hooks/useShare.js`)
+- `navigator.share` with a clipboard + toast fallback, one hook for all call sites.
+- Car page: in `DetailStickyBar` (which IS the car's header row on mobile), immediately left of
+  the favourite button, with byte-identical classes — verified 40x40 vs 40x40, same radius and
+  border. FIRST ATTEMPT WAS WRONG: it went into the page title row, which is wrapped in
+  `hidden ... lg:flex`, i.e. desktop-only, so nothing appeared on the phone (user caught it).
+  That desktop copy was kept for the desktop PWA.
+- Search page: beside the save-search button, matching `h-11 gap-2 rounded-[10px] px-4 text-sm`
+  and the same `hidden sm:inline` label rule — verified 50x44 vs 50x44, same padding and font.
+- New i18n key `pwaShareAria` ("Сподели" / "Partajează" / "Share" / "Udostępnij"); `pwaShare`
+  and the `Share2` import are gone from the tab bar.
+
+### Canonical domain: encareurope.com, with encareu.com redirecting (user's decision)
+- `canonical_host_middleware` in `server.py`: 301s any alias host onto `CANONICAL_HOST`,
+  preserving path and query. Registered after the CSRF middleware so it runs BEFORE it — an
+  alias request should be redirected, not token-checked. Inert while the env vars are unset,
+  which is how preview keeps working.
+- DEPLOY STEP (not set in preview .env on purpose):
+      CANONICAL_HOST=encareurope.com
+      REDIRECT_HOSTS=encareu.com,www.encareu.com,www.encareurope.com
+      PUBLIC_SITE_URL=https://encareurope.com      # canonicals, OG, sitemaps, email links
+      REACT_APP_SITE_URL=https://encareurope.com
+  Verified with a temporary env: `Host: encareu.com` on `/bg/car/41728299?make=bmw&page=2`
+  returned `301 -> https://encareurope.com/bg/car/41728299?make=bmw&page=2`; the canonical host
+  and the preview host returned 200. The temporary env was then removed and the inert
+  behaviour re-verified.
+- `GET /api/robots.txt` renders robots.txt with the `Sitemap:` line from `PUBLIC_SITE_URL`, so
+  it can never go stale. Route `/robots.txt` to it in nginx the way `/sitemap.xml` already is.
+  Until then the static `frontend/public/robots.txt` names `https://encareurope.com/sitemap.xml`.
+
+### Share button polish (same session)
+- Icon switched from lucide `Share2` (the three-node graph glyph) to `Share` — the iOS
+  box-with-an-arrow-out-the-top the owner asked for, by screenshot. Applied in all three
+  places: `DetailStickyBar`, `SearchPage`, `CarDetailPage` (desktop title row).
+- "Border is different" report: measured, and the borders are BYTE-IDENTICAL
+  (`1px solid rgb(223,226,231)`, same box-shadow, same background, same radius) whenever both
+  buttons are enabled. The only real difference was state: on the unfiltered home page the
+  save-search button is DISABLED and dims to `opacity: .6`, which reads as a lighter border.
+  Added the matching `disabled:opacity-60` to the share button so the pair cannot drift apart
+  in any state. If the owner still perceives a mismatch, it is that dimming, not the border.
+- Dead `onShare` removed from `PwaTabBar` (it referenced `toast` after the import was dropped
+  along with the share tab — a blocking lint error).

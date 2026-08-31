@@ -1,8 +1,8 @@
 import { forwardRef, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { Search, Heart, Bookmark, Ship, Share2 } from "lucide-react";
-import { toast } from "sonner";
+import { Search, Heart, Bookmark, Ship, UserRound } from "lucide-react";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { useLangNav } from "@/hooks/useLangNav";
 
@@ -19,15 +19,13 @@ import { useLangNav } from "@/hooks/useLangNav";
  *   heart → Saved cars
  *   bookmark → Saved searches
  *   ship → Track my vehicle
- *   share (Safari-style) → hand the current URL to the OS share sheet
+ *   person → My Encar (the account; sign-in/registration when there is no session yet)
  *
- * The share entry is intentionally NOT a route: on iOS/Android homescreen it invokes
- * the native share sheet through `navigator.share`, matching what buyers already do
- * from Safari's own bottom bar. When the API is missing (desktop PWA) we copy the URL
- * to the clipboard and surface a toast, so the button is never a dead-end.
+ * "My Encar" replaced a share entry here: sharing belongs next to the thing being shared
+ * (the car, the search), whereas a tab bar slot is worth more as the way into the account.
  */
 // Tab order matters: it is what the scrub gesture walks through.
-const TAB_KEYS = ["search", "saved", "searches", "track", "share"];
+const TAB_KEYS = ["search", "saved", "searches", "track", "account"];
 const TAB_ROUTES = {
   search: "/",
   saved: "/saved",
@@ -40,6 +38,12 @@ export const PwaTabBar = () => {
   const { path, go } = useLangNav();
   const location = useLocation();
   const standalone = useDisplayMode();
+  const { user } = useAuth();
+
+  // No session yet: the tab leads to sign-in rather than to an account page that would only
+  // bounce them there anyway.
+  const accountRoute = user ? "/account" : "/login";
+  const routeFor = (key) => (key === "account" ? accountRoute : TAB_ROUTES[key]);
 
   // Match the current route to a tab so the selected pill is right even for deep
   // routes (a car detail lives under Search, an enquiry list under Saved cars).
@@ -50,7 +54,11 @@ export const PwaTabBar = () => {
       ? "searches"
       : currentPath.startsWith("/track")
         ? "track"
-        : "search";
+        // Sign-in and registration are the account tab's own screens, so it stays lit while
+        // the visitor is on them.
+        : /^\/(account|login|register)/.test(currentPath)
+          ? "account"
+          : "search";
 
   const tabsRef = useRef(null);
   const tabRefs = useRef({});
@@ -94,25 +102,6 @@ export const PwaTabBar = () => {
   }, [shownTab, standalone]);
 
   if (!standalone) return null;
-
-  const onShare = async () => {
-    const url = window.location.href;
-    const title = document.title;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title, url });
-      } catch {
-        /* visitor cancelled or share failed — silence, no-op */
-      }
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      toast.success(t("pwaShareCopied"));
-    } catch {
-      toast.error(t("pwaShareFailed"));
-    }
-  };
 
   // Which tab sits under a given x. Falls back to the nearest one so a finger that
   // strays past the first or last tab still commits to something sensible.
@@ -163,29 +152,29 @@ export const PwaTabBar = () => {
 
   const onPointerUp = (e) => {
     if (!drag.current.active) return;
-    const key = tabAt(e.clientX);
-    const moved = drag.current.moved;
     drag.current.active = false;
     setPressed(false);
     // Dropping the free position hands the pill back to the measured tab geometry,
     // and the spring transition turns that into the snap.
     setDragX(null);
-    if (!moved) return; // a plain tap: let the link handle itself, natively
-    // A drag ends on whatever tab the finger was released over. The anchor's own
-    // click still fires afterwards (pointer capture retargets it), so it is swallowed
-    // once to avoid navigating twice.
+
+    // Released well away from the bar: the visitor slid off to change their mind.
+    const bar = tabsRef.current?.getBoundingClientRect();
+    const bailedOut = bar && (e.clientY < bar.top - 60 || e.clientY > bar.bottom + 60);
+
+    // We own navigation for EVERY pointer interaction, tap included. `setPointerCapture`
+    // retargets the follow-up `click` to this container instead of the anchor, so relying
+    // on the NavLink's own click left plain taps doing nothing at all. The flag swallows
+    // that retargeted click so a tap cannot navigate twice. Keyboard activation still
+    // reaches the anchor normally — it produces a click with no pointer sequence.
     drag.current.suppressClick = true;
-    // Share is not a route: nothing to commit to, so the pill springs back to the page
-    // the visitor is actually on.
-    if (key === "share") {
-      onShare();
-      return;
-    }
+    if (bailedOut) return;
+    const key = tabAt(e.clientX);
     if (!key) return;
     setScrub(key);
     // `go()` already applies the language prefix — passing `path()` into it produced
     // `/bg/bg/searches`, which the search page happily read as make/model slugs.
-    go(TAB_ROUTES[key]);
+    go(routeFor(key));
   };
 
   const onPointerCancel = () => {
@@ -273,19 +262,14 @@ export const PwaTabBar = () => {
           icon={Ship}
           active={activeTab === "track"}
         />
-        <button
-          type="button"
-          ref={(el) => { tabRefs.current.share = el; }}
-          data-testid="pwa-tab-share"
-          onClick={onShare}
-          onContextMenu={(e) => e.preventDefault()}
-          className="lg-tab"
-        >
-          <span className="lg-tab-icon">
-            <Share2 className="h-[22px] w-[22px]" aria-hidden="true" />
-          </span>
-          <span className="lg-tab-label">{t("pwaShare")}</span>
-        </button>
+        <Tab
+          ref={(el) => { tabRefs.current.account = el; }}
+          testid="pwa-tab-account"
+          to={path(accountRoute)}
+          label={t("pwaTabAccount")}
+          icon={UserRound}
+          active={activeTab === "account"}
+        />
       </div>
     </nav>
   );

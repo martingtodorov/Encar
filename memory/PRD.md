@@ -14,6 +14,20 @@ Encar (uses the visitor's IP), with:
 * strict GDPR compliance
 * mobile.bg bot integration
 
+## Domain (decided 2026-08-31)
+`encareurope.com` is CANONICAL; `encareu.com` is a redirecting domain onto it. The app-level
+half is implemented (`canonical_host_middleware` 301s aliases, preserving path + query) and is
+inert until the env vars below are set at deploy time — preview must keep its own host:
+
+    CANONICAL_HOST=encareurope.com
+    REDIRECT_HOSTS=encareu.com,www.encareu.com,www.encareurope.com
+    PUBLIC_SITE_URL=https://encareurope.com
+    REACT_APP_SITE_URL=https://encareurope.com
+
+Remaining (hosting-side, not code): point both domains' DNS at the app, and issue certificates
+for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
+`/api/robots.txt` in nginx so it follows `PUBLIC_SITE_URL` automatically.
+
 ## Recently completed (2026-08-31 session) — full detail in CHANGELOG.md
 * **PWA Liquid Glass tab bar finished**: blur down to 3px, saturation 112%, see-through
   white/dark tint, rim refraction layer (no chromatic aberration — added then removed on
@@ -35,13 +49,7 @@ Encar (uses the visitor's IP), with:
   control. Native zoom disabled entirely in the multi-photo column.
 
 ## Awaiting user decision
-* **Production domain**: user says the real URL is `encareurope.com` or `encareu.com`. Nothing is
-  hardcoded — `PUBLIC_SITE_URL` (backend) and `REACT_APP_SITE_URL` (frontend) drive canonicals,
-  sitemaps, OG tags and email links, and are set at deploy time (they must stay on the preview
-  host in preview). Open questions: (1) which domain is canonical, so the other can 301 to it;
-  (2) whether to serve `robots.txt` dynamically from `PUBLIC_SITE_URL` — it currently hardcodes
-  the preview host in its `Sitemap:` line. `src/content/company.js` also defaults to
-  `encareurope.com` (overridden by Admin CMS).
+* (none open — the domain question is settled above)
 
 ## Recently completed (earlier sessions)
 * **Encar sync retire safety guard + submodel breadcrumb + one-line breadcrumbs** (2026-02-20).

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { SlidersHorizontal, Loader2, RotateCcw, Bookmark, BookmarkCheck } from "lucide-react";
+import { SlidersHorizontal, Loader2, RotateCcw, Bookmark, BookmarkCheck, Share } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,6 +29,8 @@ import { formatNumber } from "@/lib/format";
 import { noteSearch, getTaste } from "@/lib/taste";
 import { takeBackScroll } from "@/lib/backScroll";
 import { useScrollDirection } from "@/hooks/useScrollDirection";
+import { useDisplayMode } from "@/hooks/useDisplayMode";
+import { useShare } from "@/hooks/useShare";
 import { useSeo, useJsonLd } from "@/lib/seo";
 import {
   EMPTY,
@@ -93,6 +95,8 @@ function tasteFor(key) {
 export default function SearchPage() {
   const { t, lang, currency, rates, cms, saveSearch, isSearchSaved } = useApp();
   const { requireAccount } = useGate();
+  const standalone = useDisplayMode();
+  const share = useShare();
   const { go } = useLangNav();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -989,6 +993,23 @@ export default function SearchPage() {
               </div>
 
               <div className="ml-auto flex items-center gap-2">
+                {/* Homescreen app only: no browser share button exists there, and a filtered
+                    search is exactly the thing buyers send to whoever is paying. */}
+                {standalone && (
+                  <Button
+                    data-testid="search-share-button"
+                    variant="outline"
+                    onClick={() => share({ title: document.title })}
+                    aria-label={t("pwaShareAria")}
+                    // Same box as the save-search button beside it: same height, radius,
+                    // border, padding, text size, label-hiding breakpoint AND the same
+                    // disabled dimming, so the pair never drifts apart in any state.
+                    className="h-11 gap-2 rounded-[10px] border border-input bg-background px-4 text-sm shadow-sm disabled:opacity-60"
+                  >
+                    <Share className="h-4 w-4 text-[hsl(var(--primary))]" aria-hidden="true" />
+                    <span className="hidden sm:inline">{t("pwaShareAria")}</span>
+                  </Button>
+                )}
                 <Button
                   data-testid="save-search-button"
                   variant="outline"

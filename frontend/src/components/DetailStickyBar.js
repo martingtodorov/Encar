@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Heart } from "lucide-react";
+import { Heart, Share } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PriceNote } from "@/components/PriceNote";
 import { titleModel } from "@/lib/format";
 import { useApp } from "@/context/AppContext";
+import { useDisplayMode } from "@/hooks/useDisplayMode";
+import { useShare } from "@/hooks/useShare";
 
 /**
  * Condensed car bar: what the car is, what it costs, and the save button.
@@ -14,6 +16,8 @@ import { useApp } from "@/context/AppContext";
  */
 export const DetailStickyBar = ({ car, price, saved, onToggleSave, showAfter = 340 }) => {
   const { t } = useApp();
+  const standalone = useDisplayMode();
+  const share = useShare();
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -67,6 +71,22 @@ export const DetailStickyBar = ({ car, price, saved, onToggleSave, showAfter = 3
           {price}
           <PriceNote testId="sticky-price-note" />
         </div>
+
+        {/* Homescreen app only: the installed app has no browser share button, and on
+            mobile this bar IS the car's header — the same row the save button lives in.
+            Identical classes to the save button on purpose: same box, same size. */}
+        {standalone && (
+          <Button
+            data-testid="sticky-share-button"
+            variant="outline"
+            onClick={() => share({ title: car?.title ? titleModel(car.title) : document.title })}
+            aria-label={t("pwaShareAria")}
+            title={t("pwaShareAria")}
+            className="h-10 w-10 shrink-0 rounded-[10px] border border-input bg-card p-0 shadow-sm hover:bg-muted"
+          >
+            <Share className="h-[18px] w-[18px] text-muted-foreground" aria-hidden="true" />
+          </Button>
+        )}
 
         <Button
           data-testid="sticky-save-button"

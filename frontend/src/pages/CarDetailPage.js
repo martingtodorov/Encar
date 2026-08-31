@@ -13,6 +13,7 @@ import {
   Calculator,
   ExternalLink,
   SearchX,
+  Share,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,8 @@ import { PriceNote } from "@/components/PriceNote";
 import { YouMightLike } from "@/components/YouMightLike";
 import { MoreFromModel } from "@/components/MoreFromModel";
 import { useLangNav } from "@/hooks/useLangNav";
+import { useDisplayMode } from "@/hooks/useDisplayMode";
+import { useShare } from "@/hooks/useShare";
 import { getCar, warmCar, forgetCar, countView } from "@/lib/api";
 import { noteView, WEIGHT } from "@/lib/taste";
 import { setBackScroll } from "@/lib/backScroll";
@@ -113,6 +116,8 @@ export default function CarDetailPage() {
   const { path } = useLangNav();
   const { t, lang, currency, rates, isFavourite, toggleFavourite } = useApp();
   const { requireAccount } = useGate();
+  const standalone = useDisplayMode();
+  const share = useShare();
 
   const [car, setCar] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -531,23 +536,40 @@ export default function CarDetailPage() {
                   </div>
                   <div className="text-[12px] text-muted-foreground">{t("finalPrice")}</div>
                 </div>
-                <Button
-                  data-testid="detail-save-button"
-                  variant="outline"
-                  onClick={() => requireAccount("car") && toggleFavourite(id, car)}
-                  aria-label={saved ? t("saved") : t("save")}
-                  title={saved ? t("saved") : t("save")}
-                  className="h-11 w-11 border-border bg-card p-0 hover:bg-muted"
-                >
-                  <Heart
-                    className={`h-5 w-5 ${
-                      saved
-                        ? "fill-[hsl(var(--primary))] text-[hsl(var(--primary))]"
-                        : "text-muted-foreground"
-                    }`}
-                    aria-hidden="true"
-                  />
-                </Button>
+                <div className="flex items-center gap-2">
+                  {/* Homescreen app only: sharing a car is the single most common thing a
+                      buyer does from a phone, and in the installed app there is no browser
+                      share button to fall back on. */}
+                  {standalone && (
+                    <Button
+                      data-testid="detail-share-button"
+                      variant="outline"
+                      onClick={() => share({ title: car?.title || document.title })}
+                      aria-label={t("pwaShareAria")}
+                      title={t("pwaShareAria")}
+                      className="h-11 w-11 border-border bg-card p-0 hover:bg-muted"
+                    >
+                      <Share className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+                    </Button>
+                  )}
+                  <Button
+                    data-testid="detail-save-button"
+                    variant="outline"
+                    onClick={() => requireAccount("car") && toggleFavourite(id, car)}
+                    aria-label={saved ? t("saved") : t("save")}
+                    title={saved ? t("saved") : t("save")}
+                    className="h-11 w-11 border-border bg-card p-0 hover:bg-muted"
+                  >
+                    <Heart
+                      className={`h-5 w-5 ${
+                        saved
+                          ? "fill-[hsl(var(--primary))] text-[hsl(var(--primary))]"
+                          : "text-muted-foreground"
+                      }`}
+                      aria-hidden="true"
+                    />
+                  </Button>
+                </div>
               </div>
             </div>
 

@@ -5,4 +5,9 @@ Allow: /
 # instead of a Disallow: a crawler that is not allowed to fetch a page can never see the
 # noindex on it, and a robots.txt full of private paths is a map of them.
 
-Sitemap: https://encar-multi-lang.preview.emergentagent.com/sitemap.xml
+# encareurope.com is the canonical host; encareu.com 301s onto it (see CANONICAL_HOST /
+# REDIRECT_HOSTS in the backend), so only the canonical host is advertised here.
+# A dynamic copy of this file that follows PUBLIC_SITE_URL is served at /api/robots.txt —
+# route /robots.txt to it in nginx the way /sitemap.xml already is, and this static file
+# stops needing edits on a domain change.
+Sitemap: https://encareurope.com/sitemap.xml

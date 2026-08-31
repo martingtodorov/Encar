@@ -31,7 +31,7 @@ from dotenv import load_dotenv
 from fastapi import (APIRouter, Depends, FastAPI, Header, HTTPException, Query,
                      Request, Response)
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import UpdateOne
@@ -2653,6 +2653,31 @@ async def _active_listings_count() -> int:
         {"active": True, "duplicate": {"$ne": True}, "under_contract": {"$ne": True}})
 
 
+@api.api_route("/robots.txt", methods=["GET", "HEAD"])
+async def robots_txt(request: Request):
+    """robots.txt with the Sitemap line built from PUBLIC_SITE_URL.
+
+    The static copy in `frontend/public/robots.txt` has to name an absolute host in its
+    `Sitemap:` directive, so it goes stale the moment the domain changes. This one cannot:
+    it reads the same base every canonical/OG URL is built from. Route it here in nginx the
+    way `/sitemap.xml` already is.
+    """
+    base = _share_base(request)
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "\n"
+        "# Nothing public is blocked. The account, admin and payment pages carry a noindex\n"
+        "# meta tag instead of a Disallow: a crawler that may not fetch a page can never see\n"
+        "# the noindex on it, and a robots.txt full of private paths is a map of them.\n"
+        "\n"
+        f"Sitemap: {base}/sitemap.xml\n"
+    )
+    return Response(body, media_type="text/plain; charset=utf-8",
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
+
 @api.api_route("/sitemap.xml", methods=["GET", "HEAD"])
 async def sitemap_index(request: Request):
     """Points at every child sitemap. Google fetches this first."""
@@ -4765,6 +4790,33 @@ async def csrf_middleware(request: Request, call_next):
         return JSONResponse({"detail": e.detail}, status_code=e.status_code)
     return await call_next(request)
 
+
+
+@app.middleware("http")
+async def canonical_host_middleware(request: Request, call_next):
+    """301 every alias host onto the one canonical host.
+
+    `encareu.com` is a redirecting domain for `encareurope.com` (the owner's call), and SEO
+    needs exactly one host answering 200 — two hosts serving identical pages split the
+    ranking and Google picks the canonical itself. Registered AFTER the CSRF middleware so
+    it runs BEFORE it: an alias request should be redirected, not token-checked.
+
+    Env-driven and inert when unset, which is how the preview host keeps working:
+      CANONICAL_HOST=encareurope.com
+      REDIRECT_HOSTS=encareu.com,www.encareu.com,www.encareurope.com
+    """
+    canonical = (os.environ.get("CANONICAL_HOST") or "").strip().lower()
+    if canonical:
+        aliases = {h.strip().lower() for h in
+                   (os.environ.get("REDIRECT_HOSTS") or "").split(",") if h.strip()}
+        host = (request.headers.get("host") or "").split(":")[0].lower()
+        if host and host in aliases and host != canonical:
+            target = f"https://{canonical}{request.url.path}"
+            if request.url.query:
+                target = f"{target}?{request.url.query}"
+            # 301: permanent, so the alias stops being fetched and the link equity moves.
+            return RedirectResponse(target, status_code=301)
+    return await call_next(request)
 
 
 @app.on_event("startup")
