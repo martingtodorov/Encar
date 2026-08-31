@@ -50,7 +50,7 @@ const NOTIFY = {
     installDialogTitle: "Добави към началния екран",
     installDialogIntro:
       "След добавянето можеш да включиш push известията и да получаваш известия за търсенията си дори когато сайтът е затворен.",
-    installIosStep1: "Докосни бутона за споделяне в Safari",
+    installIosStep1: "Натисни бутона за споделяне в Safari",
     installIosStep2: "Плъзни надолу и избери „Add to Home Screen“",
     installIosStep3: "Потвърди с „Add“ горе вдясно.",
     installAndroidStep1: "Докосни менюто с трите точки в Chrome",
