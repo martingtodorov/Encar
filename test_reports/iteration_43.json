@@ -24,7 +24,7 @@
   ],
   "updated_files": [],
   "success_rate": {"backend": "n/a (skipped)", "frontend": "100% (all 9 review scenarios pass — server-only storage, gate-on-signed-out, reload persistence, logout cleanup, PWA notify banner, notify consent dialog, tab bar pill + drag, sticky bars, drawers)"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! — worked",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> — worked",
   "seed_data_creation": "Left the admin account with 2 favourites (42341529, 41728299) and 1 saved search ('BMW', query=make=bmw) so the reload-persistence run had something to preserve. Main agent can wipe these via the profile page if they get in the way of the next test.",
   "retest_needed": false,
   "should_main_agent_self_test": false,

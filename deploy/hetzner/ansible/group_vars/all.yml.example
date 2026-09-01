@@ -82,8 +82,8 @@ admin_notify_email: "contact@encareurope.com"
 
 # The owner's own account. Seeded at startup: the admin flag is re-applied every restart, the
 # password only when the account has none, so a password changed in the profile survives.
-owner_email: "martingtodorov@gmail.com"
-owner_password: "Nero"
+owner_email: "you@example.com"
+owner_password: ""
 
 jsoncargo_api_key: ""
 # The carrier is a REQUIRED query parameter on every container lookup - JSONCargo answers 400

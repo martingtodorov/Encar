@@ -46,7 +46,7 @@
   ],
   "updated_files": [],
   "success_rate": {"backend": "100%", "frontend": "~93% (all functional flows pass; only failing item is the non-none box-shadow assertion in UI Consistency B)"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! (login redirected home, admin page accessible via /admin?tab=overview and shows all 3 tabs)",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> (login redirected home, admin page accessible via /admin?tab=overview and shows all 3 tabs)",
   "seed_data_creation": "none",
   "retest_needed": true,
   "should_main_agent_self_test": true,

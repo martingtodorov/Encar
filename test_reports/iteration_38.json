@@ -20,7 +20,7 @@
   ],
   "updated_files": [],
   "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% (13/13 scenarios)"},
-  "test_credentials": "martingtodorov@gmail.com / Nero (owner/admin) — used for signed-in flow and admin call-button + recommendations panels. No throwaway buyer needed; deposit dialog stopped at the /bg/login redirect for a signed-out user (matches spec).",
+  "test_credentials": "martingtodorov@gmail.com / <OWNER_PASSWORD from backend/.env> (owner/admin) — used for signed-in flow and admin call-button + recommendations panels. No throwaway buyer needed; deposit dialog stopped at the /bg/login redirect for a signed-out user (matches spec).",
   "seed_data_creation": "Saved one favourite (BMW M2) on the owner's account while verifying the signed-in heart flow. Left in place. Call-button hours were temporarily changed to test the open-hours branch and then restored to the owner defaults (Mon-Fri 09-18, Sat 10-15, Sun closed).",
   "retest_needed": false,
   "should_main_agent_self_test": false,

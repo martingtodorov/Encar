@@ -23,7 +23,7 @@ import pytest
 import requests
 
 BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
-ADMIN_TOKEN = "kR7wZq2mXv9TbNp4LdYs6HcJf1UgE3aQ"
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 ADMIN_HDR = {"x-admin-token": ADMIN_TOKEN}
 
 # listings that have Korean detail.contents.text

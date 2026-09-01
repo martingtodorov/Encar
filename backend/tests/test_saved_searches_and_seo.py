@@ -18,7 +18,7 @@ def _load_env():
 BASE_URL = _load_env().rstrip("/")
 assert BASE_URL, "REACT_APP_BACKEND_URL not configured"
 ADMIN_EMAIL = "admin@encarskin.com"
-ADMIN_PASS = "AdminTest2026!"
+ADMIN_PASS = os.environ.get("ADMIN_SEED_PASSWORD", "")
 
 
 @pytest.fixture

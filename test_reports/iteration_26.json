@@ -20,7 +20,7 @@
   ],
   "updated_files": [],
   "success_rate": {"backend": "100%", "frontend": "100%"},
-  "test_credentials": "Admin admin@encarskin.com / AdminTest2026! (header x-admin-token: encar-admin); buyers registered on the fly with password SecurityTest2026!",
+  "test_credentials": "Admin admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> (header x-admin-token: encar-admin); buyers registered on the fly with password SecurityTest2026!",
   "seed_data_creation": "Registered throwaway buyers and one BOL 'TESTBOL01' assignment; all cleaned up in /tmp/cleanup.py (23 buyers + their deposits/sessions/shipments and any reserved flag).",
   "retest_needed": false,
   "should_main_agent_self_test": false,

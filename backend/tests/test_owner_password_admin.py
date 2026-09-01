@@ -19,10 +19,10 @@ assert BASE_URL, "REACT_APP_BACKEND_URL not found"
 API = f"{BASE_URL}/api"
 
 OWNER_EMAIL = "martingtodorov@gmail.com"
-OWNER_PASSWORD = "Nero"
+OWNER_PASSWORD = os.environ.get("OWNER_PASSWORD", "")
 ADMIN_EMAIL = "admin@encarskin.com"
-ADMIN_PASSWORD = "AdminTest2026!"
-ADMIN_TOKEN = "kR7wZq2mXv9TbNp4LdYs6HcJf1UgE3aQ"
+ADMIN_PASSWORD = os.environ.get("ADMIN_SEED_PASSWORD", "")
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
 
 def _login(email, password):

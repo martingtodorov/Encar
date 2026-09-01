@@ -11,7 +11,7 @@
   ],
   "updated_files": ["/app/backend/tests/test_deposit_refund_e2e.py"],
   "success_rate": {"backend": "100% (15/15)", "frontend": "100% (all testids and states verified)"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! ; buyers e2e-refund-*@example.com / SecurityTest2026!",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> ; buyers e2e-refund-*@example.com / SecurityTest2026!",
   "seed_data_creation": "None left behind. Refunded deposit row (session cs_test_a1tzdgsC0FSQbU4uC62wCN6XIIm97vDUiV6aKKlIumTCZm1T66keRzbt4k, car 42317775, EUR 609.90, Stripe refund succeeded) is kept intentionally as history. No paid deposits or reserved cars remain. Synthetic archive_ok=false row was inserted and deleted.",
   "retest_needed": false,
   "main_agent_can_self_test": true,

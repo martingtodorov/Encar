@@ -28,7 +28,7 @@
   ],
   "updated_files": [],
   "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100%"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! used for saved-search regression. Throwaway registrations used qa+<timestamp>@example.com with password TestPass2026!.",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> used for saved-search regression. Throwaway registrations used qa+<timestamp>@example.com with password TestPass2026!.",
   "seed_data_creation": "3 throwaway users registered (qa+<ts>@example.com). 1 admin saved-search 2019+ created (still present on /en/searches after run).",
   "retest_needed": false,
   "main_agent_can_self_test": true,

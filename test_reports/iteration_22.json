@@ -22,7 +22,7 @@
     "/app/test_reports/iteration_22.json"
   ],
   "success_rate": {"backend": "100% (6/6 pytest)", "frontend": "100% (all 9 review items verified)"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! (used); x-admin-token: encar-admin",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> (used); x-admin-token: encar-admin",
   "seed_data_creation": "None persisted. Test used cookies only (ab_track, ab_taste, ab_vid) on the browser side. No backend state written for the anonymous-visitor flow (as designed).",
   "retest_needed": false,
   "should_main_agent_self_test": false,

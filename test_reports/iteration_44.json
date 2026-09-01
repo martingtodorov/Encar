@@ -33,7 +33,7 @@
     "/app/backend/tests/test_ai_usage_and_desc.py"
   ],
   "success_rate": {"backend": "88% (23/26 passing — 3 failures are Gemini free-tier 429 on parallel ro/pl fresh streams; not a code issue)", "frontend": "100% — every requested data-testid on /bg/admin?tab=ai is present, all interactions (range switch, budget save, report send, reload) work, Bulgarian copy correct, no console errors, car detail translate streams Korean→English fluently"},
-  "test_credentials": "martingtodorov@gmail.com / Nero — worked. Cookie consent testid is data-testid='cookie-accept' (Bulgarian button 'Приемам всички').",
+  "test_credentials": "martingtodorov@gmail.com / <OWNER_PASSWORD from backend/.env> — worked. Cookie consent testid is data-testid='cookie-accept' (Bulgarian button 'Приемам всички').",
   "seed_data_creation": "During testing db.ai_reports now contains a report doc for today (2026-09-01) from POST /api/admin/ai-report/send. db.settings.ai_budget was toggled 5 → 7.5 → 1000 (clamp) → 0.5 (clamp) → 5 and left at 5.0 (default). db.translations gained description + description_line rows for listings 42379471, 42379220, 41834945, 42345245 in bg/en (and ro for some).",
   "retest_needed": false,
   "should_main_agent_self_test": true,

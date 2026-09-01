@@ -73,7 +73,7 @@
   ],
   "updated_files": ["/app/backend/tests/test_saved_searches_and_seo.py"],
   "success_rate": {"backend": "100% (16/16)", "frontend": "100% on all covered flows"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! (from /app/memory/test_credentials.md)",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> (from /app/memory/test_credentials.md)",
   "seed_data_creation": "Created and later deleted transient saved search 'year_min=2019' on the admin account.",
   "retest_needed": false,
   "should_main_agent_self_test": false,

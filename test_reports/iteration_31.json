@@ -1,9 +1,9 @@
 {
-  "summary": "Full backend + frontend validation of owner seeding (martingtodorov@gmail.com / 'Nero'), profile password-change endpoint & UI, admin-rights toggle endpoint & admin panel Buyers tab, header first-name label, and gallery arrow visibility on the car detail page and result-list cards. 11/11 backend tests pass. All frontend flows work EXCEPT one clear bug: the grid result card (CarCard) never renders gallery arrows because CarCard.js does not pass the arrows prop to PhotoSwiper and the default is arrows=false. The detail page and CarRow correctly hide the left arrow on the first photo and the right arrow on the last photo.",
+  "summary": "Full backend + frontend validation of owner seeding (martingtodorov@gmail.com / '<OWNER_PASSWORD>'), profile password-change endpoint & UI, admin-rights toggle endpoint & admin panel Buyers tab, header first-name label, and gallery arrow visibility on the car detail page and result-list cards. 11/11 backend tests pass. All frontend flows work EXCEPT one clear bug: the grid result card (CarCard) never renders gallery arrows because CarCard.js does not pass the arrows prop to PhotoSwiper and the default is arrows=false. The detail page and CarRow correctly hide the left arrow on the first photo and the right arrow on the last photo.",
   "backend_issues": {
     "critical": [],
     "minor": [
-      {"endpoint": "POST /api/auth/password", "issue": "The 8-char MIN_PASSWORD is enforced on every new password. Once the owner changes their password, they can never set it back to 'Nero' through the API. The seed only writes password when password_hash is empty, so restoration requires clearing the hash in Mongo. Not a bug per owner request, but a real risk — flag it."}
+      {"endpoint": "POST /api/auth/password", "issue": "The 8-char MIN_PASSWORD is enforced on every new password. Once the owner changes their password, they can never set it back to '<OWNER_PASSWORD>' through the API. The seed only writes password when password_hash is empty, so restoration requires clearing the hash in Mongo. Not a bug per owner request, but a real risk — flag it."}
     ]
   },
   "frontend_issues": {
@@ -16,17 +16,17 @@
   "test_report_links": ["/app/backend/tests/test_owner_password_admin.py", "/app/test_reports/pytest/iter31.xml"],
   "action_items": [
     "Fix CarCard.js: pass `arrows` prop to PhotoSwiper so grid result cards get the same conditional prev/next arrows that CarRow.js and the detail page already have.",
-    "(Optional) Consider allowing the OWNER account to bypass the 8-char minimum on POST /api/auth/password, or exposing an admin-only endpoint to restore a short owner password without touching Mongo directly. Otherwise, once the owner has changed their password once, 'Nero' is permanently unreachable through any UI or API."
+    "(Optional) Consider allowing the OWNER account to bypass the 8-char minimum on POST /api/auth/password, or exposing an admin-only endpoint to restore a short owner password without touching Mongo directly. Otherwise, once the owner has changed their password once, '<OWNER_PASSWORD>' is permanently unreachable through any UI or API."
   ],
   "critical_code_review_comments": [
     "PhotoSwiper.js default `arrows = false` means every caller must remember to pass it — a footgun. The default should probably be true, or CarCard.js should be brought in line with CarRow.js.",
-    "auth.ensure_owner writes the password ONLY when password_hash is empty (intended, per docstring), so re-seeding after a password change requires manual DB intervention. Combined with the 8-char rule this locks the owner out of restoring 'Nero'. Consider a dedicated `OWNER_PASSWORD_FORCE_RESET` env flag or a startup log warning.",
+    "auth.ensure_owner writes the password ONLY when password_hash is empty (intended, per docstring), so re-seeding after a password change requires manual DB intervention. Combined with the 8-char rule this locks the owner out of restoring '<OWNER_PASSWORD>'. Consider a dedicated `OWNER_PASSWORD_FORCE_RESET` env flag or a startup log warning.",
     "server.py PUT /admin/users/{email}/admin correctly guards own-flag and last-admin cases, has audit logging, and normalises email — solid.",
     "AdminBuyers.js: header text 'Buyer interests (N of M with activity)' is technically accurate but misleading now that the full buyer list is rendered — consider retitling to avoid the impression that only N accounts are shown."
   ],
   "updated_files": ["/app/backend/tests/test_owner_password_admin.py"],
   "success_rate": {"backend": "100% (11/11)", "frontend": "~90% (all specified flows work except grid card arrows)"},
-  "test_credentials": "Owner: martingtodorov@gmail.com / Nero. Second admin: admin@encarskin.com / AdminTest2026!. Buyer accounts registered on the fly with SecurityTest2026!. Owner password left intact (restored via direct Mongo write inside the pytest fixture).",
+  "test_credentials": "Owner: martingtodorov@gmail.com / <OWNER_PASSWORD from backend/.env>. Second admin: admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env>. Buyer accounts registered on the fly with SecurityTest2026!. Owner password left intact (restored via direct Mongo write inside the pytest fixture).",
   "seed_data_creation": "Two throwaway buyer accounts registered during testing (test_promo_<ts>@example.com and testui_<ts>@example.com). Both were left in place; they can be cleaned via /api/admin/users. No car / deposit data touched. inick003@gmail.com was briefly promoted then demoted back to normal — verified through the buyer-admin toggle in the UI.",
   "retest_needed": false,
   "should_main_agent_self_test": true,

@@ -47,7 +47,7 @@
   ],
   "updated_files": ["/app/backend/tests/test_swipe_translate.py", "/app/test_reports/iteration_11.json"],
   "success_rate": {"backend": "100%", "frontend": "90%"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! (not used this iteration — guest/local favourites flow was sufficient).",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> (not used this iteration — guest/local favourites flow was sufficient).",
   "seed_data_creation": "None persistent. During test I toggled a couple of favourites via localStorage-backed guest state; they can be cleared by clearing site storage.",
   "retest_needed": true,
   "should_main_agent_self_test": true,

@@ -37,7 +37,7 @@
     "/app/test_reports/iteration_25.json"
   ],
   "success_rate": {"backend": "100% (8/8 pytest)", "frontend": "95% (1 spec deviation: container ID visible on /track)"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! ; x-admin-token: encar-admin",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> ; x-admin-token: encar-admin",
   "seed_data_creation": "None. Tests used existing listings + previously cached 271191199/MRSU5757040 tracking data. Nothing to clean up.",
   "retest_needed": false,
   "should_main_agent_self_test": true,

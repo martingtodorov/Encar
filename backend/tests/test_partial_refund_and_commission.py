@@ -28,7 +28,7 @@ load_dotenv("/app/frontend/.env")
 
 BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
 ADMIN_EMAIL = "admin@encarskin.com"
-ADMIN_PASSWORD = "AdminTest2026!"
+ADMIN_PASSWORD = os.environ.get("ADMIN_SEED_PASSWORD", "")
 BUYER_PASSWORD = "SecurityTest2026!"
 stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
 

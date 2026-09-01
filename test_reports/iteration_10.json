@@ -33,7 +33,7 @@
   ],
   "updated_files": ["/app/backend/tests/test_admin_features.py"],
   "success_rate": { "backend": "100%", "frontend": "100%" },
-  "test_credentials": "admin@encarskin.com / AdminTest2026! (admin), plus a throwaway non-admin nonadmin_<timestamp>@example.com created during test; x-admin-token: encar-admin",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> (admin), plus a throwaway non-admin nonadmin_<timestamp>@example.com created during test; x-admin-token: encar-admin",
   "seed_data_creation": "One extra enquiry inserted into the DB via POST /api/enquiry from backend tests (name='TEST_Buyer', message contains 'TEST enquiry from backend test suite'), and one UI-form enquiry (name='TEST_UI_Buyer'). Both are visible in the admin inbox; safe to purge if desired. One car was toggled to Saved and left saved (state persists on backend); user can unsave manually.",
   "retest_needed": false,
   "should_main_agent_self_test": false,

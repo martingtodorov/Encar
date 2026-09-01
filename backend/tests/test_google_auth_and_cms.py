@@ -15,8 +15,8 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://encar-multi-lang.pre
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = "admin@encarskin.com"
-ADMIN_PASSWORD = "AdminTest2026!"
-ADMIN_TOKEN = "kR7wZq2mXv9TbNp4LdYs6HcJf1UgE3aQ"
+ADMIN_PASSWORD = os.environ.get("ADMIN_SEED_PASSWORD", "")
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
 HDR_TOKEN = {"x-admin-token": ADMIN_TOKEN}
 

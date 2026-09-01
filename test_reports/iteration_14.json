@@ -42,7 +42,7 @@
   ],
   "updated_files": [],
   "success_rate": {"frontend": "100%"},
-  "test_credentials": "Used admin@encarskin.com / AdminTest2026! from /app/memory/test_credentials.md for admin spot-check.",
+  "test_credentials": "Used admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> from /app/memory/test_credentials.md for admin spot-check.",
   "seed_data_creation": "none",
   "retest_needed": false,
   "should_main_agent_self_test": false,

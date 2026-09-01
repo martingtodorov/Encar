@@ -15,7 +15,7 @@
   ],
   "updated_files": [],
   "success_rate": {"backend": "n/a", "frontend": "100%"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! (not needed this round, logged-out flow tested per spec).",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> (not needed this round, logged-out flow tested per spec).",
   "seed_data_creation": "None (used existing car 41995353, 26 photos).",
   "retest_needed": false,
   "main_agent_can_self_test": true,

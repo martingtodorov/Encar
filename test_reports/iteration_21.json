@@ -16,7 +16,7 @@
   ],
   "updated_files": ["/app/backend/tests/test_shipments_tracking.py", "/app/test_reports/iteration_21.json"],
   "success_rate": {"backend": "100% (6/6 pytest)", "frontend": "100% (all 13 review items verified)"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! (used); x-admin-token: encar-admin (used for pytest)",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> (used); x-admin-token: encar-admin (used for pytest)",
   "seed_data_creation": "None persisted. Test created and then deleted TESTU1112223. Left the pre-existing seeded MSKU5285725 and MSKU1234567 rows in place as instructed. Cached read-results for MSKU9999999 / MSKU8888888 / NEWREFTEST123 / MSKU9999998 / MSKU9999997 will naturally expire from tracking_cache in 30 min.",
   "retest_needed": false,
   "should_main_agent_self_test": false,

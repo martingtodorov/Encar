@@ -28,7 +28,7 @@
     "/app/backend/tests/test_google_auth_and_cms.py"
   ],
   "success_rate": {"backend": "100% (14/14, with a one-off Gemini 5xx flake on parallel run)", "frontend": "100% of tested flows"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026!  ;  x-admin-token: kR7wZq2mXv9TbNp4LdYs6HcJf1UgE3aQ",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env>  ;  x-admin-token: <ADMIN_TOKEN from backend/.env>",
   "seed_data_creation": "All test data (SEO/body overrides for how-it-works/terms/faq/home in bg/ro/en, and the TEST company details) was cleaned up at the end — /api/admin/cms/page/{slug}/{lang} DELETE for each, and company was restored to Auto&Bid LTD / 208833206 / contact@encareurope.com / encareurope.com.",
   "retest_needed": false,
   "main_agent_can_self_test": true,

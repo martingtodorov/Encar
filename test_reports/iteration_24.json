@@ -37,7 +37,7 @@
     "/app/test_reports/iteration_24.json"
   ],
   "success_rate": {"backend": "100% (8/8 pytest)", "frontend": "90% (1 regression: back-to-results scroll restore)"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! ; x-admin-token: encar-admin",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> ; x-admin-token: encar-admin",
   "seed_data_creation": "None (test used existing listings and 271191199 tracking cache). car_views collection now has 2 documents from POST /api/car/{id}/view smoke.",
   "retest_needed": true,
   "should_main_agent_self_test": true,

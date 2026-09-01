@@ -16,7 +16,7 @@
     "/app/backend/tests/test_partial_refund_and_commission.py"
   ],
   "success_rate": {"backend": "100% (9/9)", "frontend": "100% (all assertions across 3 languages)"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! ; throwaway buyers e2e-partial-*@example.com / SecurityTest2026!",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> ; throwaway buyers e2e-partial-*@example.com / SecurityTest2026!",
   "seed_data_creation": "Two refunded deposit rows are kept as history (see traceability). No paid deposits or reserved cars remain. Cars 42370582 and 42462841 are both released and re-reservable. A pending checkout session for 42370582 (created by test_different_buyer_can_reserve_after_partial_refund) is cleaned up.",
   "retest_needed": false,
   "main_agent_can_self_test": true,

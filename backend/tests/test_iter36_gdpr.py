@@ -20,7 +20,7 @@ MONGO_URL = os.environ["MONGO_URL"]
 DB_NAME = os.environ["DB_NAME"]
 
 ADMIN_EMAIL = "admin@encarskin.com"
-ADMIN_PASSWORD = "AdminTest2026!"
+ADMIN_PASSWORD = os.environ.get("ADMIN_SEED_PASSWORD", "")
 PASSWORD = "SecurityTest2026!"
 
 

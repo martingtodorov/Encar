@@ -33,7 +33,7 @@
   ],
   "updated_files": ["/app/backend/tests/test_english_slugs.py"],
   "success_rate": {"backend": "100% (12/12)", "frontend": "89% (8/9 - saved-search live count broken)"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! - used for saved-search test. Login works via [data-testid='auth-email-input'] and [data-testid='auth-password-input'].",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> - used for saved-search test. Login works via [data-testid='auth-email-input'] and [data-testid='auth-password-input'].",
   "seed_data_creation": "One saved search created during test: 'Hyundai · 2020+' (query=make=hyundai&year_min=2020). Still present on /en/searches for the admin account. The pre-existing '2019+' search remains untouched.",
   "retest_needed": true,
   "main_agent_can_self_test": true,

@@ -34,7 +34,7 @@
     "/app/backend/tests/test_iter36_gdpr.py (new pytest suite, 12 tests)"
   ],
   "success_rate": {"backend": "100% (12/12)", "frontend": "100%"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! and throwaway test_* accounts registered per test (cleaned up).",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> and throwaway test_* accounts registered per test (cleaned up).",
   "seed_data_creation": "Ephemeral test users (test_iter36_*, test_iter36_flow_*, test_iter36_wd_*) registered and torn down within the run. One fabricated deposit inserted/removed inline. No admin accounts touched.",
   "retest_needed": false,
   "should_main_agent_self_test": false,

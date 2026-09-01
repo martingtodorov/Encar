@@ -2136,3 +2136,31 @@ Environment notes: the preview `ANTHROPIC_API_KEY` returns 401, so every fresh d
 logs one anthropic failure and then succeeds through Gemini — that is what the failure rows
 in the panel are. Production has a valid key. `ANTHROPIC_ADMIN_KEY` must be added to the
 production env for the invoiced column to fill in.
+
+## 2026-09-01 — Secret audit of the repository
+
+Asked: "are there any keys in github". Scanned every tracked file and the whole git history.
+
+CLEAN: no `.env` was ever committed (`git log --all --diff-filter=A -- '*.env'` is empty), and
+no provider key of any kind is in the tree — no Anthropic, Gemini, Stripe, Resend, JSONCargo,
+VAPID, TOTP or Mongo credential, no `*.pem`/`*.key`. `.gitignore` covers `.env`, `.env.*`,
+`*.env`, `*.key`, `*.pem`, `credentials.json`, `memory/test_credentials.md`, and the real
+`deploy/hetzner/ansible/inventory.ini` + `group_vars/all.yml`.
+
+FOUND AND REMOVED — three real credentials WERE in tracked files:
+* `ADMIN_TOKEN` (the admin master header token) hardcoded in
+  `backend/tests/test_ai_usage_and_desc.py`, `test_google_auth_and_cms.py`,
+  `test_owner_password_admin.py`;
+* `ADMIN_SEED_PASSWORD` ("AdminTest2026!") in six test files;
+* `OWNER_PASSWORD` ("Nero") in `test_owner_password_admin.py` and in
+  `deploy/hetzner/ansible/group_vars/all.yml.example` (together with the owner's real email);
+* all three quoted inside ~30 `test_reports/iteration_*.json`.
+
+Fix: every test now reads the value from the environment (`conftest.py` already loads
+`backend/.env`), the Ansible example carries placeholders, and the reports were scrubbed
+(`memory/secret_scrub.py` is the one-off that did it). `pytest backend/tests/test_owner_password_admin.py`
+= 11/11 pass afterwards.
+
+STILL REQUIRED FROM THE OWNER: the old values remain in git HISTORY, so they must be rotated —
+new `ADMIN_TOKEN` (`openssl rand -base64 24`), new `ADMIN_SEED_PASSWORD`, and a new owner
+password. Then `ansible-playbook ... deploy_backend.yml --tags config,service`.

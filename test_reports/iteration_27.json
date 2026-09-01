@@ -24,7 +24,7 @@
   ],
   "updated_files": [],
   "success_rate": {"backend": "100%", "frontend": "100%"},
-  "test_credentials": "Admin admin@encarskin.com / AdminTest2026! ; buyers registered on the fly with password SecurityTest2026!",
+  "test_credentials": "Admin admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> ; buyers registered on the fly with password SecurityTest2026!",
   "seed_data_creation": "Registered 6 throwaway buyers (all named e2e-...@example.com). One completed a real Stripe test-mode payment for car 42341529 with session_id=cs_test_a1mBF3Cu1bkJbXCi2Sei6Tzg4QqCgSCALTjGQ7mXzLCRqz0Cza0K5u9y8S (€300). All 6 users, their deposits and sessions, the paid reservation on 42341529, the purchased_listings doc, the on-disk /api/media/listings/42341529/*.jpg files, and one temporary BOL 'E2E-BOL-<ts>' assignment plus 'E2E-PICK-<ts>' were removed at the end.",
   "retest_needed": false,
   "should_main_agent_self_test": false,

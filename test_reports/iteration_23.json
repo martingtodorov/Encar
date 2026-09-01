@@ -33,7 +33,7 @@
     "/app/test_reports/iteration_23.json"
   ],
   "success_rate": {"backend": "100% (9/9 pytest)", "frontend": "100% functional; 1 low-priority selector naming mismatch"},
-  "test_credentials": "admin@encarskin.com / AdminTest2026! ; x-admin-token: encar-admin. Test buyers created dynamically (email pattern TEST_billing_*@example.com and TEST_nobill_*@example.com).",
+  "test_credentials": "admin@encarskin.com / <ADMIN_SEED_PASSWORD from backend/.env> ; x-admin-token: encar-admin. Test buyers created dynamically (email pattern TEST_billing_*@example.com and TEST_nobill_*@example.com).",
   "seed_data_creation": "Two fresh accounts created via /api/auth/register during the pytest run (TEST_billing_* and TEST_nobill_*). One had billing address + taste written via /api/auth/taste for admin/buyers verification.",
   "retest_needed": false,
   "should_main_agent_self_test": false,
