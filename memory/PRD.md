@@ -105,8 +105,19 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
     consent for the Statistics category still applies — this is a clarification, not a new
     tracker).
 
+## 2026-09-01 — Description translation rewrite + AI cost monitoring (DONE)
+* Dealer descriptions now go to the LLM as ONE whole text with the dedicated description
+  prompt (was: chopped into comma-separated fragments and fed the UI-label prompt — the cause
+  of the unreadable output). Cached by full-text hash + line level; streamed to the browser.
+* Every LLM call is logged in `db.ai_calls` (tokens, model, purpose, cost, duration, errors).
+* Admin tab "AI разходи": daily cost chart, breakdown by purpose/model, cache counters,
+  $5/day budget with instant alert, evening report at 21:00 Sofia, report archive.
+* Real invoiced amounts read from the Anthropic Admin API — needs `ANTHROPIC_ADMIN_KEY`
+  (sk-ant-admin…) in the environment; without it the panel shows our own estimate only.
+* Full detail in CHANGELOG.md.
+
 ## Broken integrations (blocked on user)
-* **Resend** — API key invalid. Emails failing.
+* **Resend** — API key invalid in preview (owner says production has a valid one).
 * **Anthropic** — API key returns 401. System silently falls back to the Emergent universal
   key (Gemini). If Haiku/Sonnet is required specifically, the user must supply a valid key.
 

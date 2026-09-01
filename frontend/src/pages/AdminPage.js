@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Activity, BadgeEuro, BookOpen, FileText, Inbox, Layers, PieChart, RefreshCcw, ScrollText, Ship, ShieldCheck, Sparkles, Truck, Users, FileSignature } from "lucide-react";
+import { Activity, BadgeEuro, BookOpen, Cpu, FileText, Inbox, Layers, PieChart, RefreshCcw, ScrollText, Ship, ShieldCheck, Sparkles, Truck, Users, FileSignature } from "lucide-react";
 import { HeaderBar } from "@/components/HeaderBar";
 import { useAuth } from "@/context/AuthContext";
 import { useLangNav } from "@/hooks/useLangNav";
@@ -23,6 +23,7 @@ import { AdminTraffic } from "@/components/admin/AdminTraffic";
 import { AdminRecommendations } from "@/components/admin/AdminRecommendations";
 import { AdminDictionary } from "@/components/admin/AdminDictionary";
 import { AdminPricing } from "@/components/admin/AdminPricing";
+import { AdminAiUsage } from "@/components/admin/AdminAiUsage";
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
@@ -39,6 +40,7 @@ const TABS = [
   { id: "dictionary", label: "Dictionary", icon: BookOpen },
   { id: "pages", label: "Pages & SEO", icon: FileText },
   { id: "contract", label: "Contract", icon: FileSignature },
+  { id: "ai", label: "AI разходи", icon: Cpu },
   { id: "consent", label: "Cookie consent", icon: ShieldCheck },
   { id: "audit", label: "Activity", icon: ScrollText },
 ];
@@ -127,6 +129,7 @@ export default function AdminPage() {
           {tab === "dictionary" && <AdminDictionary />}
           {tab === "pages" && <AdminPages />}
           {tab === "contract" && <AdminContract />}
+          {tab === "ai" && <AdminAiUsage />}
           {tab === "consent" && <AdminConsent />}
           {tab === "audit" && <AdminAudit />}
         </div>

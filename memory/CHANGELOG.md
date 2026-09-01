@@ -2087,3 +2087,52 @@ browser binary is missing in this pod (`playwright install`).
 - Verified by building the real email HTML against a live listing: `<img>` present, absolute
   https URL, 150x84 attrs, localised subject, cut note rendered, no `&nbsp;` placeholder.
   DELIVERY still cannot be verified — the Resend API key is invalid.
+
+## 2026-09-01 — Description translation quality rewritten + full AI cost monitoring
+
+### The description translation bug (P0, owner: "lowest quality I have seen in my life")
+Root cause found and removed. `translate_description_segmented` split every dealer
+description on line breaks, then split each LINE again on commas/dots/dashes/brackets
+(`_fragment_split`), translated the fragments, and stitched them back. Worse: those
+fragments went through `_llm_translate`, whose system prompt is the UI-LABEL one
+("be concise: most of these are UI labels and spec values, not prose") — the dedicated
+`DESC_SYSTEM`/`DESC_RULES` prompt was never used on the segmented path. The model never
+saw a sentence, so the output was word-for-word rubbish with no grammar.
+
+Now (`translate.translate_description`):
+  1. whole-description cache (`type: "description"`) — a re-visit is one indexed read;
+  2. line-level cache — a description whose every Korean line is already known is
+     assembled without an LLM call (owner asked to keep this layer);
+  3. otherwise ONE contextual call over the FULL text with `DESC_SYSTEM`, streamed to the
+     browser token by token (Anthropic Haiku, Gemini as standby with one patient retry on
+     a free-tier 429).
+`_fragment_split`, `_harvest_fragments`, `_from_fragments` and `stream_description` are
+deleted. 538 poisoned `description_fragment` / `description_line` rows were removed from
+`db.translations` at the owner's instruction. Verified live: fluent Bulgarian prose, no
+Hangul, numbers/model names/decorative bars preserved; second request served from cache in
+~0.2s with no new LLM call.
+
+### AI cost monitoring (owner: "log every api call, extract cost from the api key, daily report")
+- `translate.meter()` writes ONE row per provider call into `db.ai_calls`: ts, Sofia day,
+  provider, model, kind (description / labels / latin / spec / cms_page / warm-up field),
+  lang, input+output tokens, cost by list price (`translate.PRICES`), duration, ok/error.
+  Wired into every provider path, including `cms.py` page translation (both providers),
+  which was previously unmeasured. 100-day TTL.
+- `aicost.py`: `billed()` reads the REAL invoiced amount from the Anthropic Admin API
+  (`/v1/organizations/cost_report`, day buckets, cached in `db.ai_billing`). Needs
+  `ANTHROPIC_ADMIN_KEY` (sk-ant-admin…) — absent in preview, so the panel shows the
+  estimate and says so. `daily_report()` rolls a day up into `db.ai_reports` and emails it;
+  `check_budget()` fires one alert the moment a day crosses the ceiling; `scheduler()`
+  reports at 21:00 Sofia and probes the budget every 30 min.
+- `mailer.send_ai_cost_report()` — Bulgarian letter, normal and alert variants.
+- API: `GET /api/admin/ai-usage?days=`, `PUT /api/admin/ai-budget`,
+  `POST /api/admin/ai-report/send`.
+- Admin panel tab "AI разходи" (`AdminAiUsage.js`): today/7d/30d/average cards, per-day cost
+  chart with the invoiced figure in the tooltip, breakdown by purpose and by model, cache
+  counters, budget editor, "изпрati отчет сега", report archive, breaker and error list.
+- Default budget $5/day, editable in the panel.
+
+Environment notes: the preview `ANTHROPIC_API_KEY` returns 401, so every fresh description
+logs one anthropic failure and then succeeds through Gemini — that is what the failure rows
+in the panel are. Production has a valid key. `ANTHROPIC_ADMIN_KEY` must be added to the
+production env for the invoiced column to fill in.

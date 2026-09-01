@@ -224,6 +224,77 @@ async def acknowledge_enquiry(doc):
     await _send(to, c["subject"], _shell(c["heading"], rows, c["footer"]))
 
 
+# ── the evening AI cost report ───────────────────────────────────────────────
+_KIND_BG = {
+    "description": "Описания на автомобили",
+    "labels": "Етикети и спецификации",
+    "latin": "Марки и модели",
+    "always": "Марки и модели",
+    "spec": "Спецификации",
+    "cms_page": "Страници (CMS)",
+    "manufacturer": "Марки (прегряване)",
+    "model": "Модели (прегряване)",
+    "badge": "Версии (прегряване)",
+    "badge_detail": "Подверсии (прегряване)",
+    "fuel_type": "Гориво (прегряване)",
+    "region": "Регион (прегряване)",
+    "other": "Друго",
+}
+
+
+def _usd(v):
+    return "—" if v is None else f"${float(v):.2f}"
+
+
+async def send_ai_cost_report(to, report, alert=False):
+    """One letter about what the language models cost today.
+
+    `alert=True` is the budget-ceiling warning, sent the moment the day crosses the
+    owner's limit; otherwise this is the scheduled evening report.
+    """
+    if not to:
+        return None
+    day = report.get("day") or ""
+    est = report.get("cost_est") or 0.0
+    prev = report.get("prev_cost")
+    delta = ""
+    if prev not in (None, 0):
+        pct = (est - prev) / prev * 100
+        delta = f" ({'+' if pct >= 0 else ''}{pct:.0f}% спрямо предния ден)"
+
+    kinds = "".join(
+        _row(_KIND_BG.get(k.get("kind"), k.get("kind")),
+             f'{_usd(k.get("cost"))} · {k.get("calls", 0)} извиквания')
+        for k in (report.get("by_kind") or [])[:8])
+    models = "".join(
+        _row(_esc(m.get("model")),
+             f'{_usd(m.get("cost"))} · {m.get("calls", 0)} извиквания')
+        for m in (report.get("by_model") or [])[:6])
+
+    rows = "".join([
+        _row("Ден", day),
+        _row("Наша сметка", f"{_usd(est)}{delta}"),
+        _row("Фактурирано от Anthropic", _usd(report.get("cost_billed"))),
+        _row("Дневен лимит", _usd(report.get("budget_usd"))),
+        _row("Извиквания", str(report.get("calls") or 0)),
+        _row("Токени", f'{report.get("in_tokens") or 0} вход / '
+                       f'{report.get("out_tokens") or 0} изход'),
+        _row("Неуспешни", str(report.get("failed") or 0) if report.get("failed") else ""),
+        f'<tr><td colspan="2" style="padding:14px 0 6px;font-weight:600;color:#111">'
+        f'За какво се плаща</td></tr>{kinds}' if kinds else "",
+        f'<tr><td colspan="2" style="padding:14px 0 6px;font-weight:600;color:#111">'
+        f'По модел</td></tr>{models}' if models else "",
+    ])
+    heading = (f"Дневният лимит за AI е надхвърлен ({_usd(est)})" if alert
+               else f"AI разходи за {day}")
+    subject = (f"[ВНИМАНИЕ] AI разходът мина ${report.get('budget_usd', 0):.0f} — {_usd(est)}"
+               if alert else f"AI разходи {day}: {_usd(est)}")
+    footer = ("Числата „наша сметка“ са изчислени по официалните тарифи на моделите. "
+              "Фактурираната сума идва директно от Anthropic Admin API.")
+    return await _send(to, subject, _shell(heading, rows, footer))
+
+
+
 # ── price drop on a saved car ────────────────────────────────────────────────
 DROP = {
     "bg": {

@@ -84,12 +84,12 @@ import phones               # noqa: E402
 import ports as ports_mod   # noqa: E402
 import curate               # noqa: E402
 import sync as sync_mod      # noqa: E402
+import aicost                # noqa: E402
 from encar import encar, image_url, full_image_url, detail_photo_paths, under_contract, sales_status  # noqa: E402
 from translate import (LANGS, HAIKU_MODEL, breaker_status,  # noqa: E402
                        cached_label_set,
-                       schedule_translation,
-                       stream_description, translate_cached_only,
-                       translate_description_segmented,
+                       schedule_translation, set_meter_db,
+                       translate_cached_only, translate_description,
                        translate_listings, translate_many, translate_one)
 
 logging.basicConfig(level=logging.INFO,
@@ -493,15 +493,13 @@ async def more_from_model(listing_id: str, lang: str = "bg", limit: int = 12):
 
 
 @api.post("/car/{listing_id}/translate-description")
-async def translate_description(listing_id: str, lang: str = "bg"):
+async def car_translate_description(listing_id: str, lang: str = "bg"):
     """Translate ONE dealer description, on demand.
 
-    Line-by-line cache: every boilerplate sentence a dealer repeats across their
-    inventory ("무사고 차량입니다", "정기 점검 완료") is stored as its own row in
-    `db.translations`, so the second time it appears — even on a totally different car —
-    it costs zero tokens. Only the lines the cache has never seen are batched through
-    Haiku in ONE request. Full result is also cached under the whole-text hash so a
-    re-visit is a single indexed Mongo read.
+    The whole write-up goes to Haiku in a single contextual call, so the model reads the
+    car the way a buyer would. The answer is cached under the full-text hash (a re-visit
+    is one indexed Mongo read) and, line by line, so a description made purely of
+    recycled dealer boilerplate never costs a token again.
     """
     lang = norm_lang(lang)
     cached = await db.car_details.find_one({"_id": listing_id})
@@ -509,8 +507,7 @@ async def translate_description(listing_id: str, lang: str = "bg"):
     text = text.strip()
     if not text:
         raise HTTPException(404, "this car has no dealer description")
-    hit = await translate_cached_only(db, [text], lang)
-    translated = hit.get(text) or await translate_description_segmented(db, text, lang)
+    translated = await translate_description(db, text, lang)
     if not translated or translated == text:
         raise HTTPException(503, "translation is unavailable right now, please try again")
     return {"text": translated, "lang": lang}
@@ -522,12 +519,11 @@ def _sse(payload):
 
 @api.get("/car/{listing_id}/translate-description/stream")
 async def translate_description_stream(listing_id: str, lang: str = "bg"):
-    """Segment-cached description translation, streamed.
+    """Contextual description translation, streamed token by token.
 
-    Splits the dealer text on line breaks, serves every already-cached line
-    instantly from Mongo, and batches only the misses through Haiku in ONE call.
-    A description whose lines are all recycled dealer boilerplate never touches the
-    LLM at all — the buyer sees the translation the moment the request lands.
+    A cached description arrives in one frame. A new one is generated in a single Haiku
+    call over the WHOLE text and forwarded to the browser as the model writes it, so the
+    buyer watches real sentences appear instead of waiting 15 seconds on a spinner.
     """
     lang = norm_lang(lang)
     cached = await db.car_details.find_one({"_id": listing_id})
@@ -537,22 +533,36 @@ async def translate_description_stream(listing_id: str, lang: str = "bg"):
         raise HTTPException(404, "this car has no dealer description")
 
     async def events():
-        # Whole-text cache first — one indexed Mongo GET, no reassembly work.
-        hit = await translate_cached_only(db, [text], lang)
-        if hit.get(text):
-            yield _sse({"chunk": hit[text]})
-            yield _sse({"done": True, "cached": True})
-            return
+        # The translator pushes pieces into a queue; this generator drains it. Two
+        # sentinels rather than magic strings, because any string could be real text.
+        done, fail = object(), object()
+        q: asyncio.Queue = asyncio.Queue()
+
+        async def run():
+            try:
+                out = await translate_description(db, text, lang, on_chunk=q.put)
+                await q.put(done if (out and out != text) else fail)
+            except Exception as e:
+                log.warning("description stream failed for %s: %s",
+                            listing_id, str(e)[:200])
+                await q.put(fail)
+
+        task = asyncio.get_running_loop().create_task(run())
         try:
-            translated = await translate_description_segmented(db, text, lang)
-            if translated and translated != text:
-                yield _sse({"chunk": translated})
-                yield _sse({"done": True, "cached": False})
-                return
-            yield _sse({"error": "translation is unavailable right now"})
-        except Exception as e:
-            log.warning("description stream failed for %s: %s", listing_id, str(e)[:200])
-            yield _sse({"error": "translation is unavailable right now"})
+            while True:
+                item = await q.get()
+                if item is done:
+                    yield _sse({"done": True})
+                    break
+                if item is fail:
+                    yield _sse({"error": "translation is unavailable right now"})
+                    break
+                yield _sse({"chunk": item})
+            await task
+        finally:
+            # A buyer who closes the tab mid-generation must not leave a model running
+            # (and billing) into a queue nobody is draining.
+            task.cancel()
 
     return StreamingResponse(events(), media_type="text/event-stream", headers={
         "Cache-Control": "no-cache",
@@ -3537,6 +3547,125 @@ async def admin_audit(request: Request, limit: int = 200,
                        "detail": r.get("detail") or ""} for r in rows]}
 
 
+@api.get("/admin/ai-usage")
+async def admin_ai_usage(request: Request, days: int = 30,
+                         x_admin_token: str = Header(default="")):
+    """What the translation engine actually spent, and on what.
+
+    Every provider call writes a row into `db.ai_calls` (tokens in/out, model, which part
+    of the site asked, how long it took, and the error if it failed). This rolls those
+    rows up so a bill can be traced to a cause instead of guessed at.
+    """
+    await _require_admin(request, x_admin_token)
+    days = max(1, min(days, 90))
+    today = datetime.now(ZoneInfo("Europe/Sofia")).date()
+    first = (today - timedelta(days=days - 1)).isoformat()
+
+    async def rollup(group_by, match=None):
+        pipe = [{"$match": {"day": {"$gte": first}, **(match or {})}},
+                {"$group": {"_id": group_by, "calls": {"$sum": 1},
+                            "cost": {"$sum": "$cost_usd"},
+                            "in_tokens": {"$sum": "$in_tokens"},
+                            "out_tokens": {"$sum": "$out_tokens"},
+                            "failed": {"$sum": {"$cond": ["$ok", 0, 1]}}}},
+                {"$sort": {"_id": 1}}]
+        return [d async for d in db.ai_calls.aggregate(pipe)]
+
+    by_day = {d["_id"]: d for d in await rollup("$day")}
+    series = []
+    for i in range(days):
+        key = (today - timedelta(days=days - 1 - i)).isoformat()
+        row = by_day.get(key) or {}
+        series.append({"day": key, "calls": row.get("calls", 0),
+                       "cost": round(row.get("cost", 0.0), 4),
+                       "in_tokens": row.get("in_tokens", 0),
+                       "out_tokens": row.get("out_tokens", 0),
+                       "failed": row.get("failed", 0)})
+
+    def window(n):
+        rows = series[-n:] if n else series
+        return {"calls": sum(r["calls"] for r in rows),
+                "cost": round(sum(r["cost"] for r in rows), 4),
+                "in_tokens": sum(r["in_tokens"] for r in rows),
+                "out_tokens": sum(r["out_tokens"] for r in rows),
+                "failed": sum(r["failed"] for r in rows)}
+
+    kinds = [{"kind": d["_id"] or "other", **{k: d[k] for k in
+                                              ("calls", "in_tokens", "out_tokens", "failed")},
+              "cost": round(d["cost"], 4)}
+             for d in await rollup("$kind")]
+    models = [{"model": d["_id"] or "?", **{k: d[k] for k in
+                                            ("calls", "in_tokens", "out_tokens", "failed")},
+               "cost": round(d["cost"], 4)}
+              for d in await rollup("$model")]
+
+    fails = await db.ai_calls.find({"ok": False}).sort("ts", -1).limit(12).to_list(12)
+
+    # Anthropic's own invoiced figures, so the owner can see whether our arithmetic
+    # matches the bill — and whether anything ELSE is spending on the same key.
+    bills = await aicost.billed(db, days)
+    for row in series:
+        row["billed"] = bills.get(row["day"])
+    reports = await db.ai_reports.find({}).sort("_id", -1).limit(14).to_list(14)
+
+    return {
+        "days": days,
+        "budget_usd": await aicost.budget(db),
+        "billing": {
+            "available": bool(aicost.admin_key()),
+            "period": round(sum(v for k, v in bills.items()
+                                if k >= first), 4) if bills else None,
+            "today": bills.get(today.isoformat()),
+        },
+        "reports": [{"day": r["_id"], "cost_est": r.get("cost_est"),
+                     "cost_billed": r.get("cost_billed"), "calls": r.get("calls"),
+                     "emailed": bool(r.get("emailed")),
+                     "alerted": bool(r.get("alerted"))} for r in reports],
+        "today": window(1),
+        "week": window(7),
+        "month": window(30),
+        "period": window(0),
+        "series": series,
+        "by_kind": sorted(kinds, key=lambda r: -r["cost"]),
+        "by_model": sorted(models, key=lambda r: -r["cost"]),
+        "errors": [{"at": r["ts"].isoformat(), "provider": r.get("provider"),
+                    "model": r.get("model"), "kind": r.get("kind"),
+                    "error": r.get("error") or ""} for r in fails],
+        "breaker": breaker_status(),
+        "cache": {
+            "phrases": await db.translations.count_documents({}),
+            "descriptions": await db.translations.count_documents({"type": "description"}),
+            "description_lines": await db.translations.count_documents(
+                {"type": "description_line"}),
+        },
+    }
+
+
+
+class AiBudgetBody(BaseModel):
+    daily_usd: float
+
+
+@api.put("/admin/ai-budget")
+async def admin_set_ai_budget(body: AiBudgetBody, request: Request,
+                              x_admin_token: str = Header(default="")):
+    """The daily ceiling that triggers an alert email the moment it is crossed."""
+    admin = await _require_admin(request, x_admin_token)
+    value = await aicost.set_budget(db, max(0.5, min(body.daily_usd, 1000)))
+    await _audit(request, _actor(admin), "ai.budget", "ai_budget", f"${value}")
+    return {"ok": True, "daily_usd": value}
+
+
+@api.post("/admin/ai-report/send")
+async def admin_send_ai_report(request: Request, day: str = "",
+                               x_admin_token: str = Header(default="")):
+    """Build (and email) the cost report for a day on demand, without waiting for 21:00."""
+    await _require_admin(request, x_admin_token)
+    report = await aicost.daily_report(db, day or None)
+    report.pop("at", None)
+    return report
+
+
 @api.put("/settings")
 async def put_settings(body: SettingsBody, request: Request,
                        x_admin_token: str = Header(default="")):
@@ -4832,6 +4961,11 @@ async def on_startup():
     await db.car_view_seen.create_index("at", expireAfterSeconds=40 * 86400)
     # Preview-debug lines are evidence for a live investigation, not history.
     await db.share_hits.create_index("ts", expireAfterSeconds=7 * 86400)
+    # Token spend per call, kept a quarter: long enough to compare months, short enough
+    # that the collection never becomes a cost of its own.
+    set_meter_db(db)
+    await db.ai_calls.create_index("ts", expireAfterSeconds=100 * 86400)
+    await db.ai_calls.create_index([("day", 1), ("kind", 1)])
     await auth.ensure_owner(db)
     # The owner's merges, renames and year spans travel in the repo, so a fresh server has
     # the same dropdowns without anybody copying a database.
@@ -4854,6 +4988,8 @@ async def on_startup():
     # A card hold lasts seven days; this hands back the ones nobody captured and re-lists
     # the car, even if Stripe's webhook never reached us.
     asyncio.get_running_loop().create_task(deposits.scheduler())
+    # Token spend: an evening report at 21:00 Sofia and a budget probe every half hour.
+    asyncio.get_running_loop().create_task(aicost.scheduler(db))
     log.info("startup complete: %s listings in index",
              await db.listings.count_documents({}))
 

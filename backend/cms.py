@@ -273,18 +273,26 @@ async def _translate_doc(payload: dict, lang: str):
     body = json.dumps(payload, ensure_ascii=False)
     text = ""
     if os.environ.get("ANTHROPIC_API_KEY"):
+        model = os.environ.get("ANTHROPIC_MODEL", tr.HAIKU_MODEL)
+        t0 = time.monotonic()
         try:
             # Default to Haiku, as everywhere else in the app: the owner pays Haiku token
             # rates for the whole translation surface. `ANTHROPIC_MODEL` env var can still
             # promote a page-save to Sonnet if a lawyer's document ever calls for it.
             resp = await tr._anthropic_client().messages.create(
-                model=os.environ.get("ANTHROPIC_MODEL", tr.HAIKU_MODEL),
+                model=model,
                 max_tokens=16000,
                 system=system,
                 messages=[{"role": "user", "content": body}],
             )
             text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+            tr.meter("anthropic", model, "cms_page", lang,
+                     {"in": getattr(resp.usage, "input_tokens", 0),
+                      "out": getattr(resp.usage, "output_tokens", 0)},
+                     strings=1, ms=(time.monotonic() - t0) * 1000)
         except Exception as e:
+            tr.meter("anthropic", model, "cms_page", lang, None, strings=1, ok=False,
+                     error=str(e), ms=(time.monotonic() - t0) * 1000)
             log.warning("cms translation via anthropic failed, trying gemini: %s", str(e)[:200])
     if not text and os.environ.get("GEMINI_API_KEY"):
         import httpx
@@ -301,11 +309,18 @@ async def _translate_doc(payload: dict, lang: str):
             },
         )
         if r.status_code != 200:
+            tr.meter("gemini", model, "cms_page", lang, None, strings=1, ok=False,
+                     error=f"{r.status_code}: {r.text[:150]}")
             log.warning("cms translation via gemini failed: %s %s", r.status_code, r.text[:200])
         else:
-            cands = r.json().get("candidates") or []
+            payload_json = r.json()
+            cands = payload_json.get("candidates") or []
             parts = (cands[0].get("content") or {}).get("parts") if cands else []
             text = "".join(p["text"] for p in (parts or []) if isinstance(p.get("text"), str))
+            meta = payload_json.get("usageMetadata") or {}
+            tr.meter("gemini", model, "cms_page", lang,
+                     {"in": meta.get("promptTokenCount") or 0,
+                      "out": meta.get("candidatesTokenCount") or 0}, strings=1)
     if not text:
         raise HTTPException(503, "no working translation key: check ANTHROPIC_API_KEY")
     try:

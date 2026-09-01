@@ -89,6 +89,79 @@ def breaker_status():
         "retry_in_s": max(0, round(_BREAKER["open_until"] - time.time())),
     }
 
+# ── AI call metering ─────────────────────────────────────────────────────────
+# Every provider call is recorded in `db.ai_calls` so the owner can see, per day,
+# exactly which part of the site is spending tokens. Without this the monthly bill is
+# a single number with no story behind it.
+TZ = "Europe/Sofia"
+_METER_DB = None
+
+# USD per 1M tokens (input, output). List prices; used only to give the admin screen a
+# realistic running total, not for billing.
+PRICES = {
+    "haiku": (1.0, 5.0),
+    "sonnet": (3.0, 15.0),
+    "opus": (15.0, 75.0),
+    "gemini": (0.30, 2.50),
+}
+
+
+def set_meter_db(db):
+    """Called once at startup: gives this module a handle to write usage rows with."""
+    global _METER_DB
+    _METER_DB = db
+
+
+def _price_for(model):
+    m = (model or "").lower()
+    for tag, price in PRICES.items():
+        if tag in m:
+            return price
+    return PRICES["haiku"]
+
+
+def call_cost(model, in_tokens, out_tokens):
+    pin, pout = _price_for(model)
+    return round((in_tokens or 0) * pin / 1e6 + (out_tokens or 0) * pout / 1e6, 6)
+
+
+def meter(provider, model, kind, lang, usage, *, strings=0, ok=True, error=None, ms=0):
+    """Record ONE llm call. Fire-and-forget — metering never delays a translation."""
+    if _METER_DB is None:
+        return
+    from zoneinfo import ZoneInfo
+    now = datetime.now(timezone.utc)
+    in_tok = int((usage or {}).get("in") or 0)
+    out_tok = int((usage or {}).get("out") or 0)
+    doc = {
+        "ts": now,
+        "day": now.astimezone(ZoneInfo(TZ)).strftime("%Y-%m-%d"),
+        "provider": provider,
+        "model": model or "",
+        "kind": kind or "other",
+        "lang": lang,
+        "in_tokens": in_tok,
+        "out_tokens": out_tok,
+        "cost_usd": call_cost(model, in_tok, out_tok),
+        "strings": strings,
+        "ok": bool(ok),
+        "ms": int(ms),
+    }
+    if error:
+        doc["error"] = str(error)[:300]
+
+    async def _write():
+        try:
+            await _METER_DB.ai_calls.insert_one(doc)
+        except Exception as e:
+            log.warning("ai meter write failed: %s", str(e)[:120])
+
+    try:
+        asyncio.get_running_loop().create_task(_write())
+    except RuntimeError:
+        pass
+
+
 SYSTEM = (
     "You are a professional automotive translator localising South Korean used-car "
     "listing data from Encar for European car buyers. Translate Korean -> {lang}.\n"
@@ -161,7 +234,12 @@ async def _gemini_call(chunk, lang):
         raise RuntimeError(f"gemini returned no candidates: {str(data)[:300]}")
     # 2.5 models interleave 'thought' parts; keep only the real text parts.
     parts = (cands[0].get("content") or {}).get("parts") or []
-    return "".join(p["text"] for p in parts if isinstance(p.get("text"), str))
+    meta = data.get("usageMetadata") or {}
+    return "".join(p["text"] for p in parts if isinstance(p.get("text"), str)), {
+        "in": meta.get("promptTokenCount") or 0,
+        "out": meta.get("candidatesTokenCount") or 0,
+        "model": model,
+    }
 
 
 _ANTHROPIC = None
@@ -206,7 +284,12 @@ async def _anthropic_call(chunk, lang, model=None):
         except (TypeError, ValueError):
             pass
         raise RuntimeError(f"{RATE_LIMIT_PREFIX}:{wait:.0f}: anthropic 429")
-    return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+    return "".join(b.text for b in resp.content
+                   if getattr(b, "type", "") == "text"), {
+        "in": getattr(resp.usage, "input_tokens", 0),
+        "out": getattr(resp.usage, "output_tokens", 0),
+        "model": model,
+    }
 
 
 async def _emergent_call(chunk, lang):
@@ -218,7 +301,11 @@ async def _emergent_call(chunk, lang):
         session_id=f"trans-{lang}-{int(time.time()*1000)}",
         system_message=SYSTEM.format(lang=LANGS[lang]),
     ).with_model(*MODEL)
-    return await chat.send_message(UserMessage(text=_user_prompt(chunk, lang)))
+    prompt = _user_prompt(chunk, lang)
+    out = await chat.send_message(UserMessage(text=prompt))
+    # The wrapper does not report usage, so estimate from characters (~4 chars/token)
+    # purely so the admin screen still shows this provider's share of the spend.
+    return out, {"in": len(prompt) // 4, "out": len(out or "") // 4, "model": MODEL[1]}
 
 
 def _providers(model=None):
@@ -240,8 +327,12 @@ def _providers(model=None):
     return out
 
 
-async def _llm_translate(chunk, lang, *, model=None):
-    """Translate a list of strings in one call. Returns {source: translation}."""
+async def _llm_translate(chunk, lang, *, model=None, kind=None):
+    """Translate a list of strings in one call. Returns {source: translation}.
+
+    `kind` labels the call in the AI-usage log (`db.ai_calls`) so the admin screen can
+    say which part of the site spent the tokens.
+    """
     chain = _providers(model=model)
     if not chain:
         log.error("no translation API key configured "
@@ -257,8 +348,13 @@ async def _llm_translate(chunk, lang, *, model=None):
     last = ""
     for call, provider in chain:
         for attempt in range(MAX_ATTEMPTS):
+            t0 = time.monotonic()
             try:
-                got = _extract_json(await call(chunk, lang))
+                raw, usage = await call(chunk, lang)
+                meter(provider, (usage or {}).get("model"), kind or "labels", lang,
+                      usage, strings=len(chunk),
+                      ms=(time.monotonic() - t0) * 1000)
+                got = _extract_json(raw)
                 _breaker_reset()
                 return {chunk[int(i)]: v.strip()
                         for i, v in got.items()
@@ -268,6 +364,9 @@ async def _llm_translate(chunk, lang, *, model=None):
                 msg = str(e)
                 low = msg.lower()
                 last = f"{provider}: {msg}"
+                meter(provider, model, kind or "labels", lang, None,
+                      strings=len(chunk), ok=False, error=msg,
+                      ms=(time.monotonic() - t0) * 1000)
                 # Rate limiting is expected on free tiers: wait out the window and retry
                 # rather than abandoning the run.
                 if msg.startswith(RATE_LIMIT_PREFIX):
@@ -486,30 +585,6 @@ DESC_SYSTEM = (
 )
 
 
-async def stream_description(db, text, lang):
-    """Yield a dealer description translation in pieces.
-
-    Legacy single-shot streamer. Kept for symmetry with the callers, but the new default
-    path is `translate_description_segmented` — it splits the text into lines, serves
-    everything already cached without touching the LLM, and only batches the truly new
-    lines. See that function for the cost story.
-
-    Deliberately does NOT cache the full assembled text: every dealer writes their car up
-    differently, so a whole-description cache had a hit rate close to zero while filling
-    the translations collection with dead rows. Line-level cache in the segmented path is
-    where the real reuse happens.
-    """
-    async with _anthropic_client().messages.stream(
-        model=HAIKU_MODEL,
-        max_tokens=4000,
-        temperature=0.2,   # accuracy over flair: this is a spec sheet in prose
-        system=DESC_SYSTEM.format(lang=LANGS[lang], rules=DESC_RULES.get(lang, "")),
-        messages=[{"role": "user", "content": text}],
-    ) as stream:
-        async for piece in stream.text_stream:
-            yield piece
-
-
 # Split a description on line breaks. Blank lines are preserved so the reassembled
 # translation looks like the original — dealer boilerplate lives on a rhythm of empty
 # lines and separators, and squashing them collapses a paragraph into one wall of text.
@@ -551,204 +626,185 @@ def _segments(text):
     return out
 
 
-# Fragment separators inside a dealer line. Kept as capture groups so the pieces
-# BETWEEN them (the commas, brackets, arrows themselves) can be re-inserted verbatim
-# when we reassemble a translated line from cached fragments. `. ` requires a
-# following space so numeric decimals ("1.5 turbo") are not shredded.
-_FRAG_SPLIT = re.compile(r"(\s*[,\/→\-–—]\s*|\s*\.\s+|\s*\[|\]\s*)")
+async def _desc_gemini(text, lang, *, on_chunk=None):
+    """Standby for the description path: same full-context prompt, Gemini instead.
 
-# Enough hangul to be worth harvesting - single-syllable fragments are usually
-# grammar particles ("이", "은") and would poison the dictionary if aligned.
-_MIN_HARVEST_HANGUL = 2
-
-
-def _fragment_split(text):
-    """Break one dealer line into cache-addressable fragments.
-
-    Uses common Korean-text separators (comma, slash, dot, dash, arrow, brackets).
-    Returns a list of ("keep"|"content", piece) pairs so the caller can re-assemble
-    a translation without losing spacing or punctuation. Only "content" pieces get
-    cached; "keep" pieces are the separators themselves.
+    The owner's Anthropic key has expired more than once, and a dead key must not turn the
+    Translate button into a dead end. No streaming here — the answer arrives whole and is
+    handed over in one piece.
     """
-    out = []
-    parts = _FRAG_SPLIT.split(text or "")
-    for i, piece in enumerate(parts):
-        if not piece:
-            continue
-        if i % 2 == 1:                      # a separator captured by the regex
-            out.append(("keep", piece))
+    import httpx
+
+    model = os.environ.get("GEMINI_MODEL") or "gemini-2.5-flash"
+    body = {
+        "systemInstruction": {"parts": [{"text": DESC_SYSTEM.format(
+            lang=LANGS[lang], rules=DESC_RULES.get(lang, ""))}]},
+        "contents": [{"role": "user", "parts": [{"text": text}]}],
+        "generationConfig": {"temperature": 0.2},
+    }
+    t0 = time.monotonic()
+    try:
+        async with httpx.AsyncClient(timeout=180) as c:
+            r = await c.post(GEMINI_URL.format(m=model),
+                             params={"key": os.environ["GEMINI_API_KEY"]}, json=body)
+            # A free-tier 429 recovers on its own within seconds and Google tells us how
+            # long to wait. One patient retry here is the difference between a buyer
+            # reading the car and a buyer reading "translation unavailable".
+            if r.status_code == 429:
+                wait = 20.0
+                try:
+                    for d in (r.json().get("error", {}).get("details") or []):
+                        delay = str(d.get("retryDelay") or "")
+                        if delay.endswith("s"):
+                            wait = max(wait, min(float(delay[:-1]) + 2, 40))
+                except Exception:
+                    pass
+                log.info("description translation rate-limited, retrying in %.0fs", wait)
+                await asyncio.sleep(wait)
+                r = await c.post(GEMINI_URL.format(m=model),
+                                 params={"key": os.environ["GEMINI_API_KEY"]}, json=body)
+        if r.status_code != 200:
+            raise RuntimeError(f"gemini {r.status_code}: {r.text[:200]}")
+        data = r.json()
+        cands = data.get("candidates") or []
+        parts = (cands[0].get("content") or {}).get("parts") if cands else []
+        out = "".join(p["text"] for p in (parts or []) if isinstance(p.get("text"), str))
+        meta = data.get("usageMetadata") or {}
+        meter("gemini", model, "description", lang,
+              {"in": meta.get("promptTokenCount") or 0,
+               "out": meta.get("candidatesTokenCount") or 0},
+              strings=1, ms=(time.monotonic() - t0) * 1000)
+        out = (out or "").strip()
+        if out and on_chunk:
+            await on_chunk(out)
+        return out
+    except Exception as e:
+        meter("gemini", model, "description", lang, None, strings=1, ok=False,
+              error=str(e), ms=(time.monotonic() - t0) * 1000)
+        log.warning("description translation via gemini failed (%s): %s", lang, str(e)[:200])
+        return ""
+
+
+async def _desc_llm(text, lang, *, on_chunk=None):
+    """ONE contextual Haiku call for a WHOLE dealer description.
+
+    This is the only path that produces new description text. The model sees the entire
+    write-up at once, which is what lets it produce sentences that read like a dealer
+    wrote them in the target language. The previous implementation chopped the text into
+    lines and then into comma-separated fragments and fed those to the generic
+    UI-LABEL prompt ("be concise, these are spec values") — the model never saw a
+    sentence, so the output was word-for-word rubbish. Never do that again.
+
+    `on_chunk(piece)` (async) streams the answer out as it is generated.
+    """
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        return await _desc_gemini(text, lang, on_chunk=on_chunk)
+
+    system = DESC_SYSTEM.format(lang=LANGS[lang], rules=DESC_RULES.get(lang, ""))
+    client = _anthropic_client()
+    t0 = time.monotonic()
+    try:
+        if on_chunk is None:
+            resp = await client.messages.create(
+                model=HAIKU_MODEL, max_tokens=4000, temperature=0.2,
+                system=system, messages=[{"role": "user", "content": text}])
+            out = "".join(b.text for b in resp.content
+                          if getattr(b, "type", "") == "text")
+            usage = resp.usage
         else:
-            out.append(("content", piece))
-    return out
+            pieces = []
+            async with client.messages.stream(
+                model=HAIKU_MODEL, max_tokens=4000, temperature=0.2,
+                system=system, messages=[{"role": "user", "content": text}],
+            ) as stream:
+                async for piece in stream.text_stream:
+                    pieces.append(piece)
+                    await on_chunk(piece)
+                usage = (await stream.get_final_message()).usage
+            out = "".join(pieces)
+        meter("anthropic", HAIKU_MODEL, "description", lang,
+              {"in": getattr(usage, "input_tokens", 0),
+               "out": getattr(usage, "output_tokens", 0)},
+              strings=1, ms=(time.monotonic() - t0) * 1000)
+        return (out or "").strip()
+    except Exception as e:
+        meter("anthropic", HAIKU_MODEL, "description", lang, None,
+              strings=1, ok=False, error=str(e), ms=(time.monotonic() - t0) * 1000)
+        log.warning("description translation failed (%s): %s", lang, str(e)[:200])
+        if os.environ.get("GEMINI_API_KEY"):
+            return await _desc_gemini(text, lang, on_chunk=on_chunk)
+        return ""
 
 
-def _count_hangul(s):
-    return sum(1 for ch in s or "" if "\uac00" <= ch <= "\ud7a3")
+async def _cache_description(db, src, translated, lang):
+    """Store the whole description under its own hash, plus each aligned Korean line.
 
-
-async def _harvest_fragments(db, source_line, translated_line, lang):
-    """Save aligned Korean/target fragment pairs from ONE freshly translated line.
-
-    Same separator split applied to source and target; if the content-fragment
-    counts match one-for-one, we can reasonably trust the alignment for a plain
-    dealer sentence (dot/comma boundaries survive translation in practice). If the
-    counts disagree we walk away rather than write a rubbish pair - a bad row in
-    the cache poisons every future description that quotes the same fragment.
-
-    Also guards against a lopsided alignment: if the LLM inserted a preamble like
-    "Извършени:" into the first target fragment (or a summary tail into the last),
-    the per-fragment target/source length ratio spikes. When any pair strays more
-    than 3x from the median ratio the whole line is skipped rather than storing a
-    pair with an unwanted prefix baked in.
+    Two layers, both written from ONE contextual answer:
+      * `description` — the full text. A re-visit of the same car is a single indexed read.
+      * `description_line` — line N of the source paired with line N of the answer, so a
+        car whose every line is recycled dealer boilerplate can be served without an LLM
+        call at all. Only written when the line counts match exactly; a mismatch means the
+        model merged or split lines and the pairing cannot be trusted.
     """
-    src_parts = [p.strip() for k, p in _fragment_split(source_line) if k == "content"]
-    tgt_parts = [p.strip() for k, p in _fragment_split(translated_line) if k == "content"]
-    src_parts = [p for p in src_parts if p]
-    tgt_parts = [p for p in tgt_parts if p]
-    if len(src_parts) != len(tgt_parts) or len(src_parts) < 2:
-        return
-
-    # length-ratio sanity: reject when the alignment is obviously stretched.
-    ratios = []
-    for src, tgt in zip(src_parts, tgt_parts):
-        h = _count_hangul(src)
-        if h < _MIN_HARVEST_HANGUL:
-            return                                # too little signal, walk away
-        ratios.append(len(tgt) / h)
-    ratios_sorted = sorted(ratios)
-    median = ratios_sorted[len(ratios_sorted) // 2]
-    if any(r > median * 3 or r * 3 < median for r in ratios):
-        return                                    # one pair is stretched, skip line
-
     from pymongo import UpdateOne
-    docs = []
-    for src, tgt in zip(src_parts, tgt_parts):
-        if not src or not tgt or src == tgt:
-            continue
-        if not _looks_translated(src, tgt):
-            continue
-        docs.append({
-            "_id": cache_key(src, lang), "source": src, "lang": lang, "target": tgt,
-            "type": "description_fragment",
-        })
-    if docs:
-        await db.translations.bulk_write(
-            [UpdateOne({"_id": d["_id"]}, {"$set": d}, upsert=True) for d in docs],
-            ordered=False)
+    docs = [{"_id": cache_key(src, lang), "source": src, "lang": lang,
+             "target": translated, "type": "description"}]
+
+    s_lines = (src or "").split("\n")
+    t_lines = (translated or "").split("\n")
+    if len(s_lines) == len(t_lines):
+        for s, t in zip(s_lines, t_lines):
+            s, t = s.strip(), t.strip()
+            if not s or not t or not _has_hangul(s) or not _looks_translated(s, t):
+                continue
+            docs.append({"_id": cache_key(s, lang), "source": s, "lang": lang,
+                         "target": t, "type": "description_line"})
+
+    await db.translations.bulk_write(
+        [UpdateOne({"_id": d["_id"]}, {"$set": d}, upsert=True) for d in docs],
+        ordered=False)
 
 
-async def _from_fragments(db, line, lang):
-    """Try to assemble a line's translation entirely from cached fragments.
+async def translate_description(db, text, lang, *, on_chunk=None):
+    """Translate a dealer description. Returns the translated text, "" on failure.
 
-    Returns the assembled string on a full hit, or None when even one fragment is
-    missing - a partial hit is worse than none because the visitor sees the line
-    half in Korean, half in Bulgarian. Small enough to run before every LLM batch.
+    Cache layers, cheapest first:
+      1. the WHOLE description by hash — a second visit to the same car costs nothing;
+      2. line level — a description whose every Korean line is already known is
+         assembled from those lines, still without touching the LLM;
+      3. otherwise ONE contextual Haiku call on the full text (streamed if `on_chunk`).
+
+    Fragments are deliberately gone. Stitching a sentence out of separately translated
+    comma-separated pieces is what destroyed the quality, and no amount of cache saving
+    is worth an unreadable page.
     """
-    parts = _fragment_split(line)
-    contents = [p for k, p in parts if k == "content"]
-    strippable = [c.strip() for c in contents if c.strip()]
-    if len(strippable) < 2:
-        return None
-    got = await translate_cached_only(db, strippable, lang)
-    if any(c not in got for c in strippable):
-        return None
-    out = []
-    for kind, piece in parts:
-        if kind == "keep":
-            out.append(piece)
-            continue
-        stripped = piece.strip()
-        if not stripped:
-            out.append(piece)
-            continue
-        lead = piece[: len(piece) - len(piece.lstrip())]
-        tail = piece[len(piece.rstrip()):]
-        out.append(f"{lead}{got[stripped]}{tail}")
-    return "".join(out)
+    src = (text or "").strip()
+    if not src or lang not in LANGS:
+        return src
 
+    hit = await translate_cached_only(db, [src], lang)
+    if hit.get(src):
+        if on_chunk:
+            await on_chunk(hit[src])
+        return hit[src]
 
-async def translate_description_segmented(db, text, lang, *, on_progress=None):
-    """Translate a dealer description one line at a time, driven by the cache.
+    segs = _segments(src)
+    todo = [s for kind, s in segs if kind == "todo"]
+    if todo:
+        lines = await translate_cached_only(db, todo, lang)
+        if all(line in lines for line in todo):
+            full = "".join(lines.get(v, v) if kind == "todo" else v
+                           for kind, v in segs)
+            await _cache_description(db, src, full, lang)
+            if on_chunk:
+                await on_chunk(full)
+            return full
 
-    Each line is stored in `db.translations` under its own hash: the second time a
-    dealer sells a car with the same "무사고 차량입니다" boilerplate line, that line
-    costs zero tokens. Only lines with no cache hit are batched through Haiku in ONE
-    call at the end.
-
-    On top of the line cache, this path also harvests fragment pairs from every
-    fresh LLM answer (e.g. "엔진오일 교환" ↔ "смяна на моторно масло") and looks
-    them up first on subsequent runs. A line whose fragments are ALL cached skips
-    the LLM entirely even when the whole line has never been seen before.
-
-    `on_progress(text, done)` is called after every cache hit and after the LLM batch,
-    so a caller can push incremental output to a stream. `done=True` on the last event.
-    Returns the full translated text.
-    """
-    if not text or not text.strip():
-        return text
-    segs = _segments(text)
-
-    # 1) Cache lookup for every "todo" segment in ONE indexed Mongo call.
-    todo_lines = [s for kind, s in segs if kind == "todo"]
-    tmap = await translate_cached_only(db, todo_lines, lang) if todo_lines else {}
-
-    # 1a) For lines that missed the whole-line cache, try to rebuild them from
-    #     previously-harvested fragments. When every fragment is cached the LLM is
-    #     bypassed for this line altogether; when even one fragment is missing we
-    #     leave the line as-is and it falls into the batched LLM call below.
-    still_missing = [ln for ln in todo_lines if ln not in tmap]
-    for line in still_missing:
-        assembled = await _from_fragments(db, line, lang)
-        if assembled:
-            tmap[line] = assembled
-
-    # 2) Anything already cached AND anything decorative or Latin is served instantly.
-    out = []
-    def emit(text_piece):
-        out.append(text_piece)
-        if on_progress:
-            on_progress(text_piece, False)
-
-    # 3) Batched Haiku call for the misses, ONE request per description.
-    missing = [line for line in todo_lines if line not in tmap]
-    if missing:
-        got = await _llm_translate(list(dict.fromkeys(missing)), lang, model=HAIKU_MODEL)
-        # Persist each newly translated line individually so the very next visitor to a
-        # DIFFERENT car that shares this line pays nothing.
-        if got:
-            from pymongo import UpdateOne
-            docs = [
-                {"_id": cache_key(src, lang), "source": src, "lang": lang, "target": tr,
-                 "type": "description_line"}
-                for src, tr in got.items() if tr and _looks_translated(src, tr)
-            ]
-            if docs:
-                await db.translations.bulk_write(
-                    [UpdateOne({"_id": d["_id"]}, {"$set": d}, upsert=True) for d in docs],
-                    ordered=False)
-            tmap.update({k: v for k, v in got.items() if v})
-            # 3a) Fragment harvest: after storing the whole line, tear it down into
-            #     comma/dot/dash-bounded fragments and cache each aligned pair. Runs
-            #     only on lines Haiku actually just answered (a re-visit of a cached
-            #     line does not re-harvest).
-            for src, tr in got.items():
-                if tr and _looks_translated(src, tr):
-                    await _harvest_fragments(db, src, tr, lang)
-
-    # 4) Stitch back together, preserving line breaks and decorative bars verbatim.
-    for kind, value in segs:
-        if kind in ("break", "blank", "deco", "skip"):
-            emit(value)
-        else:
-            emit(tmap.get(value) or value)
-
-    full = "".join(out)
-    # Only the individual line rows persist. The whole-description document was
-    # cached previously but had a near-zero hit rate (every dealer writes their
-    # car up differently) and only bloated the translations collection.
-    if on_progress:
-        on_progress("", True)
-    return full
+    full = await _desc_llm(src, lang, on_chunk=on_chunk)
+    if full and _looks_translated(src, full):
+        await _cache_description(db, src, full, lang)
+        return full
+    return ""
 
 
 def _has_hangul(s):

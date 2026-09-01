@@ -1,0 +1,41 @@
+{
+  "summary": "Iter 44 (description translation quality fix + AI cost logging/report/budget feature) tested end-to-end. Backend pytest suite: 23/26 passing (3 flakes are Gemini free-tier 429 rate limits when hammering ro/pl fresh translations in a burst — environmental, not code). Description SSE stream produces fluent, Hangul-free output in bg/en/ro/pl for 4 different Korean listings; cached listing is served from db.translations in ~0.2s and NO new db.ai_calls row is written; ai_calls rows have full schema (ts/day/provider/model/kind='description'/lang/in_tokens>0/out_tokens>0/cost_usd>0/ok/ms) and failed rows carry an error string. Admin surface: GET /api/admin/ai-usage returns full shape for days=7|30|90 with billing.available=false (no ANTHROPIC_ADMIN_KEY in preview), 401s without token and with a bad token; PUT /api/admin/ai-budget persists, clamps to 0.5..1000, returned value shows up in the next /ai-usage; POST /api/admin/ai-report/send returns 200, stores db.ai_reports and the entry is listed under reports[]. Admin UI in /bg/admin?tab=ai renders every required data-testid, chart draws, range buttons switch, budget save shows the Bulgarian toast, report send refreshes the reports list, no console errors, all copy Bulgarian. Regression: POST /api/search still works, returns *_t translated fields, and db.ai_calls contains the description kind at minimum. Car detail translate button on 42379471 streams Korean→English fluently (1600 chars, no Hangul).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/car/{id}/translate-description/stream", "issue": "Under Gemini free-tier rate pressure (both providers unavailable), the SSE emits a single 'translation is unavailable right now' error frame. Expected in preview because ANTHROPIC_API_KEY is invalid AND Gemini free-tier RPM is low, but any concurrent user hitting the page during a Gemini 429 window sees the same error — no in-server retry after backoff. Consider a 15–30s retry on Gemini 429 inside _desc_gemini (the reply carries retryDelay), or fall through to EMERGENT_LLM_KEY (which is chained in for label translations but NOT in the description path)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Car detail description translate", "issue": "After a page reload the description panel intentionally re-mounts with the Korean original and the translated text does NOT auto-render — the visitor has to click 'Преведи текста' again. The second click IS instant (~0.2s from backend cache), so technically 'cached forever'. But the review wording 'stays after a page reload (cache)' is a UX expectation the current code deliberately does not honour (see DescriptionPanelBody.js comment: 'never on page load'). If the intent is that a returning visitor sees the translation without re-clicking, either persist the last choice in localStorage per-carId+lang, or auto-fetch when a description translation exists in the cache. Not a bug per the code's own contract — flagged for clarity.", "affected_selectors": ["description-translate", "description-text"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ai_usage_and_desc.py",
+    "/app/test_reports/pytest/iter44_ai.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: In translate._desc_gemini, honour a Gemini 429 by waiting the RetryInfo delay ONCE before returning empty, so a single free-tier hiccup does not make the SSE panel say 'unavailable' when a retry 25s later would have succeeded. Same pattern _gemini_call already implements for the labels path.",
+    "OPTIONAL: In translate._desc_llm's Gemini fallback path, when both anthropic and gemini fail, try EMERGENT_LLM_KEY via _emergent_call (it is chained in _providers for other kinds but not reached from _desc_llm). Would remove the last single-point-of-failure for descriptions.",
+    "UX DECISION (not a bug): DescriptionPanelBody deliberately shows Korean on every remount. If review wording 'stays after a page reload' is a requirement, wire a small localStorage flag or eager-fetch the cached translation when the panel mounts."
+  ],
+  "critical_code_review_comments": [
+    "aicost.billed(): the ai_billing cache never reads today's row when admin_key is missing — that's fine, but the `known >= days - 1` short-circuit means if the admin key is later added the historical days will NOT be back-filled unless the caller passes refresh=True on a fresh day. Consider a one-shot background back-fill when admin_key first appears.",
+    "translate.meter() uses asyncio.get_running_loop() + create_task inside a fire-and-forget; the RuntimeError catch swallows metering when called from a sync context (which is fine for tests) but there is no fallback write — a batch translation invoked from an on_startup sync hook would silently lose its usage rows. Very edge-case.",
+    "translate._desc_llm: `on_chunk` is invoked for each streamed piece BEFORE the final message is validated with _looks_translated. If the model streams partial text and then produces something that fails the check, the browser has already been shown the (potentially bad) chunks and the endpoint returns done=true anyway. Consider validating the accumulated output before emitting the final 'done' frame, and yielding a fail sentinel instead.",
+    "aicost.check_budget picks the alerted flag out of ai_reports but overwrites the doc with $set — the merge could clobber an earlier `emailed:true` field on the same day. Use $set on individual keys or read the existing doc first.",
+    "server.translate_description_stream builds a queue with an asyncio.Task but does not cancel the task if the client disconnects; a slow LLM run keeps running and metering after the browser is gone. Wrapping the generator in try/finally that cancels `task` would tidy this."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ai_usage_and_desc.py"
+  ],
+  "success_rate": {"backend": "88% (23/26 passing — 3 failures are Gemini free-tier 429 on parallel ro/pl fresh streams; not a code issue)", "frontend": "100% — every requested data-testid on /bg/admin?tab=ai is present, all interactions (range switch, budget save, report send, reload) work, Bulgarian copy correct, no console errors, car detail translate streams Korean→English fluently"},
+  "test_credentials": "martingtodorov@gmail.com / Nero — worked. Cookie consent testid is data-testid='cookie-accept' (Bulgarian button 'Приемам всички').",
+  "seed_data_creation": "During testing db.ai_reports now contains a report doc for today (2026-09-01) from POST /api/admin/ai-report/send. db.settings.ai_budget was toggled 5 → 7.5 → 1000 (clamp) → 0.5 (clamp) → 5 and left at 5.0 (default). db.translations gained description + description_line rows for listings 42379471, 42379220, 41834945, 42345245 in bg/en (and ro for some).",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Reproducing the login flow: (1) navigate to /bg/login, wait 2s, (2) click [data-testid='cookie-accept'] with force=True (the modal overlays the login form), (3) fill [data-testid='auth-email-input'] and [data-testid='auth-password-input'], (4) click button[type=submit]. NB: on submit the app can redirect from /bg to /en depending on browser Accept-Language — if you need /bg admin, navigate explicitly to /bg/admin?tab=ai afterwards. Cookie modal appears again on the admin route, click cookie-accept once more. The AdminAiUsage layout is `admin-ai-usage` root, four stat cards (ai-stat-today/week/month/avg), range buttons ai-range-{7,30,90}, ai-reload, ai-chart|ai-empty, ai-by-kind, ai-by-model, ai-budget-input + ai-budget-save, ai-report-send, ai-reports list, ai-errors, ai-breaker (only when translator breaker is open — was missing today because breaker was closed). ai-budget-banner appears only when today's cost >= budget. Backend Gemini free-tier RPM is low; test SSE streaming SERIALLY (pytest uses --dist loadscope + one class = one worker). Anthropic key is 401 by design in preview; every description LOGS an anthropic failure then a Gemini success — do not report that as a bug."
+}

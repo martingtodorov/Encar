@@ -463,6 +463,24 @@ export async function getTrafficHistory(days = 30) {
   return data.items || [];
 }
 
+/** Token spend per day, per purpose and per model. Admin only. */
+export async function getAiUsage(days = 30) {
+  const { data } = await http.get("/admin/ai-usage", { params: { days } });
+  return data;
+}
+
+/** The daily ceiling that triggers an alert email. Admin only. */
+export async function setAiBudget(dailyUsd) {
+  const { data } = await http.put("/admin/ai-budget", { daily_usd: Number(dailyUsd) });
+  return data;
+}
+
+/** Build and email the cost report for a day now, without waiting for 21:00. */
+export async function sendAiReport(day = "") {
+  const { data } = await http.post("/admin/ai-report/send", null, { params: { day } });
+  return data;
+}
+
 /** Live/day/week/month traffic. Admin only — the endpoint refuses anyone else. */
 export async function getTraffic() {
   const { data } = await http.get("/admin/traffic");
