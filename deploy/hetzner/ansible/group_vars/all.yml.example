@@ -61,6 +61,10 @@ totp_encryption_key: ""
 # Your OWN key: the Emergent universal key does not work off-platform. Claude does every
 # translation in this app.
 anthropic_api_key: ""
+# Organisation Admin key (console.anthropic.com → Settings → Admin keys), prefix
+# sk-ant-admin... . Read-only, used ONLY by the admin "AI разходи" screen to show the amount
+# Anthropic actually invoices per day. Optional: empty = our own estimate is shown instead.
+anthropic_admin_key: ""
 anthropic_model: claude-haiku-4-5-20251001
 anthropic_fast_model: claude-haiku-4-5-20251001
 gemini_api_key: ""

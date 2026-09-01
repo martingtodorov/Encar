@@ -107,6 +107,7 @@ with nothing but `connection refused`.
 | Key | Without it |
 |---|---|
 | `ANTHROPIC_API_KEY` (+ `ANTHROPIC_MODEL`, `ANTHROPIC_FAST_MODEL`) | no translations at all |
+| `ANTHROPIC_ADMIN_KEY` (optional, `sk-ant-admin…`) | the AI-cost screen shows only our own estimate, not the invoiced amount |
 | `ADMIN_TOKEN` | no admin panel |
 | `ADMIN_SEED_PASSWORD` | no first admin account |
 | `TOTP_ENCRYPTION_KEY` | 2FA cannot be enrolled |
