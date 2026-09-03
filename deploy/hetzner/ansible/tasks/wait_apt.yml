@@ -1,0 +1,23 @@
+---
+# Wait for whatever else is using apt to finish, instead of racing it and failing the deploy.
+#
+# A freshly installed Ubuntu box runs `unattended-upgrades` on first boot. That IS a python3
+# process, which is why the failure names one:
+#   "Could not get lock /var/lib/apt/lists/lock. It is held by process 14021 (python3)"
+# It clears on its own within a minute or two. `cloud-init`, `apt-daily.service` and a second
+# Ansible run cause the same thing.
+#
+# flock, not fuser: flock is util-linux and always present, whereas fuser comes from psmisc,
+# which is not installed on a minimal image. Both locks are taken in turn and released
+# immediately (`true`), so this only ever waits — it never holds anything itself.
+- name: Wait for any other apt or dpkg run to finish
+  ansible.builtin.shell:
+    cmd: >-
+      flock -w 600 /var/lib/dpkg/lock-frontend
+      flock -w 600 /var/lib/apt/lists/lock true
+  args:
+    executable: /bin/bash
+  changed_when: false
+  # 600s is generous on purpose: an unattended security upgrade on a fresh box can pull a
+  # kernel. Failing after ten minutes means something is genuinely stuck, and then the
+  # message says so rather than blaming the lock.

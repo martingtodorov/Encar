@@ -19,6 +19,10 @@
           - repo_url | default('') | length > 0
         fail_msg: "site_domains and repo_url are required — see group_vars/all.yml.example."
 
+    - name: Let any first-boot apt run finish first
+      ansible.builtin.include_tasks: ../tasks/wait_apt.yml
+      tags: [always]
+
   tasks:
     # ── base ──────────────────────────────────────────────────────────────────
     - name: Base packages

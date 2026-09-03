@@ -24,6 +24,10 @@
           site_domains, admin_token and anthropic_api_key are the minimum. Copy
           group_vars/all.yml.example and fill it in (ansible-vault encrypt it, please).
 
+    - name: Let any first-boot apt run finish first
+      ansible.builtin.include_tasks: ../tasks/wait_apt.yml
+      tags: [always]
+
   tasks:
     # ── base ──────────────────────────────────────────────────────────────────
     - name: Base packages

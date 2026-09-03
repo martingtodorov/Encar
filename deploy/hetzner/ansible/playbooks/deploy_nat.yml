@@ -47,6 +47,11 @@
   any_errors_fatal: true
   tags: [gateway, client]
 
+  pre_tasks:
+    - name: Let any first-boot apt run finish first
+      ansible.builtin.include_tasks: ../tasks/wait_apt.yml
+      tags: [always]
+
   tasks:
     - name: Defaults for anything not set in group_vars
       # Set as facts on the FIRST play so every later play on either host sees them, whether
@@ -94,6 +99,11 @@
 - name: front1 becomes the gateway
   hosts: frontend
   become: true
+
+  pre_tasks:
+    - name: Let any first-boot apt run finish first
+      ansible.builtin.include_tasks: ../tasks/wait_apt.yml
+      tags: [always]
 
   tasks:
     - name: ufw present

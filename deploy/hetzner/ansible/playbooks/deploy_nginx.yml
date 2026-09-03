@@ -9,6 +9,11 @@
   hosts: frontend
   become: true
 
+  pre_tasks:
+    - name: Let any first-boot apt run finish first
+      ansible.builtin.include_tasks: ../tasks/wait_apt.yml
+      tags: [always]
+
   tasks:
     - name: nginx
       ansible.builtin.apt:
