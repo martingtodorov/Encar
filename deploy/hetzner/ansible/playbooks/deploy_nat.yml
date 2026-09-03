@@ -40,6 +40,11 @@
 - name: Tunnel keys on both hosts
   hosts: frontend:backend
   become: true
+  # A point-to-point tunnel needs BOTH public keys. If one host is unreachable the run used
+  # to carry on and die three tasks later inside a Jinja template ("object of type
+  # 'HostVarsVars' has no attribute 'wg_pubkey'"), which hides the real cause — the
+  # unreachable host. Stop here instead, where the error still names the host.
+  any_errors_fatal: true
   tags: [gateway, client]
 
   tasks:
@@ -141,6 +146,17 @@
       notify: Reload ufw
       tags: [gateway]
 
+    - name: back1's public key must be known before front1's peer config is written
+      ansible.builtin.assert:
+        that: hostvars[groups['backend'][0]].wg_pubkey is defined
+        fail_msg: >-
+          No public key from {{ groups['backend'][0] }} — the first play did not run there
+          (usually UNREACHABLE). If ssh says "REMOTE HOST IDENTIFICATION HAS CHANGED", the
+          box was rebuilt: run `ssh-keygen -R {{ hostvars[groups['backend'][0]].ansible_host
+          | default(groups['backend'][0]) }}` on your laptop, ssh in once to accept the new
+          key, then re-run this playbook.
+      tags: [gateway]
+
     - name: Tunnel config
       ansible.builtin.template:
         src: ../templates/wg0-front.conf.j2
@@ -236,6 +252,14 @@
         regexp: '^{{ nat_table }}\s'
         create: true
         mode: "0644"
+      tags: [client]
+
+    - name: front1's public key must be known before back1's peer config is written
+      ansible.builtin.assert:
+        that: hostvars[groups['frontend'][0]].wg_pubkey is defined
+        fail_msg: >-
+          No public key from {{ groups['frontend'][0] }} — the first play did not run there.
+          Fix that host's ssh access and re-run; without its key back1 has no peer to dial.
       tags: [client]
 
     - name: Tunnel config (policy routing only — the main default route is left alone)
