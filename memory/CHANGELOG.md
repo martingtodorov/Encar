@@ -2164,3 +2164,34 @@ Fix: every test now reads the value from the environment (`conftest.py` already 
 STILL REQUIRED FROM THE OWNER: the old values remain in git HISTORY, so they must be rotated —
 new `ADMIN_TOKEN` (`openssl rand -base64 24`), new `ADMIN_SEED_PASSWORD`, and a new owner
 password. Then `ansible-playbook ... deploy_backend.yml --tags config,service`.
+
+## 2026-09-03 — One price per car (search / car page / saved list / deposit)
+
+Reported: `/bg/kia/stinger` showed 12299 EUR, the ad page 13099 EUR, the saved list a third
+figure. Proven on production with `GET /api/car/42207598?refresh=1` → **12299**, i.e. the
+list was right and the car page was wrong.
+
+Root cause: two different sources for the asking price.
+* `listings.price_krw` — rewritten by every catalogue sync while the ad is in Encar's search
+  results. Search, the saved list (`/listings/by-ids`) and every shelf use it through
+  `publish_prices`.
+* `car_details.detail.advertisement.price` — a snapshot written the FIRST time that car page
+  was ever opened, then served from cache forever (the code comment claimed a re-fetch "every
+  few hours"; there is none). The car page preferred THIS one.
+  Measured: 125 of 388 cached details disagreed with the listing (32%), up to EUR 800 apart.
+  For this Kia the dealer had cut ~1160 → 1050 manwon; only the list noticed.
+
+Fix (`server.py`, the pricing block of `GET /api/car/{id}`): an ACTIVE listing's own
+`price_krw` is now the authority. The cached advertisement price is used only when the car is
+inactive/archived, where the stored value is frozen at the last sync and the dealer can still
+have edited the ad — that branch is unchanged.
+
+Also aligned the deposit: it was 10% of the raw stored `sale_eur` while the page could be
+showing the higher live-FX quote. New `pricing.published_sale(car, rates, constants)` is the
+single rule (stored `sale_eur`, unless the live quote is higher) and `deposits.py` uses it in
+the quote, the checkout amount and the stored `car_price_eur`.
+
+Verified on preview with a car whose cached detail (50.0M KRW) disagreed with the listing
+(52.0M): car page 40099 = saved list 40099 = deposit 40099 (4009.90). `test_fx_haircut.py`
++ `test_security_deposit.py`: 7 passed, 1 skipped — `test_car_quote_uses_buffered_rate` now
+skips when its fixture car has gone inactive (it was comparing against a frozen KRW price).

@@ -34,6 +34,8 @@ from pydantic import BaseModel
 import archive
 import auth
 import encar as encar_mod
+import fx as fx_mod
+import pricing
 import translate
 import mailer
 import notify
@@ -87,6 +89,18 @@ async def _car(car_id):
     return car
 
 
+async def _published_price(car):
+    """The price the buyer is actually looking at, not the raw stored one.
+
+    A deposit is 10% of the car, so it has to be 10% of the SAME number the grid and the
+    car page show — `pricing.published_sale` is that single source (stored `sale_eur`
+    unless live FX puts the fresh quote higher).
+    """
+    rates = await fx_mod.get_rates(_db)
+    sdoc = await _db.settings.find_one({"_id": "pricing"}) or {}
+    return pricing.published_sale(car, rates, sdoc.get("constants"))
+
+
 def _title(car):
     return " ".join(str(x) for x in [car.get("manufacturer_t") or car.get("manufacturer"),
                                      car.get("model_t") or car.get("model")] if x)
@@ -136,11 +150,12 @@ async def deposit_quote(car_id: str, request: Request):
     user = await auth.optional_user(request)
     paid = await _db.deposits.find_one({"car_id": car["_id"],
                                         "payment_status": {"$in": list(HELD_STATES)}})
+    price = await _published_price(car)
     return {
         "configured": bool(stripe.api_key),
         "car_id": car["_id"],
-        "price_eur": car.get("sale_eur") or 0,
-        "amount_eur": amount_for(car.get("sale_eur")),
+        "price_eur": price,
+        "amount_eur": amount_for(price),
         "rate": DEPOSIT_RATE,
         "minimum_eur": DEPOSIT_MIN_EUR,
         "commission_eur": COMMISSION_EUR,
@@ -175,7 +190,8 @@ async def deposit_checkout(body: CheckoutBody, user=Depends(auth.current_user)):
                       "sales_status": "CONTRACT", "sold_at": _now()}})
         raise HTTPException(409, {"code": "car_contracted"})
 
-    amount = amount_for(car.get("sale_eur"))
+    price = await _published_price(car)
+    amount = amount_for(price)
     title = await _english_title(car)
     origin = body.origin_url.rstrip("/")
     kwargs = dict(
@@ -217,7 +233,7 @@ async def deposit_checkout(body: CheckoutBody, user=Depends(auth.current_user)):
         "email": user["email"],
         "amount": amount,
         "currency": "eur",
-        "car_price_eur": car.get("sale_eur") or 0,
+        "car_price_eur": price,
         # Which skin they bought from, so a later refund email speaks their language.
         "lang": (origin.rsplit("/", 1)[-1] or "en")[:2].lower(),
         "status": "initiated",

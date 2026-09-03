@@ -88,6 +88,12 @@ def test_car_quote_uses_buffered_rate():
     listing = _listing(CAR)
     if not listing or not listing.get("price_krw"):
         pytest.skip(f"{CAR} is not in the catalogue right now")
+    # Only an ACTIVE car quotes from `listing.price_krw`. Once the ad leaves Encar's search
+    # results that value freezes at the last sync, and the car page deliberately falls back
+    # to the cached advertisement price - which the dealer can still have edited. Comparing
+    # the two on an inactive car tests nothing but how long ago it dropped out.
+    if not listing.get("active"):
+        pytest.skip(f"{CAR} is no longer active; its stored KRW price is frozen")
     r = requests.get(f"{BASE}/api/car/{CAR}?lang=en", timeout=45)
     assert r.status_code == 200, r.text[:300]
     sale = ((r.json().get("quote") or {}).get("suggested_sale"))

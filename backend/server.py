@@ -3150,17 +3150,26 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     desc_t, desc_pending = desc_ko, False
 
     # ── pricing ─────────────────────────────────────────────────────────────────
-    # `advertisement.price` is the freshest snapshot we have of Encar's current
-    # asking price: it comes back on every `/car_details` re-fetch (every few
-    # hours), whereas `listing.price_krw` only refreshes when the car is still
-    # in a search result page and our crawler visits that page. As soon as a
-    # listing drops out of the sync (inactive), `listing.price_krw` freezes at
-    # the last value — but the dealer can still edit the price on Encar. So
-    # trust the advertisement over the search-projection: if Encar gave us a
-    # number in the detail, use it. Fall back to the stored search price only
-    # when the detail arrived without a price (very old cached entries).
+    # ONE authority for the asking price, or the same car shows three different
+    # numbers on the grid, on this page and in the buyer's saved list.
+    #
+    # `advertisement.price` is a snapshot taken the FIRST time this car page was ever
+    # opened: the `car_details` document is written once and then served from cache
+    # (see the top of this function), so on a car we fetched weeks ago that number is
+    # weeks old. `listing.price_krw` is rewritten by every catalogue sync while the car
+    # is still in Encar's search results — that is the fresh one. Measured on this
+    # index: a third of cached details disagreed with the listing, up to EUR 800 apart.
+    #
+    # So: an ACTIVE listing wins, because the crawler keeps it current. Only when the
+    # car has dropped out of search (inactive/archived, `price_krw` frozen at the last
+    # sync) does the cached advertisement carry more recent news — the dealer can still
+    # edit the price on Encar after the ad leaves the result pages.
     adv_krw = (adv.get("price") or 0) * 10_000
-    price_krw = adv_krw or (listing or {}).get("price_krw") or 0
+    listing_krw = (listing or {}).get("price_krw") or 0
+    if (listing or {}).get("active") and listing_krw:
+        price_krw = listing_krw
+    else:
+        price_krw = adv_krw or listing_krw
     rates = await fx_mod.get_rates(db)
     sdoc = await db.settings.find_one({"_id": "pricing"}) or {}
     is_ev = pricing.is_ev_fuel((listing or {}).get("fuel_type") or cat.get("fuelType"))

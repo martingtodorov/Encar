@@ -189,6 +189,24 @@ def admin_range(quote):
     }
 
 
+def published_sale(car, rates, constants=None):
+    """The ONE price every surface must show for a car.
+
+    The grid, the car page, the buyer's saved list and the deposit quote all used to
+    derive their own number, and they drifted apart (up to EUR 800 on the same car).
+    The rule, from the owner: the stored `sale_eur` unless live FX makes the fresh quote
+    higher — an advertised price is never undercut by the page behind it.
+    """
+    stored = float(car.get("sale_eur") or 0)
+    krw = car.get("price_krw") or 0
+    if not krw:
+        return stored
+    _, live = quick_sale_eur(krw, rates["fx_krw_eur"], rates["usd_eur"],
+                             merge_settings(constants),
+                             is_ev=is_ev_fuel(car.get("fuel_type")))
+    return max(stored, live)
+
+
 def quick_sale_eur(price_krw, fx_krw_eur, usd_eur, S, is_ev=False):
     """Hot path used when repricing 200k+ listings: landed + sale only, no dict churn."""
     encar_eur = price_krw / fx_krw_eur
