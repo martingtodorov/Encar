@@ -2254,3 +2254,31 @@ incident: closed and announced in under a second.
 STILL FOR THE OWNER: finish `ansible-playbook playbooks/deploy_nat.yml` (the apt lock was
 first-boot `unattended-upgrades`; a wait step was added to every playbook) and restart
 `encar-backend`. Also `deploy/hetzner/ansible/tasks/wait_apt.yml` is new.
+
+## 2026-09-04 (later) — Outage alerts made push-first
+
+Owner: "искам да са push известия." Push was already the first channel, but three things
+made it weak, and one of them made it silent:
+
+* `sw.js` now honours `require_interaction`, `renotify` and `vibrate` from the payload. An
+  outage card stays on screen until it is touched and buzzes again on every reminder;
+  everything else keeps the quiet default.
+* `notify.py` — `push_to_user` / `push_to_admins` take arbitrary payload extras plus `ttl`
+  and `urgency`. Incident pushes use `Urgency: high` (wakes a sleeping phone instead of
+  being batched), a 24h ttl (a phone that was off overnight still gets it) and one `tag`
+  per check, so a reminder REPLACES the previous card instead of stacking twelve of them.
+* Email is now the backstop, not a second channel: it only goes out when push reached ZERO
+  devices. No more duplicate noise.
+* `notify.admin_devices()` counts subscribed admin devices, returned by
+  `GET /api/admin/incidents` as `push_devices`.
+
+The thing that would have made all of this pointless: **there are no push subscriptions at
+all** (`push_subscriptions` is empty for both admin accounts). A push channel with no devices
+is silence, and silence looks exactly like "nothing is wrong". So the incident strip now
+states the device count out loud and carries two buttons — "Включи на това устройство"
+(`enablePush()`) and "Изпрати тестова авария" (`POST /api/admin/incidents/test`, a real
+emergency-grade push, so the channel is provable before it matters).
+
+Verified: endpoint returns `{"sent": 0, "devices": 0}` and the strip renders
+"Нито едно устройство не получава push известия" with both buttons. The owner must tap
+"Включи на това устройство" on each phone/laptop he wants woken.

@@ -469,6 +469,12 @@ export async function getAiUsage(days = 30) {
   return data;
 }
 
+/** Fire a real emergency push to every admin device, to prove the channel works. */
+export async function testIncidentPush() {
+  const { data } = await http.post("/admin/incidents/test");
+  return data;
+}
+
 /** Open outages and incident history from the server-side watchdog. Admin only. */
 export async function getIncidents(run = false) {
   const { data } = await http.get("/admin/incidents", { params: run ? { run: 1 } : {} });

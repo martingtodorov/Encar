@@ -3652,6 +3652,22 @@ async def admin_ai_usage(request: Request, days: int = 30,
 
 
 
+@api.post("/admin/incidents/test")
+async def admin_incident_test(request: Request, x_admin_token: str = Header(default="")):
+    """Fire a real emergency push, exactly as an outage would.
+
+    The alert channel has to be provable BEFORE it matters. A push channel with no
+    subscribed device is silence, and silence is indistinguishable from "nothing is wrong".
+    """
+    await _require_admin(request, x_admin_token)
+    sent = await notify.push_to_admins(
+        "Тест: аварийно известие",
+        "Така изглежда предупреждение за авария. Ако виждаш това, каналът работи.",
+        url="/bg/admin?tab=overview", tag="incident-test", renotify=True,
+        require_interaction=True, vibrate=[300, 120, 300], ttl=600, urgency="high")
+    return {"sent": sent, "devices": await notify.admin_devices()}
+
+
 @api.get("/admin/incidents")
 async def admin_incidents(request: Request, run: bool = False,
                           x_admin_token: str = Header(default="")):

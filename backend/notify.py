@@ -162,7 +162,7 @@ async def push_unsubscribe(body: SubscriptionBody, user=Depends(auth.current_use
     return {"ok": True, "devices": left}
 
 
-def _send_one(subscription, payload):
+def _send_one(subscription, payload, ttl=3600, urgency=None):
     """Synchronous by nature; always called through a thread so the loop keeps serving."""
     webpush(
         subscription_info={"endpoint": subscription["_id"], "keys": subscription["keys"]},
@@ -170,12 +170,15 @@ def _send_one(subscription, payload):
         vapid_private_key=os.environ["VAPID_PRIVATE_KEY"],
         # Recreated per call: pywebpush mutates the claims it is handed.
         vapid_claims={"sub": os.environ["VAPID_SUBJECT"]},
-        ttl=60 * 60,
+        ttl=ttl,
+        # "high" tells the push service to wake a sleeping phone instead of batching the
+        # message until the next time it happens to be awake. Only outage alerts use it.
+        headers={"Urgency": urgency} if urgency else None,
         timeout=10,
     )
 
 
-async def push_to_user(user_id, title, body, url="/", event=None):
+async def push_to_user(user_id, title, body, url="/", event=None, **options):
     """Push to every device of one buyer. Returns how many were delivered."""
     user = await _db.users.find_one({"_id": user_id})
     if not user:
@@ -183,11 +186,16 @@ async def push_to_user(user_id, title, body, url="/", event=None):
     if event and not wants(user, "push", event):
         return 0
 
-    payload = {"title": title, "body": body, "url": url}
+    # `options` carry the emergency dressing an outage alert needs (tag, require_interaction,
+    # renotify, vibrate) plus the transport knobs (ttl, urgency). Everything unknown to the
+    # service worker is simply ignored by it, so a normal notice stays a normal notice.
+    ttl = options.pop("ttl", 3600)
+    urgency = options.pop("urgency", None)
+    payload = {"title": title, "body": body, "url": url, **options}
     sent = 0
     async for subscription in _db.push_subscriptions.find({"user_id": user_id}):
         try:
-            await asyncio.to_thread(_send_one, subscription, payload)
+            await asyncio.to_thread(_send_one, subscription, payload, ttl, urgency)
             sent += 1
         except WebPushException as e:
             status = getattr(e.response, "status_code", None)
@@ -201,7 +209,7 @@ async def push_to_user(user_id, title, body, url="/", event=None):
     return sent
 
 
-async def push_to_admins(title, body, url="/", event=None):
+async def push_to_admins(title, body, url="/", event=None, **options):
     """Tell the operators something happened on the shop floor.
 
     Enquiries and deposits were invisible until someone opened the admin panel: a buyer who
@@ -211,17 +219,29 @@ async def push_to_admins(title, body, url="/", event=None):
     admins = await _db.users.find({"is_admin": True}, {"_id": 1}).to_list(50)
     sent = 0
     for admin in admins:
-        sent += await push_to_user(admin["_id"], title, body, url, event)
+        sent += await push_to_user(admin["_id"], title, body, url, event, **options)
     if not sent:
         log.info("no admin device could be reached for %s", event or "notice")
     return sent
 
 
-def push_to_admins_later(title, body, url="/", event=None):
+async def admin_devices():
+    """How many admin devices are actually subscribed.
+
+    A push channel with zero devices is silence, and silence looks exactly like "nothing is
+    wrong". The admin screen shows this number so the difference is visible.
+    """
+    ids = [a["_id"] async for a in _db.users.find({"is_admin": True}, {"_id": 1})]
+    if not ids:
+        return 0
+    return await _db.push_subscriptions.count_documents({"user_id": {"$in": ids}})
+
+
+def push_to_admins_later(title, body, url="/", event=None, **options):
     """Fire and forget: an operator's alert must never slow down or fail a buyer's request."""
     async def job():
         try:
-            await push_to_admins(title, body, url, event)
+            await push_to_admins(title, body, url, event, **options)
         except Exception as e:                        # noqa: BLE001
             log.warning("admin push failed: %s", str(e)[:160])
 

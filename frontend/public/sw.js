@@ -19,6 +19,12 @@ self.addEventListener("push", (event) => {
       badge: "/icons/icon-192.png",
       data: { url: data.url || "/" },
       tag: data.tag || "encareurope",
+      // An outage alert has to survive being ignored: it stays on screen until it is
+      // touched, it re-alerts when a reminder arrives under the same tag, and it buzzes.
+      // Everything else keeps the quiet default.
+      requireInteraction: Boolean(data.require_interaction),
+      renotify: Boolean(data.renotify),
+      vibrate: data.vibrate || undefined,
     })
   );
 });

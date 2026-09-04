@@ -130,20 +130,39 @@ async def _alert(check, reason, *, reminder=False, resolved=False):
         if reminder:
             title = f"[все още] {title}"
 
-    # Push first: it is the only channel that reaches a phone in seconds, and it does not
-    # depend on Resend — which is itself one of the things that can be broken. No event name
-    # is passed on purpose, so an emergency cannot be muted by notification preferences.
+    # Push first and push loud: it is the only channel that reaches a phone in seconds, it
+    # does not depend on Resend — which is itself one of the things that can break — and the
+    # owner asked for these to be push notifications. No event name is passed on purpose, so
+    # an emergency cannot be muted by notification preferences.
+    #
+    # `tag` per check means a reminder REPLACES the previous card instead of stacking twelve
+    # of them, `renotify` makes that replacement buzz anyway, `require_interaction` keeps it
+    # on screen until someone touches it, and a 24h ttl means a phone that was off overnight
+    # still gets it when it wakes.
+    sent = 0
     try:
-        await notify.push_to_admins(title, body[:300], url="/bg/admin?tab=overview")
+        sent = await notify.push_to_admins(
+            title, body[:300], url="/bg/admin?tab=overview",
+            tag=f"incident-{check}", renotify=True, require_interaction=not resolved,
+            vibrate=[300, 120, 300, 120, 300] if not resolved else [200],
+            ttl=86400, urgency="high")
     except Exception as e:                                  # noqa: BLE001
         log.warning("incident push failed: %s", str(e)[:160])
 
-    if check != "mail":                                     # pointless when mail is the fault
-        for to in await _admin_emails():
-            try:
-                await mailer.send_incident_alert(to, check, title, body)
-            except Exception as e:                          # noqa: BLE001
-                log.warning("incident email to %s failed: %s", to, str(e)[:160])
+    # Email is the backstop, not the channel: it only goes out when push reached nobody
+    # (no device subscribed yet, or every subscription expired). Pointless when mail itself
+    # is the thing that is broken.
+    if sent or check == "mail":
+        if not sent:
+            log.error("incident %s: no admin device subscribed and mail is the fault — "
+                      "nobody was notified", check)
+        return
+    log.warning("incident %s: push reached no admin device, falling back to email", check)
+    for to in await _admin_emails():
+        try:
+            await mailer.send_incident_alert(to, check, title, body)
+        except Exception as e:                              # noqa: BLE001
+            log.warning("incident email to %s failed: %s", to, str(e)[:160])
 
 
 async def _open(check, reason):
@@ -180,6 +199,7 @@ async def health(run=False):
     recent = await _db.incidents.find({}).sort("opened_at", -1).limit(30).to_list(30)
     return {
         "checks": sorted(PROBES),
+        "push_devices": await notify.admin_devices(),
         "open": [{"check": d["check"], "since": _aware(d["opened_at"]).isoformat(),
                   "reason": d.get("reason") or "",
                   "reminders": d.get("reminders", 0)} for d in open_now],
