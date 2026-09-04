@@ -19,6 +19,7 @@
       ansible.builtin.apt:
         name: nginx
         update_cache: true
+        lock_timeout: 300
       tags: [base]
 
     - name: Certificate directory (the cert itself is dropped by hand, never by Ansible)

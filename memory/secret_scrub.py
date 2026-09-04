@@ -10,8 +10,8 @@ import glob
 import os
 import re
 
-TOKEN = "kR7wZq2mXv9TbNp4LdYs6HcJf1UgE3aQ"
-SEED_PW = "AdminTest2026!"
+TOKEN = "<the real ADMIN_TOKEN value>"
+SEED_PW = "<the real ADMIN_SEED_PASSWORD value>"
 OWNER_PW = "Nero"
 
 ENV_READS = {

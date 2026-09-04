@@ -124,7 +124,7 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
   web push AND email to every `is_admin` account (+ ADMIN_NOTIFY_EMAIL / OWNER_EMAIL),
   reminder every 30 min, all-clear on recovery. Incidents in `db.incidents`,
   `GET /api/admin/incidents`, red strip at the top of the admin Overview.
-* Ansible: `tasks/wait_apt.yml` waits out first-boot `unattended-upgrades`; peer-key asserts
+* Ansible: `tasks/wait_apt.yml` + `lock_timeout: 300` on every apt task; peer keys read via `delegate_to` (`peer_pubkey`) so split runs work; peer-key asserts
   in `deploy_nat.yml` so an unreachable host is named instead of a Jinja error.
 * Full detail in CHANGELOG.md.
 

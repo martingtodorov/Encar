@@ -74,6 +74,9 @@
       ansible.builtin.apt:
         name: [wireguard, wireguard-tools, iptables]
         update_cache: true
+        # wait_apt.yml only proves the lock was free a moment ago; apt-daily can grab it in
+        # between. Let the module itself wait instead of failing on the first EAGAIN.
+        lock_timeout: 300
 
     - name: Key directory
       ansible.builtin.file:
@@ -110,6 +113,7 @@
       ansible.builtin.apt:
         name: ufw
         update_cache: true
+        lock_timeout: 300
       tags: [gateway]
 
     - name: Which interface faces the internet
@@ -156,15 +160,34 @@
       notify: Reload ufw
       tags: [gateway]
 
+    - name: back1's public key — read from back1 now, so this play does not depend on the first
+      # Facts set in play 1 exist only for the lifetime of ONE ansible-playbook process. Running
+      # plays separately (--tags, --limit, a re-run after a failure) used to lose them and die
+      # in the template. The key lives on the host; ask the host.
+      ansible.builtin.shell:
+        cmd: wg pubkey < /etc/wireguard/wg0.key
+      delegate_to: "{{ groups['backend'][0] }}"
+      register: peer_pub
+      changed_when: false
+      failed_when: false
+      tags: [gateway]
+
+    - name: Which one is used
+      ansible.builtin.set_fact:
+        peer_pubkey: >-
+          {{ hostvars[groups['backend'][0]].wg_pubkey
+             | default(peer_pub.stdout | default('') | trim, true) }}
+      tags: [gateway]
+
     - name: back1's public key must be known before front1's peer config is written
       ansible.builtin.assert:
-        that: hostvars[groups['backend'][0]].wg_pubkey is defined
+        that: peer_pubkey | trim | length > 0
         fail_msg: >-
-          No public key from {{ groups['backend'][0] }} — the first play did not run there
-          (usually UNREACHABLE). If ssh says "REMOTE HOST IDENTIFICATION HAS CHANGED", the
-          box was rebuilt: run `ssh-keygen -R {{ hostvars[groups['backend'][0]].ansible_host
-          | default(groups['backend'][0]) }}` on your laptop, ssh in once to accept the new
-          key, then re-run this playbook.
+          No public key from {{ groups['backend'][0] }} — /etc/wireguard/wg0.key is not there,
+          so the first play never ran on it (usually UNREACHABLE). If ssh says "REMOTE HOST
+          IDENTIFICATION HAS CHANGED", the box was rebuilt: run `ssh-keygen -R
+          {{ hostvars[groups['backend'][0]].ansible_host | default(groups['backend'][0]) }}`
+          on your laptop, ssh in once to accept the new key, then re-run this playbook.
       tags: [gateway]
 
     - name: Tunnel config
@@ -264,12 +287,29 @@
         mode: "0644"
       tags: [client]
 
+    - name: front1's public key — read from front1 now, so this play does not depend on the first
+      ansible.builtin.shell:
+        cmd: wg pubkey < /etc/wireguard/wg0.key
+      delegate_to: "{{ groups['frontend'][0] }}"
+      register: peer_pub
+      changed_when: false
+      failed_when: false
+      tags: [client]
+
+    - name: Which one is used
+      ansible.builtin.set_fact:
+        peer_pubkey: >-
+          {{ hostvars[groups['frontend'][0]].wg_pubkey
+             | default(peer_pub.stdout | default('') | trim, true) }}
+      tags: [client]
+
     - name: front1's public key must be known before back1's peer config is written
       ansible.builtin.assert:
-        that: hostvars[groups['frontend'][0]].wg_pubkey is defined
+        that: peer_pubkey | trim | length > 0
         fail_msg: >-
-          No public key from {{ groups['frontend'][0] }} — the first play did not run there.
-          Fix that host's ssh access and re-run; without its key back1 has no peer to dial.
+          No public key from {{ groups['frontend'][0] }} — /etc/wireguard/wg0.key is not there,
+          so the first play never ran on it. Fix that host's ssh access and re-run; without its
+          key back1 has no peer to dial.
       tags: [client]
 
     - name: The mark-based design is gone too
@@ -369,7 +409,7 @@
         ip rule show | grep -F "uidrange $uid-$uid"
         ip route show table {{ nat_table }}
         # The decisive check: the route the kernel picks FOR THAT UID must be the tunnel,
-        # with the tunnel's own source address. This is what the mark design got wrong.
+        # carrying the tunnel source address. This is what the mark design got wrong.
         ip route get 1.1.1.1 uid "$uid"
       args:
         executable: /bin/bash

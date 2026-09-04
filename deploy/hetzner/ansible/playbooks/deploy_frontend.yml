@@ -29,6 +29,7 @@
       ansible.builtin.apt:
         name: [git, curl, gnupg, ca-certificates, ufw, rsync]
         update_cache: true
+        lock_timeout: 300
       tags: [base]
 
     - name: NodeSource apt key
@@ -50,6 +51,7 @@
       ansible.builtin.apt:
         name: "nodejs"
         update_cache: true
+        lock_timeout: 300
       tags: [base]
 
     - name: Yarn through corepack

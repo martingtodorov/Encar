@@ -10,5 +10,5 @@ PostUp = sysctl -q -w net.ipv4.conf.%i.forwarding=1
 
 [Peer]
 # back1
-PublicKey = {{ hostvars[groups['backend'][0]].wg_pubkey }}
+PublicKey = {{ peer_pubkey | trim }}
 AllowedIPs = {{ wg_back_ip }}/32

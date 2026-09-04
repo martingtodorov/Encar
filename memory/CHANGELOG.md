@@ -2151,7 +2151,7 @@ FOUND AND REMOVED — three real credentials WERE in tracked files:
 * `ADMIN_TOKEN` (the admin master header token) hardcoded in
   `backend/tests/test_ai_usage_and_desc.py`, `test_google_auth_and_cms.py`,
   `test_owner_password_admin.py`;
-* `ADMIN_SEED_PASSWORD` ("AdminTest2026!") in six test files;
+* `ADMIN_SEED_PASSWORD` ("<the real ADMIN_SEED_PASSWORD value>") in six test files;
 * `OWNER_PASSWORD` ("Nero") in `test_owner_password_admin.py` and in
   `deploy/hetzner/ansible/group_vars/all.yml.example` (together with the owner's real email);
 * all three quoted inside ~30 `test_reports/iteration_*.json`.
@@ -2365,3 +2365,10 @@ probes Encar as www-data and reports the status without failing the run.
 
 STILL FOR THE OWNER (needs the boxes): `deploy_nat.yml` for the uidrange fix and to drop the
 /etc/hosts pin, then `restore_false_sold.py --verify --apply` for the incident window.
+
+## 2026-06 — Ansible: two deploy-time failures fixed (deploy_nat.yml + all apt tasks)
+* Peer public keys are now read from the other host with `delegate_to` inside the play that
+  needs them (`peer_pubkey`), so `--tags`, `--limit` and a re-run after a failure no longer
+  lose the `wg_pubkey` fact from play 1. Templates use `peer_pubkey`.
+* `lock_timeout: 300` on all 7 `ansible.builtin.apt` tasks — `wait_apt.yml` only proves the
+  lock was free a moment ago; apt-daily/unattended-upgrades could re-take it in between.

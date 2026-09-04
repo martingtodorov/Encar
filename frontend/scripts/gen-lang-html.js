@@ -22,7 +22,7 @@ const path = require("path");
 const build = path.join(__dirname, "..", "build");
 const shell = path.join(build, "index.html");
 const MAP = require("./seo-landing.json");
-const LANGS = ["bg", "ro", "en"];
+const LANGS = ["bg", "ro", "pl", "en"];
 
 // The absolute site URL, because an og:image must not be relative. CRA only loads .env for the
 // bundle, so this postbuild script reads it itself.
@@ -49,6 +49,8 @@ const ROUTES = {
          "Виж къде е контейнерът с колата ти — от терминала в Корея до доставката."],
     ro: ["Urmărește mașina ta · Encar Europe",
          "Vezi unde este containerul mașinii tale — din terminalul din Coreea până la livrare."],
+    pl: ["Śledź swój samochód · Encar Europe",
+         "Sprawdź, gdzie jest kontener z Twoim samochodem — od terminalu w Korei do dostawy."],
     en: ["Track my vehicle · Encar Europe",
          "See where your car's container is — from the terminal in Korea to delivery."],
   },

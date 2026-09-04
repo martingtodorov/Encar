@@ -49,7 +49,7 @@ PostDown = ip route flush table {{ nat_table }} 2>/dev/null || true
 [Peer]
 # front1, reached over the Hetzner private network (the transport works; what does not work
 # is using 10.0.0.2 as a directly connected default gateway from a /32 interface).
-PublicKey = {{ hostvars[groups['frontend'][0]].wg_pubkey }}
+PublicKey = {{ peer_pubkey | trim }}
 Endpoint = {{ frontend_private_ip }}:{{ wg_port }}
 AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
