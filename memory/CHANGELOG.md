@@ -2372,3 +2372,12 @@ STILL FOR THE OWNER (needs the boxes): `deploy_nat.yml` for the uidrange fix and
   lose the `wg_pubkey` fact from play 1. Templates use `peer_pubkey`.
 * `lock_timeout: 300` on all 7 `ansible.builtin.apt` tasks — `wait_apt.yml` only proves the
   lock was free a moment ago; apt-daily/unattended-upgrades could re-take it in between.
+* Third round (same day): `nat_route_management: true` (role default) adds a second
+  `ip rule from all lookup 100` so root (apt/git/pip/DNS) on back1 also leaves via front1 —
+  before this deploy_backend.yml could not `git clone` ("Could not resolve host: github.com").
+  Private/link-local/RFC1918 stay on Hetzner's route via `throw`, so SSH via front1 is safe.
+  Defaults moved from a set_fact task to `playbooks/roles/nat_defaults/defaults/main.yml`
+  (survives `--start-at-task`/`--limit`). WireGuard apt step: skipped when `wg`+`iptables`
+  exist, `update_cache` only on front1, 240s async ceiling with a named failure (back1 has no
+  mirror route before the tunnel — apt hung holding the lock, not "someone else's lock").
+  Apostrophes removed from task names that broke parsing.

@@ -46,6 +46,10 @@
   # unreachable host. Stop here instead, where the error still names the host.
   any_errors_fatal: true
   tags: [gateway, client]
+  # Defaults live in roles/nat_defaults/defaults/main.yml (lowest precedence, loaded at parse
+  # time) — a set_fact task here was skipped by --start-at-task and left the templates with
+  # undefined variables.
+  roles: [nat_defaults]
 
   pre_tasks:
     - name: Let any first-boot apt run finish first
@@ -53,30 +57,41 @@
       tags: [always]
 
   tasks:
-    - name: Defaults for anything not set in group_vars
-      # Set as facts on the FIRST play so every later play on either host sees them, whether
-      # or not group_vars/all.yml has been updated. Anything already defined there wins.
-      ansible.builtin.set_fact:
-        wg_port: "{{ wg_port | default(51820) }}"
-        wg_front_ip: "{{ wg_front_ip | default('10.99.0.1') }}"
-        wg_back_ip: "{{ wg_back_ip | default('10.99.0.2') }}"
-        # Hetzner's private network is MTU 1450; WireGuard's own overhead is 80 bytes.
-        wg_mtu: "{{ wg_mtu | default(1370) }}"
-        # Must match User= in encar-backend.service.
-        backend_service_user: "{{ backend_service_user | default('www-data') }}"
-        nat_table: "{{ nat_table | default(100) }}"
-        nat_mark: "{{ nat_mark | default('0x1') }}"
-        nat_rule_priority: "{{ nat_rule_priority | default(1000) }}"
-      # `always`, so running with --tags verify still has the values.
-      tags: [always]
+    - name: Are the tunnel tools already here?
+      ansible.builtin.shell:
+        cmd: command -v wg && command -v iptables
+      register: wg_tools
+      changed_when: false
+      failed_when: false
 
     - name: WireGuard present
-      ansible.builtin.apt:
-        name: [wireguard, wireguard-tools, iptables]
-        update_cache: true
-        # wait_apt.yml only proves the lock was free a moment ago; apt-daily can grab it in
-        # between. Let the module itself wait instead of failing on the first EAGAIN.
-        lock_timeout: 300
+      # back1 has no public IPv4. Before the tunnel exists an `apt update` there does not FAIL —
+      # it sits on the mirror's DNS/TCP timeout while holding the apt lock, which is what looked
+      # like "someone else holds the lock". So: skip apt entirely when the tools are already on
+      # the box, refresh the index only where there is a way out, and put a hard ceiling on the
+      # whole step so a hung fetch becomes a named failure instead of a run that never ends.
+      block:
+        - name: Install wireguard, wireguard-tools, iptables
+          ansible.builtin.apt:
+            name: [wireguard, wireguard-tools, iptables]
+            update_cache: "{{ inventory_hostname in groups['frontend'] }}"
+            lock_timeout: 300
+          async: 240
+          poll: 10
+      rescue:
+        - name: Say why it could not be installed
+          ansible.builtin.fail:
+            msg: >-
+              Installing WireGuard on {{ inventory_hostname }} did not finish within 4 minutes.
+              {% if inventory_hostname in groups['backend'] %}
+              back1 has no route to any mirror until the tunnel is up (and with
+              nat_route_management=false, never as root). Either use an image that ships
+              wireguard-tools, install it once by hand over IPv6, or bring the tunnel up first
+              with `--limit frontend` and re-run.
+              {% else %}
+              Check apt on this host by hand: `apt-get update && apt-get install wireguard`.
+              {% endif %}
+      when: wg_tools.rc != 0
 
     - name: Key directory
       ansible.builtin.file:
@@ -102,6 +117,7 @@
 - name: front1 becomes the gateway
   hosts: frontend
   become: true
+  roles: [nat_defaults]
 
   pre_tasks:
     - name: Let any first-boot apt run finish first
@@ -239,6 +255,7 @@
 - name: back1 reaches the internet through the tunnel
   hosts: backend
   become: true
+  roles: [nat_defaults]
 
   tasks:
     - name: Which interface carries the private address
@@ -417,7 +434,7 @@
       changed_when: false
       tags: [verify]
 
-    - name: The application's route really is the tunnel, with the tunnel's source
+    - name: The application route really is the tunnel, with the tunnel source address
       ansible.builtin.assert:
         that:
           - "'dev wg0' in policy.stdout"
@@ -504,19 +521,31 @@
              circuit breaker will hold off further calls. Nothing gets marked sold.' }}
       tags: [verify]
 
-    - name: Everything else still uses Hetzner's own route
-      # Not marked, so it must NOT come out of the tunnel. If this equals front1's public
-      # address the policy routing is too wide.
+    - name: Where root (apt, git, pip) comes out
       ansible.builtin.command: curl -sS --max-time 20 https://ifconfig.me
       register: root_egress
       changed_when: false
       failed_when: false
-      tags: [verify]
+      tags: [client, verify]
+
+    - name: With nat_route_management, root must leave through front1 too
+      # This host has no public IPv4: "no answer" here means deploy_backend.yml cannot clone
+      # from GitHub or run apt/pip on it.
+      ansible.builtin.assert:
+        that: root_egress.stdout | trim == hostvars[groups['frontend'][0]].ansible_host
+        fail_msg: >-
+          root on back1 leaves as "{{ root_egress.stdout | default('no answer', true) }}", not
+          front1. Check `ip rule show` for the second `lookup {{ nat_table }}` rule (priority
+          {{ nat_rule_priority | int + 10 }}) and the resolver.
+        success_msg: >-
+          root leaves as {{ root_egress.stdout }} — apt, git and pip on back1 have a way out.
+      when: nat_route_management | bool
+      tags: [client, verify]
 
     - name: Say which path management traffic takes
       ansible.builtin.debug:
         msg: >-
-          Unmarked (management) traffic leaves as
+          Management (root) traffic leaves as
           {{ root_egress.stdout | default('no answer', true) }};
           the application leaves as {{ app_egress.stdout }}.
       tags: [verify]

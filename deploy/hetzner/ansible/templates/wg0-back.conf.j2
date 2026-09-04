@@ -36,6 +36,15 @@ PostUp = ip route replace default via {{ wg_front_ip }} dev %i src {{ wg_back_ip
 # and front1's wg0 RX error counter climbing. `ip rule uidrange` is evaluated during the
 # FIRST lookup, so the route above — including its `src` — is what source selection sees.
 PostUp = uid=$(id -u {{ backend_service_user }}); ip rule del uidrange $uid-$uid lookup {{ nat_table }} 2>/dev/null || true; ip rule add uidrange $uid-$uid lookup {{ nat_table }} priority {{ nat_rule_priority }}
+{% if nat_route_management | bool %}
+# This host has no public IPv4, so root (apt, git, pip, DNS) has NO other way to the internet.
+# A second, lower-priority rule sends everything else into the same table; the `throw` routes
+# above keep the private network (and with it SSH via front1), link-local and RFC1918 on
+# Hetzner's own route. Set nat_route_management: false to confine the tunnel to the app user.
+PostUp = ip rule del from all lookup {{ nat_table }} priority {{ nat_rule_priority | int + 10 }} 2>/dev/null || true; ip rule add from all lookup {{ nat_table }} priority {{ nat_rule_priority | int + 10 }}
+{% else %}
+PostUp = ip rule del from all lookup {{ nat_table }} priority {{ nat_rule_priority | int + 10 }} 2>/dev/null || true
+{% endif %}
 # Remnants of the mark design, removed so the two cannot fight over the same packet.
 PostUp = ip rule del fwmark {{ nat_mark }} lookup {{ nat_table }} 2>/dev/null || true
 PostUp = iptables -t mangle -D OUTPUT -m owner --uid-owner {{ backend_service_user }} -j MARK --set-mark {{ nat_mark }} 2>/dev/null || true
@@ -44,6 +53,7 @@ PostUp = iptables -t mangle -D OUTPUT -m owner --uid-owner {{ backend_service_us
 PostUp = iptables -t nat -C POSTROUTING -o %i -j SNAT --to-source {{ wg_back_ip }} 2>/dev/null || iptables -t nat -A POSTROUTING -o %i -j SNAT --to-source {{ wg_back_ip }}
 PostDown = iptables -t nat -D POSTROUTING -o %i -j SNAT --to-source {{ wg_back_ip }} 2>/dev/null || true
 PostDown = uid=$(id -u {{ backend_service_user }}); ip rule del uidrange $uid-$uid lookup {{ nat_table }} 2>/dev/null || true
+PostDown = ip rule del from all lookup {{ nat_table }} priority {{ nat_rule_priority | int + 10 }} 2>/dev/null || true
 PostDown = ip route flush table {{ nat_table }} 2>/dev/null || true
 
 [Peer]

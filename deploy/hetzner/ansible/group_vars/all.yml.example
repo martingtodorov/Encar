@@ -40,13 +40,16 @@ wg_front_ip: 10.99.0.1
 wg_back_ip: 10.99.0.2
 # Hetzner's private network is MTU 1450; WireGuard's own overhead is 80 bytes.
 wg_mtu: 1370
-# Policy routing on back1: traffic owned by this user is marked and looked up in nat_table,
-# whose default points into the tunnel. Everything else keeps Hetzner's own route, so a dead
-# tunnel cannot cut off SSH, apt or the private network. Must match User= in the unit file.
+# Policy routing on back1: traffic owned by this user is looked up (by UID) in nat_table,
+# whose default points into the tunnel. Must match User= in the unit file.
 backend_service_user: www-data
 nat_table: 100
 nat_mark: "0x1"
 nat_rule_priority: 1000
+# back1 has no public IPv4, so root (apt, git clone, pip, DNS) has no way out unless it also
+# takes the tunnel. `true` adds a second rule for everything else; the private network
+# (SSH via front1), link-local and RFC1918 stay on Hetzner's own route regardless.
+nat_route_management: true
 
 # ── backend secrets ───────────────────────────────────────────────────────────
 db_name: encar

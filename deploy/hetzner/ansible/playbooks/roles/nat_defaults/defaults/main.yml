@@ -1,0 +1,21 @@
+---
+# Lowest-precedence defaults for deploy_nat.yml. Anything set in group_vars/all.yml wins.
+#
+# These used to be a set_fact task at the top of the first play, which meant `--start-at-task`
+# and `--limit backend` skipped it and the templates died on "wg_back_ip is undefined". Role
+# defaults are loaded when the play is parsed, so no task can be skipped past them.
+wg_port: 51820
+wg_front_ip: 10.99.0.1
+wg_back_ip: 10.99.0.2
+# Hetzner's private network is MTU 1450; WireGuard's own overhead is 80 bytes.
+wg_mtu: 1370
+# Must match User= in encar-backend.service.
+backend_service_user: www-data
+nat_table: 100
+nat_mark: "0x1"
+nat_rule_priority: 1000
+# back1 has no public IPv4, so without this root has NO way to the internet at all: apt, pip,
+# git clone and DNS on back1 hang on the first SYN. `true` adds a second, lower-priority rule
+# that sends everything else through the tunnel as well; the `throw` routes keep the private
+# network, link-local and RFC1918 on Hetzner's own route, so SSH via front1 is never affected.
+nat_route_management: true
