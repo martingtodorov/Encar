@@ -19,3 +19,10 @@ nat_rule_priority: 1000
 # that sends everything else through the tunnel as well; the `throw` routes keep the private
 # network, link-local and RFC1918 on Hetzner's own route, so SSH via front1 is never affected.
 nat_route_management: true
+# Optional third peer on front1's wg0: the owner's home machine (deploy/hetzner/home-exit).
+# It dials front1 from behind home NAT, so no port forwarding or DDNS is needed at home; back1
+# reaches it at home_exit_ip and sends api.encar.com through the HTTP proxy it runs there.
+# Enabled by setting home_exit_pubkey in group_vars.
+home_exit_pubkey: ""
+home_exit_ip: 10.99.0.3
+home_exit_proxy_port: 8888

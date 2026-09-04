@@ -12,3 +12,11 @@ PostUp = sysctl -q -w net.ipv4.conf.%i.forwarding=1
 # back1
 PublicKey = {{ peer_pubkey | trim }}
 AllowedIPs = {{ wg_back_ip }}/32
+{% if home_exit_pubkey | default('') | trim | length > 0 %}
+
+[Peer]
+# Home exit (deploy/hetzner/home-exit). No Endpoint: it dials us from behind home NAT with a
+# keepalive, so its address may change freely. Only its tunnel address is accepted from it.
+PublicKey = {{ home_exit_pubkey | trim }}
+AllowedIPs = {{ home_exit_ip }}/32
+{% endif %}

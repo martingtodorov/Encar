@@ -50,6 +50,15 @@ nat_rule_priority: 1000
 # takes the tunnel. `true` adds a second rule for everything else; the private network
 # (SSH via front1), link-local and RFC1918 stay on Hetzner's own route regardless.
 nat_route_management: true
+# Encar's CloudFront answers 407 to datacenter addresses (Hetzner included) and 200 to a home
+# connection. The owner's Mac mini is a third WireGuard peer that runs an HTTP proxy; back1
+# sends api.encar.com — and nothing else — through it. Run deploy/hetzner/home-exit/setup-mac.sh
+# on the Mac and paste the public key it prints here, then re-run deploy_nat.yml and
+# deploy_backend.yml --tags config,service.
+# home_exit_pubkey: ""
+# home_exit_ip: 10.99.0.3
+# home_exit_proxy_port: 8888
+# encar_proxy_url: http://10.99.0.3:8888      # derived from the two above when unset
 
 # ── backend secrets ───────────────────────────────────────────────────────────
 db_name: encar

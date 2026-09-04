@@ -22,6 +22,10 @@ PostUp = sysctl -q -w net.ipv4.conf.%i.rp_filter=2
 # front1's tunnel address is a /32 on a point-to-point link, so it needs its own link route
 # before it can be a next hop.
 PostUp = ip route replace {{ wg_front_ip }}/32 dev %i scope link
+# The home exit is another peer on front1's wg0; front1 forwards between its peers. A main-table
+# route so every UID (the app, root's curl in the verify step) reaches it the same way.
+PostUp = ip route replace {{ home_exit_ip }}/32 via {{ wg_front_ip }} dev %i
+PostDown = ip route del {{ home_exit_ip }}/32 via {{ wg_front_ip }} dev %i 2>/dev/null || true
 # Everything that must NOT take the tunnel: `throw` ends the lookup in this table and lets
 # the kernel fall through to the main table, so no gateway or interface is hardcoded here.
 PostUp = ip route replace throw {{ private_cidr }} table {{ nat_table }}

@@ -2381,3 +2381,15 @@ STILL FOR THE OWNER (needs the boxes): `deploy_nat.yml` for the uidrange fix and
   exist, `update_cache` only on front1, 240s async ceiling with a named failure (back1 has no
   mirror route before the tunnel — apt hung holding the lock, not "someone else's lock").
   Apostrophes removed from task names that broke parsing.
+
+## 2026-06 — Home exit for api.encar.com (Mac mini as third WireGuard peer)
+* Measured: CloudFront returns 407 to every datacenter address tried (Hetzner FRA, preview
+  ATL, pinned edge) and 200 from the owner's residential BG connection → ASN block, not geo.
+* `encar.py`: `ENCAR_PROXY_URL` (one fixed HTTP proxy) for api.encar.com only; CDN images and
+  all other integrations untouched. Verified httpx sends `CONNECT api.encar.com:443` to it.
+* Ansible: `home_exit_pubkey/home_exit_ip/home_exit_proxy_port` (role defaults). front1 wg0
+  gets a third peer (no Endpoint — the Mac dials in, keepalive 25) and opens 51820/udp publicly;
+  back1 gets a main-table route to 10.99.0.3 and `ENCAR_PROXY_URL` in backend.env; verify
+  asserts Encar 200 through the exit as www-data.
+* `deploy/hetzner/home-exit/setup-mac.sh` + README: keys, wg0.conf (dials front1), tinyproxy
+  (Allow 10.99.0.2 only, FilterDefaultDeny → *.encar.com only), LaunchDaemons, pmset no-sleep.

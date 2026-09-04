@@ -11,6 +11,7 @@ the browser loads them straight from Encar's CDN.
 
 import asyncio
 import logging
+import os
 import re
 import time
 from urllib.parse import quote
@@ -21,6 +22,12 @@ log = logging.getLogger("encar")
 
 API = "https://api.encar.com"
 CDN = "https://ci.encar.com"
+
+# CloudFront in front of api.encar.com answers 407 to datacenter address space (Hetzner, AWS,
+# the preview host) while a residential connection gets 200 for the same request. When set,
+# every api.encar.com call goes through this ONE fixed HTTP proxy — the owner's own home exit
+# (deploy/hetzner/home-exit). One address, no rotation; CDN images are never proxied.
+PROXY_URL = os.environ.get("ENCAR_PROXY_URL", "").strip() or None
 
 HEADERS = {
     "User-Agent": (
@@ -109,7 +116,9 @@ class EncarClient:
     async def client(self):
         if self._client is None:
             self._client = httpx.AsyncClient(headers=HEADERS, timeout=30,
-                                             follow_redirects=True)
+                                             follow_redirects=True, proxy=PROXY_URL)
+            if PROXY_URL:
+                log.info("encar client: api.encar.com via proxy %s", PROXY_URL)
         return self._client
 
     async def close(self):

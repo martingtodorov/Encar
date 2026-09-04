@@ -115,3 +115,5 @@ https://ci.encar.com{photo.path}?impolicy=widthRate&rw=1160&cw=1160&ch=696&cg=Ce
 - Full catalogue sync ≈ 436 requests ≈ 15 min. Detail/documents fetched once per car, ever.
 - User searches hit our own MongoDB index -> ZERO upstream calls.
 - No residential proxy pool, no IP rotation, no rate-limit evasion.
+- 2026-06: ONE fixed exit — the owner's own home connection (deploy/hetzner/home-exit) via
+  `ENCAR_PROXY_URL`, because CloudFront 407s datacenter ranges. Still a single address.

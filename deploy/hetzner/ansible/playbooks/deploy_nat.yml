@@ -235,6 +235,17 @@
         comment: "{{ app_name }} wireguard from back1"
       tags: [gateway]
 
+    - name: WireGuard reachable from the home exit, which has no fixed address
+      # WireGuard does not answer unauthenticated packets, so an open UDP port shows nothing
+      # to a scanner; the peer is still admitted only by its public key.
+      community.general.ufw:
+        rule: allow
+        proto: udp
+        to_port: "{{ wg_port }}"
+        comment: "{{ app_name }} wireguard from home exit"
+      when: home_exit_pubkey | trim | length > 0
+      tags: [gateway]
+
     - name: Firewall on (it must be, or none of the above is loaded)
       community.general.ufw:
         state: enabled
@@ -548,6 +559,41 @@
           Management (root) traffic leaves as
           {{ root_egress.stdout | default('no answer', true) }};
           the application leaves as {{ app_egress.stdout }}.
+      tags: [verify]
+
+    - name: The home exit answers (WireGuard handshake through front1)
+      ansible.builtin.command: ping -c 2 -W 3 {{ home_exit_ip }}
+      register: home_ping
+      changed_when: false
+      retries: 5
+      delay: 5
+      until: home_ping.rc == 0
+      when: home_exit_pubkey | trim | length > 0
+      tags: [verify]
+
+    - name: Encar through the home exit, as the application user
+      ansible.builtin.command: >-
+        runuser -u {{ backend_service_user }} --
+        curl -sS -o /dev/null -w '%{http_code}' --max-time 25
+        -x http://{{ home_exit_ip }}:{{ home_exit_proxy_port }}
+        'https://api.encar.com/v1/readside/vehicle/42207598'
+      register: encar_home
+      changed_when: false
+      failed_when: false
+      when: home_exit_pubkey | trim | length > 0
+      tags: [verify]
+
+    - name: That is the whole point of the home exit, so it must be 200
+      ansible.builtin.assert:
+        that: encar_home.stdout | default('') == '200'
+        fail_msg: >-
+          api.encar.com via {{ home_exit_ip }}:{{ home_exit_proxy_port }} returned
+          "{{ encar_home.stdout | default('nothing') }}". On the Mac: `sudo wg show`,
+          `brew services list` (tinyproxy running?), and /opt/homebrew/var/log/tinyproxy/.
+        success_msg: >-
+          api.encar.com answers 200 through the home exit — the catalogue sync and car pages
+          use the owner's residential address, front1 is used for everything else.
+      when: home_exit_pubkey | trim | length > 0
       tags: [verify]
 
     - name: TLS to the services this app actually calls, through the tunnel

@@ -142,6 +142,12 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
   fwmark design is removed and asserted against. `/etc/hosts` pin on api.encar.com removed.
 * Full detail, measurements and the owner's remaining steps in CHANGELOG.md.
 
+## Encar upstream (2026-06)
+* api.encar.com 407s all datacenter IPs; 200 from the owner's home. Encar calls go through the
+  owner's Mac mini (third WireGuard peer, tinyproxy) via `ENCAR_PROXY_URL` — see
+  `deploy/hetzner/home-exit/README.md`. STATUS: code + playbooks done, owner must run
+  `setup-mac.sh`, set `home_exit_pubkey`, re-run deploy_nat + deploy_backend --tags config,service.
+
 ## Broken integrations (blocked on user)
 * **Resend** — API key invalid in preview (owner says production has a valid one).
 * **Anthropic** — API key returns 401. System silently falls back to the Emergent universal
