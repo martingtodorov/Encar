@@ -2,8 +2,9 @@
 
 Politeness policy (deliberate — see /app/memory/encar_api.md section 8):
   * ONE shared worker slot, minimum interval between upstream requests
-  * exponential backoff on 429/5xx
-  * NO IP rotation, NO residential proxy pool, NO rate-limit circumvention
+  * backoff on 429/5xx, Retry-After honoured
+  * NO IP rotation, NO residential proxy pool, NO rate-limit circumvention — ENCAR_PROXY_URL
+    is ONE sticky residential address, chosen because CloudFront 407s datacenter ranges
 
 Everything here is read-only public JSON. Images are never proxied through us;
 the browser loads them straight from Encar's CDN.
@@ -14,7 +15,8 @@ import logging
 import os
 import re
 import time
-from urllib.parse import quote
+from email.utils import parsedate_to_datetime
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -25,9 +27,52 @@ CDN = "https://ci.encar.com"
 
 # CloudFront in front of api.encar.com answers 407 to datacenter address space (Hetzner, AWS,
 # the preview host) while a residential connection gets 200 for the same request. When set,
-# every api.encar.com call goes through this ONE fixed HTTP proxy — the owner's own home exit
-# (deploy/hetzner/home-exit). One address, no rotation; CDN images are never proxied.
-PROXY_URL = os.environ.get("ENCAR_PROXY_URL", "").strip() or None
+# every api.encar.com call — and nothing else — goes through this ONE sticky HTTP proxy.
+# Format: http://USER:PASS@host:port (URL-encode the credentials). It is a secret: it is
+# never logged and never appears in an exception; see `_scrub`.
+PROXY_ENV = "ENCAR_PROXY_URL"
+
+# Bounded by design: a human or the sync is waiting, and Cloudflare cuts us off at 100s.
+CONNECT_TIMEOUT = 8
+TOTAL_TIMEOUT = 15
+ATTEMPTS = 2                # one retry, never for 404
+RETRY_AFTER_MAX_WAIT = 5    # longer than this and the circuit opens for that long instead
+
+
+def proxy_url():
+    return os.environ.get(PROXY_ENV, "").strip() or None
+
+
+def route():
+    """Where Encar traffic leaves from — the only thing about the proxy that is ever logged."""
+    return "residential_proxy" if proxy_url() else "direct"
+
+
+def _scrub(text):
+    """Strip the proxy URL (and any user:pass@ in a URL) out of a message before it is logged
+    or raised. httpx repeats the proxy URL in some transport errors."""
+    text = str(text)
+    p = proxy_url()
+    if p:
+        text = text.replace(p, "<proxy>")
+        host = urlsplit(p).hostname
+        if host:
+            text = text.replace(host, "<proxy>")
+    return re.sub(r"//[^/\s@]+:[^/\s@]+@", "//<redacted>@", text)
+
+
+def _retry_after(r):
+    """Seconds Encar asked us to wait, from a delta or an HTTP-date; None when absent."""
+    v = r.headers.get("retry-after")
+    if not v:
+        return None
+    v = v.strip()
+    if v.isdigit():
+        return int(v)
+    try:
+        return max(0, int(parsedate_to_datetime(v).timestamp() - time.time()))
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 HEADERS = {
     "User-Agent": (
@@ -94,9 +139,8 @@ class EncarUnavailable(RuntimeError):
 
 
 class EncarClient:
-    def __init__(self, min_interval=1.2, max_retries=5, interactive_concurrency=6):
+    def __init__(self, min_interval=1.2, interactive_concurrency=6):
         self.min_interval = min_interval
-        self.max_retries = max_retries
         self._lock = asyncio.Lock()
         self._last = 0.0
         # Interactive (a human opened one car) must NOT wait behind the bulk-sync
@@ -115,10 +159,10 @@ class EncarClient:
 
     async def client(self):
         if self._client is None:
-            self._client = httpx.AsyncClient(headers=HEADERS, timeout=30,
-                                             follow_redirects=True, proxy=PROXY_URL)
-            if PROXY_URL:
-                log.info("encar client: api.encar.com via proxy %s", PROXY_URL)
+            self._client = httpx.AsyncClient(
+                headers=HEADERS, follow_redirects=True, proxy=proxy_url(),
+                timeout=httpx.Timeout(TOTAL_TIMEOUT, connect=CONNECT_TIMEOUT))
+            log.info("encar client ready route=%s", route())
         return self._client
 
     async def close(self):
@@ -140,11 +184,10 @@ class EncarClient:
         able to tell "Encar says this car is gone" from "Encar did not answer", because one
         of those retires a listing and the other must never touch the database.
 
-        An interactive read has a human waiting on the other end, so it gets a short leash:
-        12s per request, two attempts, backoff capped at 2s — about 26s worst case. The bulk
-        sync stays patient. Before this, every call used the sync budget (5 attempts x 30s
-        plus 15s of backoff, over two minutes), which is past Cloudflare's 100s limit; with
-        one uvicorn worker a handful of those requests took the whole site down.
+        Bounded: 8s to connect, 15s in total, two attempts at most (429/5xx/transport only —
+        a 404 is final and a block is not retried at all). A 429 with Retry-After is
+        honoured: a short wait is waited out, a long one opens the circuit for that long.
+        Logs carry route, status, latency and circuit state — never the proxy.
         """
         now = time.monotonic()
         if now < self._open_until:
@@ -154,25 +197,27 @@ class EncarClient:
                 f"({self._open_reason})")
 
         c = await self.client()
-        attempts = 2 if interactive else self.max_retries
-        timeout = 12 if interactive else 30
-        cap = 2.0 if interactive else 60.0
+        cap = 2.0 if interactive else RETRY_AFTER_MAX_WAIT
         delay = 1.0
         last = "no attempt made"
-        for attempt in range(attempts):
+        last_status = None
+        for attempt in range(ATTEMPTS):
             # interactive = one human opening one car: bounded concurrency, no forced
             # gap. Bulk sync keeps the strict single-file pacing.
             if interactive:
                 await self._sem.acquire()
             else:
                 await self._throttle()
+            t0 = time.monotonic()
             try:
-                r = await c.get(f"{API}{path}", timeout=timeout)
+                r = await c.get(f"{API}{path}")
             except Exception as e:
                 self.stats["errors"] += 1
-                last = f"transport error: {e}"
-                log.warning("encar transport error %s: %s", path, e)
-                if attempt == attempts - 1:
+                last = f"transport error: {_scrub(e)}"
+                log.warning("encar route=%s status=- latency_ms=%d circuit=%s path=%s %s",
+                            route(), (time.monotonic() - t0) * 1000, self._state(), path,
+                            last)
+                if attempt == ATTEMPTS - 1:
                     break
                 await asyncio.sleep(min(delay, cap))
                 delay *= 2
@@ -181,8 +226,11 @@ class EncarClient:
                 if interactive:
                     self._sem.release()
 
+            latency_ms = int((time.monotonic() - t0) * 1000)
             self.stats["requests"] += 1
-            self.stats["last_status"] = r.status_code
+            self.stats["last_status"] = last_status = r.status_code
+            log.info("encar route=%s status=%s latency_ms=%d circuit=%s path=%s",
+                     route(), r.status_code, latency_ms, self._state(), path)
 
             if r.status_code == 200:
                 if not r.text.strip():
@@ -198,7 +246,7 @@ class EncarClient:
                 self._ok()
                 return body
             if r.status_code == 404:
-                # The only authoritative "there is no such car".
+                # The only authoritative "there is no such car". Never retried.
                 self._ok()
                 return None
             if r.status_code in BLOCK_STATUSES:
@@ -209,35 +257,46 @@ class EncarClient:
             if r.status_code in RATE_LIMIT_STATUSES:
                 self.stats["backoffs"] += 1
                 last = f"HTTP {r.status_code}"
-                log.warning("encar %s on %s — backing off %.0fs", r.status_code, path,
-                            min(delay, cap))
-                if attempt == attempts - 1:
+                wait = min(delay, cap)
+                asked = _retry_after(r) if r.status_code == 429 else None
+                if asked is not None and asked > RETRY_AFTER_MAX_WAIT:
+                    # Encar named a wait we cannot make a caller sit through: honour it by
+                    # keeping everyone away for exactly that long.
+                    self._trip(f"HTTP 429, Retry-After {asked}s", min(asked, 600))
+                    raise EncarUnavailable(f"rate limited, retry after {asked}s", 429)
+                if asked is not None:
+                    wait = asked
+                if attempt == ATTEMPTS - 1:
                     break
-                await asyncio.sleep(min(delay, cap))
+                await asyncio.sleep(wait)
                 delay *= 2
                 continue
             # Unexpected status: no retry (we do not know what it means), no None either.
-            log.warning("encar unexpected %s on %s", r.status_code, path)
             self._fail(f"HTTP {r.status_code}")
             raise EncarUnavailable(f"unexpected HTTP {r.status_code} from upstream",
                                    r.status_code)
 
         self._fail(last)
-        raise EncarUnavailable(f"upstream did not answer for {path}: {last}")
+        raise EncarUnavailable(f"upstream did not answer for {path}: {last}", last_status)
+
+    def _state(self):
+        return "open" if time.monotonic() < self._open_until else "closed"
 
     def _ok(self):
         self._fails = 0
 
     def _fail(self, reason):
         self._fails += 1
+        reason = _scrub(reason)
         if self._fails >= BREAKER_FAILS:
             self._trip(reason, BREAKER_COOLDOWN)
 
     def _trip(self, reason, cooldown):
         self._fails = 0
         self._open_until = time.monotonic() + cooldown
-        self._open_reason = reason
-        log.error("encar circuit open for %ss: %s", cooldown, reason)
+        self._open_reason = _scrub(reason)
+        log.error("encar circuit=open for %ss route=%s: %s", cooldown, route(),
+                  self._open_reason)
 
     def breaker(self):
         """For the admin screen and the watchdog: is upstream currently shut out?"""
@@ -484,3 +543,38 @@ def normalise_row(row, recency=None):
     if recency is not None:
         doc["recency"] = recency
     return doc
+
+
+async def verify(listing_id="42207598"):
+    """Deploy-time proof that Encar answers through the configured route: HTTP 200 and a JSON
+    body. Prints only sanitized fields; exit 1 on anything else."""
+    t0 = time.monotonic()
+    client = EncarClient(min_interval=0)
+    try:
+        body = await client.get_json(f"/v1/readside/vehicle/{listing_id}", interactive=True)
+    except EncarUnavailable as e:
+        print(f"FAIL route={route()} status={e.status or '-'} "
+              f"latency_ms={int((time.monotonic() - t0) * 1000)} reason={_scrub(e)}")
+        return 1
+    finally:
+        await client.close()
+    if body is None:
+        print(f"FAIL route={route()} status=404 (test vehicle {listing_id} is gone — pick "
+              f"another id)")
+        return 1
+    if not isinstance(body, dict):
+        print(f"FAIL route={route()} status=200 body is not a JSON object")
+        return 1
+    print(f"OK route={route()} status=200 latency_ms={int((time.monotonic() - t0) * 1000)} "
+          f"vehicle_id={body.get('vehicleId', '?')}")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys
+    if "--verify" in sys.argv:
+        logging.basicConfig(level=logging.WARNING)
+        arg = [a for a in sys.argv[1:] if a.isdigit()]
+        sys.exit(asyncio.run(verify(*arg)))
+    print("usage: python -m encar --verify [listing_id]")
+    sys.exit(2)

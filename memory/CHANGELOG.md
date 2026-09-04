@@ -2393,3 +2393,22 @@ STILL FOR THE OWNER (needs the boxes): `deploy_nat.yml` for the uidrange fix and
   asserts Encar 200 through the exit as www-data.
 * `deploy/hetzner/home-exit/setup-mac.sh` + README: keys, wg0.conf (dials front1), tinyproxy
   (Allow 10.99.0.2 only, FilterDefaultDeny → *.encar.com only), LaunchDaemons, pmset no-sleep.
+
+## 2026-06 — Sticky residential proxy for Encar + 17-check watchdog (tested: iteration_45, 100%)
+* `encar.py`: `ENCAR_PROXY_URL` (secret, read at client creation) for api.encar.com only.
+  Bounded: connect 8s, total 15s, 2 attempts (never 404, never a 403/407/511 block), 429
+  Retry-After honoured (≤5s waited, longer opens the circuit for exactly that long). Logs and
+  exceptions carry route/status/latency/circuit only — `_scrub` removes the proxy URL, host and
+  any user:pass@. `python -m encar --verify [id]` = deploy-time proof (200 + JSON, exit 0/1).
+  16 unit tests in `tests/test_encar_proxy.py` (+ live "upstream failure never retires a car").
+* Ansible `deploy_backend.yml`: `encar_proxy_url` (vault it) → `ENCAR_PROXY_URL`; env task and
+  verification are `no_log`; verification runs as www-data BEFORE restart and aborts the play on
+  failure; symlink flip retagged `code` so `--tags config,service` no longer points `current` at
+  a never-checked-out release. Rollback = clear the var, run `--tags config,service`.
+* `watchdog.py` rewritten: 17 checks with severity and own cadence — critical (egress, proxy,
+  encar, site, mongo, disk, memory, 5xx burst) push with require_interaction + 30-min reminders;
+  warning (mail, stripe, cargo, cert, sync stale/stuck, fx stale, translate breaker, backup,
+  no push device) one quiet push + 12h reminders. `Skip` = not applicable here. 5xx counter fed
+  from the CSRF middleware. `GET /api/admin/incidents` now returns per-check state + labels.
+* Admin Overview: new `AdminHealth.js` grid (critical row, warning row, "Провери сега" forces a
+  round); `AdminIncidents` reads labels/severity from the API.

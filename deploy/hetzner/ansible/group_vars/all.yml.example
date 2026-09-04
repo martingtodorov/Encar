@@ -59,6 +59,10 @@ nat_route_management: true
 # home_exit_ip: 10.99.0.3
 # home_exit_proxy_port: 8888
 # encar_proxy_url: http://10.99.0.3:8888      # derived from the two above when unset
+#
+# OR a sticky residential proxy (IPRoyal). PROTECTED: keep it in an ansible-vault file
+# (group_vars/all/vault.yml), never in git, never in chat. URL-encode user and password.
+# encar_proxy_url: "http://USERNAME:PASSWORD@geo.iproyal.com:12321"
 
 # ── backend secrets ───────────────────────────────────────────────────────────
 db_name: encar

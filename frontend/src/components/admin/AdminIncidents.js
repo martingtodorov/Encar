@@ -6,12 +6,6 @@ import { getIncidents, testIncidentPush } from "@/lib/api";
 import { enablePush, pushSupported } from "@/lib/push";
 import { stampSofia } from "@/components/admin/AdminBits";
 
-const LABELS = {
-  egress: "Изход към интернет",
-  encar: "Encar upstream",
-  mongo: "База данни",
-  mail: "Имейли (Resend)",
-};
 
 /**
  * Open incidents, loud and at the top of the panel.
@@ -69,6 +63,7 @@ export const AdminIncidents = () => {
 
   if (!data) return null;
 
+  const LABELS = data.labels || {};
   const open = data.open || [];
   const recent = (data.recent || []).filter((r) => r.closed_at).slice(0, 4);
   const devices = data.push_devices || 0;
@@ -85,7 +80,7 @@ export const AdminIncidents = () => {
             <ShieldAlert className="mt-0.5 h-[18px] w-[18px] shrink-0 text-destructive" aria-hidden="true" />
             <div className="min-w-0">
               <div className="text-[13.5px] font-semibold text-destructive">
-                {LABELS[i.check] || i.check} — авария от {stampSofia(i.since)}
+                {i.severity === "critical" ? "Авария" : "Внимание"}: {LABELS[i.check] || i.check} — от {stampSofia(i.since)}
               </div>
               <p className="mt-0.5 break-words text-[12px] text-destructive/90">{i.reason}</p>
               <p className="mt-0.5 text-[11.5px] text-destructive/70">
@@ -103,7 +98,7 @@ export const AdminIncidents = () => {
         >
           <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" aria-hidden="true" />
           <span className="min-w-0 truncate">
-            Всички проверки минават: изход към интернет, Encar, база данни, имейли.
+            Всички {(data.checks || []).length} проверки минават — няма отворени инциденти.
             {recent.length
               ? ` Последен инцидент: ${LABELS[recent[0].check] || recent[0].check}, ${stampSofia(recent[0].opened_at)}.`
               : ""}

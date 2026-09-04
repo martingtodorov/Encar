@@ -5048,7 +5048,13 @@ async def csrf_middleware(request: Request, call_next):
         await csrf_mod.guard(request)
     except HTTPException as e:
         return JSONResponse({"detail": e.detail}, status_code=e.status_code)
-    return await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        watchdog.note_status(500)      # an unhandled exception is a 5xx the watchdog must see
+        raise
+    watchdog.note_status(response.status_code)
+    return response
 
 
 

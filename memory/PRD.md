@@ -143,6 +143,12 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
 * Full detail, measurements and the owner's remaining steps in CHANGELOG.md.
 
 ## Encar upstream (2026-06)
+* PRIMARY route now: sticky residential proxy (IPRoyal) via protected `encar_proxy_url` →
+  `ENCAR_PROXY_URL`. Only api.encar.com; CDN/Stripe/Claude/Resend/GitHub direct. Owner must put
+  the URL in an ansible-vault group_vars file (never chat/repo) and run
+  `deploy_backend.yml --tags config,service`; deploy aborts before restart if Encar ≠ 200+JSON.
+* Health: 17 watchdog checks in Admin → Overview ("Здраве на системата"), emergency push to all
+  admins, email fallback.
 * api.encar.com 407s all datacenter IPs; 200 from the owner's home. Encar calls go through the
   owner's Mac mini (third WireGuard peer, tinyproxy) via `ENCAR_PROXY_URL` — see
   `deploy/hetzner/home-exit/README.md`. STATUS: code + playbooks done, owner must run

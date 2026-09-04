@@ -4,6 +4,10 @@
 #   ansible-playbook -i inventory.ini playbooks/deploy_backend.yml -e "ref=main"
 #
 # Tags: base, mongo, code, config, service, firewall, backup.
+#
+# Config/service-only (no checkout, no release directory, no symlink flip):
+#   ansible-playbook -i inventory.ini playbooks/deploy_backend.yml --tags config,service
+# Rollback of the Encar proxy = clear encar_proxy_url in group_vars and run exactly that.
 - name: Europe Encar backend
   hosts: backend
   become: true
@@ -126,6 +130,8 @@
         owner: root
         group: www-data
         mode: "0640"
+      # Secrets, the proxy credentials among them: no diff, no value in the log.
+      no_log: true
       notify: Restart backend
       tags: [config]
 
@@ -137,12 +143,49 @@
       notify: [Reload systemd, Restart backend]
       tags: [config, service]
 
-    # ── flip the symlink ──────────────────────────────────────────────────────
+    # ── prove the Encar route BEFORE production is restarted ──────────────────
+    - name: Was new code checked out in this run?
+      ansible.builtin.stat:
+        path: "{{ release_dir }}/backend/encar.py"
+      register: new_code
+      tags: [config, service]
+
+    - name: Encar answers through the configured proxy, as the application user
+      # `python -m encar --verify` prints only route/status/latency — never the URL. The
+      # proxy value reaches the process through the task environment, not the command line,
+      # and no_log keeps it out of Ansible's own output. Skipped when no proxy is configured
+      # (direct route = rollback; on Hetzner that would 407 and is not a deploy failure).
+      ansible.builtin.command:
+        cmd: >-
+          runuser -u {{ backend_service_user | default('www-data') }} --
+          {{ venv }}/bin/python -m encar --verify
+        chdir: "{{ (release_dir if new_code.stat.exists else app_dir ~ '/current') }}/backend"
+      environment:
+        ENCAR_PROXY_URL: "{{ encar_proxy_url }}"
+      register: encar_verify
+      changed_when: false
+      failed_when: false
+      no_log: true
+      when: encar_proxy_url | default('') | trim | length > 0
+      tags: [config, service]
+
+    - name: Stop here if it did not — production keeps running the previous config
+      ansible.builtin.assert:
+        that: encar_verify.rc == 0
+        fail_msg: >-
+          Encar verification failed through the residential proxy, so the backend was NOT
+          restarted. Output (sanitized): {{ encar_verify.stdout | default('') }}
+          {{ encar_verify.stderr | default('') | regex_replace('//[^/\\s@]+:[^/\\s@]+@', '//<redacted>@') }}
+        success_msg: "{{ encar_verify.stdout | default('') }}"
+      when: encar_proxy_url | default('') | trim | length > 0
+      tags: [config, service]
+
+    # ── flip the symlink (only when a release was checked out in this run) ────
     - name: Remember the release we are replacing
       ansible.builtin.stat:
         path: "{{ app_dir }}/current"
       register: current_link
-      tags: [service]
+      tags: [code]
 
     - name: Keep it as `previous` for a one-command rollback
       ansible.builtin.file:
@@ -151,16 +194,18 @@
         state: link
         force: true
       when: current_link.stat.islnk | default(false)
-      tags: [service]
+      tags: [code]
 
     - name: Point `current` at the new release
+      # Tagged `code`, not `service`: a `--tags config,service` run used to point `current`
+      # at a release directory that was never checked out and take the site down.
       ansible.builtin.file:
         src: "{{ release_dir }}"
         dest: "{{ app_dir }}/current"
         state: link
         force: true
       notify: Restart backend
-      tags: [service]
+      tags: [code]
 
     - name: Flush handlers so the health check tests the new code
       ansible.builtin.meta: flush_handlers
