@@ -2,8 +2,12 @@
 #
 # Table = off is the whole point: Hetzner's own default route (via 10.0.0.1) stays in the
 # MAIN table, so SSH, Ansible, apt and the private network are untouched and a dead tunnel
-# cannot lock anyone out of this box. Only the application's own outbound traffic is marked
-# and sent to the {{ nat_table }} table, which is where the tunnel default lives.
+# cannot lock anyone out of this box. Only the application user's own outbound traffic is
+# routed to the {{ nat_table }} table, which is where the tunnel default lives.
+#
+# Selection is by UID (`ip rule uidrange`), NOT by firewall mark. See the comment on the
+# rule below: the mark design was tested on this host and left packets leaving the wrong
+# interface with a tunnel source address.
 #
 # The private key is generated on this host and applied by PostUp, so this file holds
 # nothing secret.
@@ -24,16 +28,22 @@ PostUp = ip route replace throw {{ private_cidr }} table {{ nat_table }}
 PostUp = ip route replace throw 169.254.0.0/16 table {{ nat_table }}
 PostUp = ip route replace throw 172.16.0.0/12 table {{ nat_table }}
 PostUp = ip route replace throw 192.168.0.0/16 table {{ nat_table }}
-PostUp = ip route replace default via {{ wg_front_ip }} dev %i table {{ nat_table }}
-PostUp = ip rule del fwmark {{ nat_mark }} lookup {{ nat_table }} 2>/dev/null || true; ip rule add fwmark {{ nat_mark }} lookup {{ nat_table }} priority {{ nat_rule_priority }}
-PostUp = iptables -t mangle -C OUTPUT -m owner --uid-owner {{ backend_service_user }} -j MARK --set-mark {{ nat_mark }} 2>/dev/null || iptables -t mangle -A OUTPUT -m owner --uid-owner {{ backend_service_user }} -j MARK --set-mark {{ nat_mark }}
-# The route is chosen BEFORE mangle OUTPUT, so the mark reroutes the packet onto %i but its
-# source address is still this host's private one. front1's cryptokey routing only accepts
-# {{ wg_back_ip }} from this peer and would silently drop the rest, so rewrite the source.
+PostUp = ip route replace default via {{ wg_front_ip }} dev %i src {{ wg_back_ip }} table {{ nat_table }}
+# UID-based rule, not a firewall mark. The mark version was tested and does NOT work: route
+# selection happens BEFORE mangle OUTPUT, so the packet had already been given this host's
+# private source address; the mark then moved it onto wg0 with source 10.99.0.2 while the
+# kernel still sent it out enp7s0. tcpdump showed inner packets leaving the wrong interface
+# and front1's wg0 RX error counter climbing. `ip rule uidrange` is evaluated during the
+# FIRST lookup, so the route above — including its `src` — is what source selection sees.
+PostUp = uid=$(id -u {{ backend_service_user }}); ip rule del uidrange $uid-$uid lookup {{ nat_table }} 2>/dev/null || true; ip rule add uidrange $uid-$uid lookup {{ nat_table }} priority {{ nat_rule_priority }}
+# Remnants of the mark design, removed so the two cannot fight over the same packet.
+PostUp = ip rule del fwmark {{ nat_mark }} lookup {{ nat_table }} 2>/dev/null || true
+PostUp = iptables -t mangle -D OUTPUT -m owner --uid-owner {{ backend_service_user }} -j MARK --set-mark {{ nat_mark }} 2>/dev/null || true
+# Belt and braces: front1's cryptokey routing only accepts {{ wg_back_ip }} from this peer,
+# so anything that still leaves %i with another source is rewritten rather than dropped.
 PostUp = iptables -t nat -C POSTROUTING -o %i -j SNAT --to-source {{ wg_back_ip }} 2>/dev/null || iptables -t nat -A POSTROUTING -o %i -j SNAT --to-source {{ wg_back_ip }}
 PostDown = iptables -t nat -D POSTROUTING -o %i -j SNAT --to-source {{ wg_back_ip }} 2>/dev/null || true
-PostDown = iptables -t mangle -D OUTPUT -m owner --uid-owner {{ backend_service_user }} -j MARK --set-mark {{ nat_mark }} 2>/dev/null || true
-PostDown = ip rule del fwmark {{ nat_mark }} lookup {{ nat_table }} 2>/dev/null || true
+PostDown = uid=$(id -u {{ backend_service_user }}); ip rule del uidrange $uid-$uid lookup {{ nat_table }} 2>/dev/null || true
 PostDown = ip route flush table {{ nat_table }} 2>/dev/null || true
 
 [Peer]

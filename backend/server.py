@@ -86,7 +86,8 @@ import curate               # noqa: E402
 import sync as sync_mod      # noqa: E402
 import aicost                # noqa: E402
 import watchdog              # noqa: E402
-from encar import encar, image_url, full_image_url, detail_photo_paths, under_contract, sales_status  # noqa: E402
+from encar import (EncarUnavailable, encar, image_url, full_image_url,  # noqa: E402
+                   detail_photo_paths, under_contract, sales_status)
 from translate import (LANGS, HAIKU_MODEL, breaker_status,  # noqa: E402
                        cached_label_set,
                        schedule_translation, set_meter_db,
@@ -2906,6 +2907,84 @@ async def sitemap_listings(n: int, request: Request):
 
 
 
+async def _partial_detail(listing, listing_id, lang, reason):
+    """Everything we already hold about a car, for when Encar cannot be reached.
+
+    An uncached car page used to be entirely at the mercy of the upstream: if CloudFront was
+    answering 407, the buyer watched a spinner for a minute and then got an error — and the
+    listing was retired as sold on the way out. Our own index already knows the photos, the
+    make, model and trim, the year, the mileage, the fuel, the gearbox and the price. That is
+    a real page, with an honest note that the history and the option list are temporarily
+    unavailable.
+
+    Deliberately NOT written to `car_details`: that collection is the permanent record of a
+    car, and a half-empty document there would hide the real one forever.
+    """
+    if not listing:
+        raise HTTPException(503, "Encar is not answering right now — please try again "
+                                 "in a few minutes")
+    await translate_listings(db, [listing], lang)
+    row = listing_out(listing)
+    await publish_prices([row])
+    photos = [{
+        "full": image_url(p, 1280, 720),
+        "full_mobile": image_url(p, 900, 506),
+        "full_lightbox": full_image_url(p, 1600),
+        "thumb": image_url(p, 356, 200),
+    } for p in (listing.get("photos") or [])]
+    title = " ".join(filter(None, [row.get("manufacturer_t") or row.get("manufacturer"),
+                                   row.get("model_t") or row.get("model"),
+                                   row.get("badge_t") or row.get("badge")]))
+    return jsonable({
+        "id": listing_id,
+        # The frontend shows a notice and offers a retry instead of pretending this is all
+        # there is to know about the car.
+        "partial": True,
+        "partial_reason": str(reason)[:200],
+        "vehicle_id": listing.get("vehicle_id") or listing_id,
+        "under_contract": bool(listing.get("under_contract")),
+        "sales_status": listing.get("sales_status") or "",
+        "active": bool(listing.get("active", True)),
+        "title": title,
+        "manufacturer": row.get("manufacturer_t") or row.get("manufacturer"),
+        "manufacturer_raw": row.get("manufacturer") or "",
+        "model": row.get("model_t") or row.get("model"),
+        "model_raw": row.get("model") or "",
+        "grade": row.get("badge_t") or row.get("badge") or "",
+        "badge": row.get("badge_t") or row.get("badge") or "",
+        "badge_raw": row.get("badge") or "",
+        "badge_detail": row.get("badge_detail_t") or row.get("badge_detail") or "",
+        "badge_detail_raw": row.get("badge_detail") or "",
+        "year_month": row.get("year_month"),
+        "form_year": row.get("form_year"),
+        "origin_price_manwon": None,
+        "spec": {
+            "mileage": row.get("mileage"),
+            "transmission": row.get("transmission"),
+            "fuel": row.get("fuel_type_t") or row.get("fuel_type"),
+        },
+        "photos": photos,
+        "photo_count": row.get("photo_count") or len(photos),
+        "options": {"groups": [], "factory": [], "tuning": [], "total": 0},
+        "description": "",
+        "description_original": "",
+        "description_pending": False,
+        # None, not {"available": False}: the page decides whether to render the history,
+        # inspection and diagnosis panels by whether the object EXISTS, and an empty stub is
+        # truthy — it walked straight into `car.diagnosis.items.map` and took the page down
+        # with it. We have no history data at all here, and saying so is the honest shape.
+        "insurance": None,
+        "inspection": None,
+        "diagnosis": None,
+        "body_panels": [],
+        "mech_checks": [],
+        "translation_pending": False,
+        "fetched_at": None,
+        "quote": {"suggested_sale": row.get("sale_eur")},
+        "lang": lang,
+    })
+
+
 @api.get("/car/{listing_id}")
 async def car_detail(listing_id: str, request: Request, lang: str = "bg",
                      refresh: bool = False):
@@ -2924,8 +3003,17 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     cached = None if refresh else await db.car_details.find_one({"_id": listing_id})
 
     if not cached:
-        detail = await encar.detail(listing_id)
-        if not detail:
+        try:
+            detail = await encar.detail(listing_id)
+        except EncarUnavailable as e:
+            # Upstream is blocked, rate-limited or down. That says NOTHING about whether the
+            # car exists, so no listing may be touched: this is precisely the path that used
+            # to mark live cars sold during a CloudFront 407.
+            log.warning("upstream unavailable for %s, serving from the index: %s",
+                        listing_id, str(e)[:160])
+            return await _partial_detail(listing, listing_id, lang, e)
+        if detail is None:
+            # A real 404 from Encar: the ad is gone. The only case that may retire a car.
             return await _gone(listing, listing_id, lang)
         if under_contract(detail):
             # A pending sale on Encar. Nobody may reserve it and nobody should waste time
@@ -2943,6 +3031,11 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
             return_exceptions=True,
         )
         clean = lambda v: None if isinstance(v, Exception) else v  # noqa: E731
+        # If a side document failed because upstream is unwell (rather than because this car
+        # has no inspection sheet), the result is not fit to become the permanent record —
+        # the missing history would never be fetched again. Serve it, do not store it.
+        incomplete = any(isinstance(v, EncarUnavailable)
+                         for v in (record, inspection_raw, diagnosis_raw, choice))
         cached = {
             "_id": listing_id,
             "vehicle_id": vid,
@@ -2956,7 +3049,11 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
             "status_at": datetime.now(timezone.utc),
             "fetched_at": datetime.now(timezone.utc),
         }
-        await db.car_details.update_one({"_id": listing_id}, {"$set": cached}, upsert=True)
+        if incomplete:
+            log.warning("car %s fetched with missing sections; not caching it", listing_id)
+        else:
+            await db.car_details.update_one({"_id": listing_id}, {"$set": cached},
+                                            upsert=True)
 
     detail = cached.get("detail") or {}
     if cached.get("sales_status", "").upper() == "CONTRACT":

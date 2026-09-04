@@ -59,6 +59,33 @@ def flatten_options(options):
     return flat
 
 
+RATE_LIMIT_STATUSES = (429, 500, 502, 503, 504, 408, 425)
+# "You are blocked", not "try again": CloudFront in front of api.encar.com answers 407 when
+# it does not like where the request came from, and 403 when a WAF rule fires. Retrying
+# either one is a storm against a door that is already shut.
+BLOCK_STATUSES = (403, 407, 511)
+
+BREAKER_FAILS = 4          # consecutive upstream failures before the circuit opens
+BREAKER_COOLDOWN = 60      # seconds it stays open for a rate limit or a 5xx
+BLOCK_COOLDOWN = 180       # ... and for an outright block, which needs longer to clear
+
+
+class EncarUnavailable(RuntimeError):
+    """Upstream could not answer — transport error, WAF block, rate limit, 5xx, junk body.
+
+    Emphatically NOT "this car does not exist". That distinction is the whole point of this
+    class. Before it existed, `get_json` returned None for every unexpected status, and
+    `car_detail` read a falsy detail as Encar retiring the ad: one CloudFront 407 while a
+    buyer clicked an uncached car marked a perfectly live listing sold, pulled it from the
+    catalogue and stamped `sold_at`. Only a 404 (or a 200 that really says "no such car")
+    may ever be treated as authoritative absence.
+    """
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
+
+
 class EncarClient:
     def __init__(self, min_interval=1.2, max_retries=5, interactive_concurrency=6):
         self.min_interval = min_interval
@@ -73,6 +100,11 @@ class EncarClient:
         self._client = None
         self.stats = {"requests": 0, "backoffs": 0, "errors": 0, "last_status": None}
         self._opt_cache = {"standard": None, "tuning": None, "metas": None, "at": 0}
+        # Circuit breaker. A blocked or broken upstream must be asked politely and rarely,
+        # not hammered by every visitor who happens to open an uncached car.
+        self._fails = 0
+        self._open_until = 0.0
+        self._open_reason = ""
 
     async def client(self):
         if self._client is None:
@@ -93,22 +125,31 @@ class EncarClient:
             self._last = time.monotonic()
 
     async def get_json(self, path, allow_404=False, interactive=False):
-        """Single politely-paced GET with exponential backoff. Returns None on 404.
+        """One paced GET. Returns the parsed body, or None ONLY for an authoritative 404.
+
+        Anything else that is not a clean 200 raises `EncarUnavailable`. Callers must be
+        able to tell "Encar says this car is gone" from "Encar did not answer", because one
+        of those retires a listing and the other must never touch the database.
 
         An interactive read has a human waiting on the other end, so it gets a short leash:
-        12s per request, two attempts, at most 2s between them — about 26s worst case. The
-        bulk sync can afford to be patient; a car page cannot.
-
-        Before this, every call used five attempts at a 30s timeout plus 15s of backoff, so
-        one unreachable upstream could hold a request for over two minutes. Cloudflare gives
-        up at 100s (524), and with a single uvicorn worker a handful of such requests takes
-        the whole site down — which is exactly what happened when back1 lost its NAT tunnel.
+        12s per request, two attempts, backoff capped at 2s — about 26s worst case. The bulk
+        sync stays patient. Before this, every call used the sync budget (5 attempts x 30s
+        plus 15s of backoff, over two minutes), which is past Cloudflare's 100s limit; with
+        one uvicorn worker a handful of those requests took the whole site down.
         """
+        now = time.monotonic()
+        if now < self._open_until:
+            # Circuit open: fail immediately rather than queue behind a door we know is shut.
+            raise EncarUnavailable(
+                f"upstream circuit open for another {self._open_until - now:.0f}s "
+                f"({self._open_reason})")
+
         c = await self.client()
         attempts = 2 if interactive else self.max_retries
         timeout = 12 if interactive else 30
         cap = 2.0 if interactive else 60.0
         delay = 1.0
+        last = "no attempt made"
         for attempt in range(attempts):
             # interactive = one human opening one car: bounded concurrency, no forced
             # gap. Bulk sync keeps the strict single-file pacing.
@@ -120,9 +161,10 @@ class EncarClient:
                 r = await c.get(f"{API}{path}", timeout=timeout)
             except Exception as e:
                 self.stats["errors"] += 1
+                last = f"transport error: {e}"
                 log.warning("encar transport error %s: %s", path, e)
                 if attempt == attempts - 1:
-                    raise
+                    break
                 await asyncio.sleep(min(delay, cap))
                 delay *= 2
                 continue
@@ -135,25 +177,65 @@ class EncarClient:
 
             if r.status_code == 200:
                 if not r.text.strip():
-                    return None
+                    # A 200 with nothing in it says nothing. Treating it as "car gone" is
+                    # how live cars used to get retired.
+                    last = "empty 200 body"
+                    break
                 try:
-                    return r.json()
+                    body = r.json()
                 except Exception:
-                    return None
+                    last = "200 with a body that is not JSON (WAF interstitial?)"
+                    break
+                self._ok()
+                return body
             if r.status_code == 404:
-                if allow_404:
-                    return None
+                # The only authoritative "there is no such car".
+                self._ok()
                 return None
-            if r.status_code in (429, 500, 502, 503, 504):
+            if r.status_code in BLOCK_STATUSES:
+                # Blocked. One attempt, no retries, and the circuit opens straight away.
+                self._trip(f"HTTP {r.status_code} from upstream", BLOCK_COOLDOWN)
+                raise EncarUnavailable(f"upstream refused the request "
+                                       f"(HTTP {r.status_code})", r.status_code)
+            if r.status_code in RATE_LIMIT_STATUSES:
                 self.stats["backoffs"] += 1
+                last = f"HTTP {r.status_code}"
                 log.warning("encar %s on %s — backing off %.0fs", r.status_code, path,
                             min(delay, cap))
+                if attempt == attempts - 1:
+                    break
                 await asyncio.sleep(min(delay, cap))
                 delay *= 2
                 continue
+            # Unexpected status: no retry (we do not know what it means), no None either.
             log.warning("encar unexpected %s on %s", r.status_code, path)
-            return None
-        return None
+            self._fail(f"HTTP {r.status_code}")
+            raise EncarUnavailable(f"unexpected HTTP {r.status_code} from upstream",
+                                   r.status_code)
+
+        self._fail(last)
+        raise EncarUnavailable(f"upstream did not answer for {path}: {last}")
+
+    def _ok(self):
+        self._fails = 0
+
+    def _fail(self, reason):
+        self._fails += 1
+        if self._fails >= BREAKER_FAILS:
+            self._trip(reason, BREAKER_COOLDOWN)
+
+    def _trip(self, reason, cooldown):
+        self._fails = 0
+        self._open_until = time.monotonic() + cooldown
+        self._open_reason = reason
+        log.error("encar circuit open for %ss: %s", cooldown, reason)
+
+    def breaker(self):
+        """For the admin screen and the watchdog: is upstream currently shut out?"""
+        left = self._open_until - time.monotonic()
+        return {"open": left > 0, "retry_in_s": max(0, round(left)),
+                "reason": self._open_reason if left > 0 else "",
+                "consecutive_failures": self._fails}
 
     # ── catalogue ────────────────────────────────────────────────────────────
     async def search(self, offset=0, limit=500, q=BASE_Q, sort="ModifiedDate"):
@@ -184,9 +266,14 @@ class EncarClient:
 
     async def record(self, vehicle_id, vehicle_no=""):
         if vehicle_no:
-            d = await self.get_json(
-                f"/v1/readside/record/vehicle/{vehicle_id}/open?vehicleNo={quote(vehicle_no)}",
-                interactive=True)
+            try:
+                d = await self.get_json(
+                    f"/v1/readside/record/vehicle/{vehicle_id}/open?vehicleNo={quote(vehicle_no)}",
+                    interactive=True)
+            except EncarUnavailable:
+                # The open endpoint is the richer of the two but also the flakier. Losing it
+                # must not cost us the summary, which is often perfectly available.
+                d = None
             if d:
                 return d
         return await self.get_json(f"/v1/readside/record/vehicle/{vehicle_id}/summary", interactive=True)
@@ -199,10 +286,24 @@ class EncarClient:
 
     # ── option dictionaries (global, cached in-process for a day) ────────────
     async def option_dicts(self):
+        """Human names for option codes. Decoration — never a reason to fail a page.
+
+        These dictionaries are global and change about never. When upstream is unreachable
+        the last copy we hold, stale or empty, is worth infinitely more than an exception: a
+        fully cached car page used to return 500 right here the moment the circuit breaker
+        opened, which is a working page destroyed by a missing glossary.
+        """
         if self._opt_cache["standard"] and time.time() - self._opt_cache["at"] < 86400:
             return self._opt_cache
-        std = await self.get_json("/v1/readside/vehicles/car/options/standard", interactive=True) or {}
-        tun = await self.get_json("/v1/readside/vehicles/car/options/tuning", interactive=True) or []
+        try:
+            std = await self.get_json("/v1/readside/vehicles/car/options/standard",
+                                      interactive=True) or {}
+            tun = await self.get_json("/v1/readside/vehicles/car/options/tuning",
+                                      interactive=True) or []
+        except EncarUnavailable as e:
+            log.warning("option dictionaries unavailable (%s); keeping what we have",
+                        str(e)[:120])
+            return self._opt_cache
         self._opt_cache = {
             "standard": flatten_options(std.get("options", [])),
             "tuning": {o["optionCd"]: o for o in tun},

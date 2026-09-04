@@ -128,6 +128,20 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
   in `deploy_nat.yml` so an unreachable host is named instead of a Jinja error.
 * Full detail in CHANGELOG.md.
 
+## 2026-09-05 — Seven confirmed production bugs from the 407 incident (DONE)
+* `EncarUnavailable` separates "Encar says this car is gone" (404 only) from "Encar did not
+  answer". Only the first may retire a listing — a CloudFront 407 used to mark live cars sold
+  the moment a visitor clicked an uncached ad.
+* Bounded interactive calls (12s x 2, ~26s worst case) + circuit breaker (4 failures = 60s,
+  a 403/407/511 = 180s immediately).
+* Index-only fallback for uncached car pages when upstream is down: real photos, model, year,
+  mileage and price, `partial: true`, never cached as a permanent `car_details` record.
+* `restore_false_sold.py` puts back rows retired during the incident; skips contract cars and
+  stale `last_seen`, `--verify` confirms each against Encar.
+* WireGuard selection is now by `ip rule uidrange` with `src` on the table-100 default; the
+  fwmark design is removed and asserted against. `/etc/hosts` pin on api.encar.com removed.
+* Full detail, measurements and the owner's remaining steps in CHANGELOG.md.
+
 ## Broken integrations (blocked on user)
 * **Resend** — API key invalid in preview (owner says production has a valid one).
 * **Anthropic** — API key returns 401. System silently falls back to the Emergent universal

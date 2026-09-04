@@ -2282,3 +2282,86 @@ emergency-grade push, so the channel is provable before it matters).
 Verified: endpoint returns `{"sent": 0, "devices": 0}` and the strip renders
 "Нито едно устройство не получава push известия" with both buttons. The owner must tap
 "Включи на това устройство" on each phone/laptop he wants woken.
+
+## 2026-09-05 — The 407 that sold live cars: seven confirmed production bugs
+
+### 3 (the serious one) — data corruption
+`encar.get_json()` returned None for every unexpected status, and `car_detail()` read a
+falsy detail as Encar retiring the ad: `_gone()` set `active: false, sold: true,
+sold_at: now`. So during the CloudFront 407 window, every uncached car a visitor clicked was
+removed from the catalogue while being perfectly live.
+
+The client now speaks in two distinct answers:
+* `None` — ONLY an authoritative 404. The single case allowed to retire a car.
+* `EncarUnavailable` (new, subclasses RuntimeError so existing sync handlers still catch it)
+  — transport error, 403/407/511 block, 429/5xx, an empty 200, or a 200 whose body is not
+  JSON. Never touches the database.
+An unexpected status is not retried at all (we do not know what it means) and never returns
+None.
+
+### 6 — bounded interactive calls + circuit breaker
+Interactive reads (a human on a car page): 12s per request, 2 attempts, backoff capped at
+2s ≈ 26s worst case. Bulk sync keeps its patient 5x30s. Circuit breaker: 4 consecutive
+failures opens it for 60s; a 403/407/511 opens it immediately for 180s, because retrying a
+shut door is a storm. `encar.breaker()` exposes the state.
+
+### 5 — availability: index-only fallback
+`_partial_detail()` builds a real page from `db.listings` when upstream is unavailable:
+photos, make/model/trim, year, mileage, fuel, gearbox and the local price, with
+`partial: true` and a reason. NOT written to `car_details` — a half-empty permanent record
+would hide the real car forever. Cached cars are untouched; if only the SIDE documents
+(record/inspection/diagnosis/choice) failed, the assembled detail is served but not cached,
+so the missing history is fetched on the next visit instead of being frozen in.
+Frontend: amber banner + retry on the car page, `partialData` string in bg/ro/en/pl.
+
+Two regressions were caught by testing this and fixed:
+* `option_dicts()` propagated `EncarUnavailable`, so a FULLY CACHED car page returned 500 the
+  moment the breaker opened — a working page destroyed by a missing glossary. It now keeps
+  whatever copy it has. Same for `record()`, where a failing `open` endpoint used to skip the
+  perfectly available `summary`.
+* the fallback stubbed `insurance/inspection/diagnosis` as `{"available": false}`, but the
+  page decides whether to render those panels by whether the OBJECT exists — the truthy stub
+  walked straight into `car.diagnosis.items.map` and crashed the page. They are `None` now.
+
+### 4 — restoring the falsely-sold rows
+`backend/restore_false_sold.py`: window by `sold_at`, dry-run by default. Skips cars under
+contract and cars whose `last_seen` predates `sold_at` by more than `--stale-hours` (default
+6). `--verify` confirms each candidate against Encar and leaves genuine 404s alone — use
+that on production. Proven on three synthetic cases: restored the false one, skipped the
+stale one and the contract one.
+
+    python restore_false_sold.py --from 2026-09-04T20:00:00Z --to 2026-09-04T21:00:00Z \
+        --verify --apply
+
+### 1 — WireGuard policy routing, by UID instead of a mark
+`wg0-back.conf.j2` now sets `default via {{ wg_front_ip }} dev %i src {{ wg_back_ip }}` in
+table 100 and selects with `ip rule uidrange $(id -u www-data)-$(id -u www-data)`. The mark
+design was tested and does not work: route selection happens BEFORE mangle OUTPUT, so the
+packet already carried the host's private source when the mark moved it onto wg0 — inner
+packets left enp7s0 with source 10.99.0.2 and front1's wg0 RX error counter climbed. A
+uidrange rule is evaluated during the FIRST lookup, so the route's `src` is what source
+selection sees. UID is read with `id -u` rather than hardcoded 33.
+`deploy_nat.yml`: removes any leftover fwmark rule and mangle MARK, backs up the working
+wg0.conf to `wg0.conf.ansible-backup` before overwriting, and verifies with
+`ip route get 1.1.1.1 uid <uid>` asserting `dev wg0` AND `src 10.99.0.2`, plus a check that
+no fwmark rule survives.
+
+### 2 — the /etc/hosts pin is not the fix
+`deploy_nat.yml` now REMOVES any pinned `api.encar.com` line: a hardcoded CloudFront edge
+that gets retired takes the whole catalogue with it. DNS decides again, and the breaker plus
+the fallback mean a 407 costs a section of one page instead of the site. The playbook also
+probes Encar as www-data and reports the status without failing the run.
+
+### 7 — verification (run on preview, where upstream genuinely 407s)
+* uncached car during 407: **200 in 0.13–0.28s**, `partial: true`, real photos/price/mileage,
+  across six different cars
+* no mutation: active 6→6, sold 4050→4050, car_details 1062→1062, and no `car_details` row
+  written for any of the six
+* fully cached car: 200, full payload (31 photos, 21 insurance fields, 68 options), no
+  `partial` flag
+* search: 200 in 0.15s, unaffected
+* browser: banner + retry render, gallery and spec panel intact, insurance panel degrades to
+  "Няма налични данни"
+
+STILL FOR THE OWNER (needs the boxes): `deploy_nat.yml` for the uidrange fix and to drop the
+/etc/hosts pin, then `restore_false_sold.py --verify --apply` for the incident window.

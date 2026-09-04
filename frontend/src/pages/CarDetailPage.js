@@ -491,6 +491,29 @@ export default function CarDetailPage() {
 
         {!loading && car && (
           <>
+            {/* Encar could not be reached, so this page was built from our own index:
+                photos, model, year, mileage and price are real, the history and option
+                list are simply not available yet. Saying so is better than an empty
+                section that looks like the car has no history. */}
+            {car.partial && (
+              <div
+                data-testid="detail-partial-banner"
+                className="mb-4 flex flex-wrap items-center gap-3 rounded-[14px] border border-amber-500/40 bg-amber-500/10 px-4 py-3"
+              >
+                <AlertTriangle className="h-5 w-5 shrink-0 text-amber-500" aria-hidden="true" />
+                <p className="min-w-0 flex-1 text-[13px] text-foreground">
+                  {t("partialData")}
+                </p>
+                <Button
+                  data-testid="detail-partial-retry"
+                  variant="outline"
+                  onClick={() => window.location.reload()}
+                  className="h-8 rounded-[9px] px-3 text-[12.5px]"
+                >
+                  {t("retry")}
+                </Button>
+              </div>
+            )}
             {car.under_contract && (
               <div
                 data-testid="detail-contract-banner"

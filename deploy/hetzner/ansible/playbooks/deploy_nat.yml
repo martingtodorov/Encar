@@ -272,6 +272,41 @@
           Fix that host's ssh access and re-run; without its key back1 has no peer to dial.
       tags: [client]
 
+    - name: The mark-based design is gone too
+      # Tested and rejected on this host: route selection happens BEFORE mangle OUTPUT, so
+      # the packet already had this host's private source when the mark moved it onto wg0 —
+      # inner packets left enp7s0 with source 10.99.0.2 and front1 counted them as wg0 RX
+      # errors. Selection is by UID now. Both must never be present at once.
+      ansible.builtin.shell: |
+        set -e
+        changed=0
+        if ip rule show | grep -qF 'fwmark {{ nat_mark }}'; then
+          ip rule del fwmark {{ nat_mark }} lookup {{ nat_table }} || true
+          changed=1
+        fi
+        if iptables -t mangle -C OUTPUT -m owner --uid-owner {{ backend_service_user }} \
+             -j MARK --set-mark {{ nat_mark }} 2>/dev/null; then
+          iptables -t mangle -D OUTPUT -m owner --uid-owner {{ backend_service_user }} \
+             -j MARK --set-mark {{ nat_mark }} || true
+          changed=1
+        fi
+        echo "$changed"
+      register: mark_cleanup
+      changed_when: mark_cleanup.stdout | trim == "1"
+      tags: [client]
+
+    - name: Keep a copy of the working tunnel config before replacing it
+      # Rollback is `cp` plus `systemctl restart wg-quick@wg0`, and it needs a file that is
+      # known to have worked, not the one Ansible is about to write.
+      ansible.builtin.copy:
+        src: /etc/wireguard/wg0.conf
+        dest: /etc/wireguard/wg0.conf.ansible-backup
+        remote_src: true
+        mode: "0600"
+        force: false
+      failed_when: false
+      tags: [client]
+
     - name: Tunnel config (policy routing only — the main default route is left alone)
       ansible.builtin.template:
         src: ../templates/wg0-back.conf.j2
@@ -329,10 +364,42 @@
 
     - name: Policy rule and table
       ansible.builtin.shell: |
-        ip rule show | grep -F 'fwmark {{ nat_mark }}'
+        set -o pipefail
+        uid=$(id -u {{ backend_service_user }})
+        ip rule show | grep -F "uidrange $uid-$uid"
         ip route show table {{ nat_table }}
+        # The decisive check: the route the kernel picks FOR THAT UID must be the tunnel,
+        # with the tunnel's own source address. This is what the mark design got wrong.
+        ip route get 1.1.1.1 uid "$uid"
+      args:
+        executable: /bin/bash
       register: policy
       changed_when: false
+      tags: [verify]
+
+    - name: The application's route really is the tunnel, with the tunnel's source
+      ansible.builtin.assert:
+        that:
+          - "'dev wg0' in policy.stdout"
+          - "'src ' ~ wg_back_ip in policy.stdout"
+          - "'uidrange' in policy.stdout"
+        fail_msg: >-
+          Route lookup for {{ backend_service_user }} is not going down the tunnel:
+          {{ policy.stdout }}
+          Expected "dev wg0 src {{ wg_back_ip }}" and a uidrange rule. Roll back with
+          `cp /etc/wireguard/wg0.conf.ansible-backup /etc/wireguard/wg0.conf &&
+          systemctl restart wg-quick@wg0`.
+      tags: [verify]
+
+    - name: No firewall mark left anywhere
+      ansible.builtin.shell: |
+        set -o pipefail
+        ip rule show | grep -cF 'fwmark {{ nat_mark }}' || true
+      args:
+        executable: /bin/bash
+      register: stray_mark
+      changed_when: false
+      failed_when: stray_mark.stdout | trim != "0"
       tags: [verify]
 
     - name: Show them
@@ -356,11 +423,45 @@
         that: app_egress.stdout | trim == hostvars[groups['frontend'][0]].ansible_host
         fail_msg: >-
           The backend leaves as {{ app_egress.stdout }}, not front1
-          ({{ hostvars[groups['frontend'][0]].ansible_host }}). Check the mangle mark, the
-          fwmark rule and MASQUERADE on front1.
+          ({{ hostvars[groups['frontend'][0]].ansible_host }}). Check the uidrange rule, the
+          `src {{ wg_back_ip }}` on the table {{ nat_table }} default, and MASQUERADE on
+          front1.
         success_msg: >-
           back1 reaches the internet as {{ app_egress.stdout }} — Stripe, Claude, Resend and
           the Encar crawl all leave through front1.
+      tags: [client, verify]
+
+    - name: No diagnostic pin left on api.encar.com
+      # /etc/hosts was pinned to one CloudFront edge (3.174.46.90) while chasing the 407s.
+      # That was a probe, not a fix: edges are replaced without notice, and a pinned IP that
+      # goes away takes the whole catalogue with it. DNS decides again, and the client now
+      # circuit-breaks on 407 instead of hammering a shut door.
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^\s*[0-9.]+\s+api\.encar\.com'
+        state: absent
+      tags: [client]
+
+    - name: Encar answers as the application user
+      ansible.builtin.command: >-
+        runuser -u {{ backend_service_user }} --
+        curl -sS -o /dev/null -w '%{http_code}' --max-time 25
+        'https://api.encar.com/v1/readside/vehicle/42207598'
+      register: encar_probe
+      changed_when: false
+      failed_when: false
+      tags: [verify]
+
+    - name: Report what Encar said
+      # Not fatal: a 407 here is CloudFront's decision, not a misconfiguration, and the
+      # backend now degrades gracefully instead of retiring cars. But it must be VISIBLE.
+      ansible.builtin.debug:
+        msg: >-
+          api.encar.com returned {{ encar_probe.stdout | default('nothing') }} as
+          {{ backend_service_user }}.
+          {{ '200 — upstream is healthy.' if encar_probe.stdout | default('') == '200'
+             else 'NOT 200 — uncached car pages will serve the index-only fallback and the
+             circuit breaker will hold off further calls. Nothing gets marked sold.' }}
       tags: [verify]
 
     - name: Everything else still uses Hetzner's own route
