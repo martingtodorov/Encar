@@ -2195,3 +2195,62 @@ Verified on preview with a car whose cached detail (50.0M KRW) disagreed with th
 (52.0M): car page 40099 = saved list 40099 = deposit 40099 (4009.90). `test_fx_haircut.py`
 + `test_security_deposit.py`: 7 passed, 1 skipped — `test_car_quote_uses_buffered_rate` now
 skips when its fixture car has gone inactive (it was comparing against a frozen KRW price).
+
+## 2026-09-04 — The outage that hid itself, and the watchdog that will not let it
+
+Owner reported "mobile loading issues on the ad details page". Measured on production:
+
+| request | result |
+|---|---|
+| `/bg/car/...` (nginx, static) | 200 in 0.21s |
+| `/api/car/42207598` | **524 after 125 seconds** |
+| `/api/car/.../more-from-model` | 200 in 0.54s |
+| `/api/deposit/car/...` | 200 in 0.21s |
+| `/api/health` (minutes later) | **502** |
+
+Not a mobile problem and not a frontend one: the shell renders instantly and the car data
+never arrives. `more-from-model` and `deposit` only read Mongo, so they were fine.
+`/api/car/{id}` is the one endpoint that talks to Encar upstream on a cache miss — and back1
+had no route out, because `deploy_nat.yml` never finished (ssh host key, then an apt lock).
+
+Two fixes, both about time:
+
+1. `encar.py get_json` — an interactive read (a human waiting on a car page) now gets 12s per
+   request, 2 attempts, backoff capped at 2s: ~26s worst case. It used to use the bulk-sync
+   settings for everything: 5 attempts x 30s + 15s of backoff = over two minutes, which is
+   past Cloudflare's 100s limit, and with ONE uvicorn worker a handful of those requests
+   takes the entire site down. The bulk sync keeps its patient pacing.
+
+2. `watchdog.py` (new) — emergency notifications to EVERY administrator, as the owner asked.
+   Four probes on a 60s loop, all of them invisible from outside the box:
+     * `egress` — can the host reach the internet at all (the tunnel / NAT route)
+     * `encar` — is Encar answering (checked only when egress is healthy, so one outage
+       raises one alarm)
+     * `mongo` — does the database answer a ping
+     * `mail` — is the Resend key still valid (every 30 min), because a dead key silences
+       every other alert
+   A check must fail twice in a row before anything is sent. Then every `is_admin` account
+   is reached by web push AND email (plus ADMIN_NOTIFY_EMAIL / OWNER_EMAIL), with a reminder
+   every 30 minutes while it lasts and an all-clear when it recovers. Push carries no event
+   name on purpose: an emergency cannot be muted by notification preferences. Incidents live
+   in `db.incidents`; `GET /api/admin/incidents?run=1` probes on demand.
+   Admin panel: a red strip at the top of Overview (`AdminIncidents.js`), or a one-line
+   all-clear when everything passes.
+
+Two real bugs were caught while testing this, both in the watchdog itself:
+  * recovery depended on an in-memory failure streak, so an incident raised before a restart
+    could never be closed — the panel would keep screaming about an ended outage. A passing
+    probe now always asks Mongo whether something is open.
+  * Mongo returns naive datetimes, so `_now() - doc["opened_at"]` raised — which killed both
+    the 30-minute reminder and the all-clear. Everything read from a document now goes
+    through `_aware()`.
+
+Verified live on preview: the `encar` probe genuinely fails there (no egress to Encar), the
+incident opened after the second failure, and all three admin addresses were attempted —
+`admin@encarskin.com`, `martingtodorov@gmail.com`, `webmaster@encareurope.com` — each
+rejected only because the preview Resend key is invalid. Recovery was tested with a planted
+incident: closed and announced in under a second.
+
+STILL FOR THE OWNER: finish `ansible-playbook playbooks/deploy_nat.yml` (the apt lock was
+first-boot `unattended-upgrades`; a wait step was added to every playbook) and restart
+`encar-backend`. Also `deploy/hetzner/ansible/tasks/wait_apt.yml` is new.

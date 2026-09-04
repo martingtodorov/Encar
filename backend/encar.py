@@ -93,10 +93,23 @@ class EncarClient:
             self._last = time.monotonic()
 
     async def get_json(self, path, allow_404=False, interactive=False):
-        """Single politely-paced GET with exponential backoff. Returns None on 404."""
+        """Single politely-paced GET with exponential backoff. Returns None on 404.
+
+        An interactive read has a human waiting on the other end, so it gets a short leash:
+        12s per request, two attempts, at most 2s between them — about 26s worst case. The
+        bulk sync can afford to be patient; a car page cannot.
+
+        Before this, every call used five attempts at a 30s timeout plus 15s of backoff, so
+        one unreachable upstream could hold a request for over two minutes. Cloudflare gives
+        up at 100s (524), and with a single uvicorn worker a handful of such requests takes
+        the whole site down — which is exactly what happened when back1 lost its NAT tunnel.
+        """
         c = await self.client()
+        attempts = 2 if interactive else self.max_retries
+        timeout = 12 if interactive else 30
+        cap = 2.0 if interactive else 60.0
         delay = 1.0
-        for attempt in range(self.max_retries):
+        for attempt in range(attempts):
             # interactive = one human opening one car: bounded concurrency, no forced
             # gap. Bulk sync keeps the strict single-file pacing.
             if interactive:
@@ -104,13 +117,13 @@ class EncarClient:
             else:
                 await self._throttle()
             try:
-                r = await c.get(f"{API}{path}")
+                r = await c.get(f"{API}{path}", timeout=timeout)
             except Exception as e:
                 self.stats["errors"] += 1
                 log.warning("encar transport error %s: %s", path, e)
-                if attempt == self.max_retries - 1:
+                if attempt == attempts - 1:
                     raise
-                await asyncio.sleep(delay)
+                await asyncio.sleep(min(delay, cap))
                 delay *= 2
                 continue
             finally:
@@ -133,8 +146,9 @@ class EncarClient:
                 return None
             if r.status_code in (429, 500, 502, 503, 504):
                 self.stats["backoffs"] += 1
-                log.warning("encar %s on %s — backing off %.0fs", r.status_code, path, delay)
-                await asyncio.sleep(delay)
+                log.warning("encar %s on %s — backing off %.0fs", r.status_code, path,
+                            min(delay, cap))
+                await asyncio.sleep(min(delay, cap))
                 delay *= 2
                 continue
             log.warning("encar unexpected %s on %s", r.status_code, path)

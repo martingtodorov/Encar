@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Mail, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getAdminOverview } from "@/lib/api";
+import { AdminIncidents } from "@/components/admin/AdminIncidents";
 import { Spinner, Stat, ago, num } from "@/components/admin/AdminBits";
 
 export const AdminOverview = () => {
@@ -38,6 +39,7 @@ export const AdminOverview = () => {
 
   return (
     <div data-testid="admin-overview" className="flex flex-col gap-5">
+      <AdminIncidents />
       <div className="flex items-center justify-between gap-3">
         <p className="text-[13px] text-muted-foreground">
           Auto-refreshing every 15s · index last touched {ago(part.finished_at || job.finished_at)}

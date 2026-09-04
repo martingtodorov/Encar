@@ -12,6 +12,8 @@ import asyncio
 import logging
 import os
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -66,6 +68,10 @@ async def health():
 # address that owns the Resend account. Set SENDER_EMAIL to an address on a verified
 # domain before real buyers are expected to receive anything.
 SHARED_SENDER = "onboarding@resend.dev"
+
+# Operational mail (outage alerts, the evening cost report) is stamped in the owner's
+# own time, not UTC — an alert that says 02:14 has to mean 02:14 in Sofia.
+TZ = "Europe/Sofia"
 
 
 def sender():
@@ -244,6 +250,24 @@ _KIND_BG = {
 
 def _usd(v):
     return "—" if v is None else f"${float(v):.2f}"
+
+
+async def send_incident_alert(to, check, title, body):
+    """An outage told plainly, with the command that diagnoses it.
+
+    Sent to every admin account the moment a watchdog check fails twice in a row. Kept
+    deliberately plain: this arrives on a phone at 2am and has to be readable at a glance.
+    """
+    if not to:
+        return None
+    lines = "".join(_row("", _esc(part)) for part in body.split("\n") if part.strip())
+    rows = "".join([_row("Проверка", _esc(check)),
+                    _row("Време", datetime.now(ZoneInfo(TZ)).strftime("%d.%m.%Y %H:%M")),
+                    lines])
+    footer = ("Това е автоматично известие от наблюдението на сървъра. Ще получиш "
+              "напомняне на всеки 30 минути, докато проблемът е активен, и съобщение "
+              "когато се възстанови.")
+    return await _send(to, f"[АВАРИЯ] {title}", _shell(title, rows, footer))
 
 
 async def send_ai_cost_report(to, report, alert=False):

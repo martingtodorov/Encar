@@ -469,6 +469,12 @@ export async function getAiUsage(days = 30) {
   return data;
 }
 
+/** Open outages and incident history from the server-side watchdog. Admin only. */
+export async function getIncidents(run = false) {
+  const { data } = await http.get("/admin/incidents", { params: run ? { run: 1 } : {} });
+  return data;
+}
+
 /** The daily ceiling that triggers an alert email. Admin only. */
 export async function setAiBudget(dailyUsd) {
   const { data } = await http.put("/admin/ai-budget", { daily_usd: Number(dailyUsd) });

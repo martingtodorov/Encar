@@ -116,6 +116,18 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
   (sk-ant-admin…) in the environment; without it the panel shows our own estimate only.
 * Full detail in CHANGELOG.md.
 
+## 2026-09-04 — Bounded upstream calls + emergency alerts to all admins (DONE)
+* `/api/car/{id}` hung 125s (Cloudflare 524) and took the site to 502: back1 had no route to
+  Encar (unfinished `deploy_nat.yml`) and interactive reads used the bulk-sync retry budget.
+  Interactive Encar calls are now 12s x 2 attempts (~26s worst case).
+* `watchdog.py`: probes egress / Encar / Mongo / Resend every 60s. Two failures in a row →
+  web push AND email to every `is_admin` account (+ ADMIN_NOTIFY_EMAIL / OWNER_EMAIL),
+  reminder every 30 min, all-clear on recovery. Incidents in `db.incidents`,
+  `GET /api/admin/incidents`, red strip at the top of the admin Overview.
+* Ansible: `tasks/wait_apt.yml` waits out first-boot `unattended-upgrades`; peer-key asserts
+  in `deploy_nat.yml` so an unreachable host is named instead of a Jinja error.
+* Full detail in CHANGELOG.md.
+
 ## Broken integrations (blocked on user)
 * **Resend** — API key invalid in preview (owner says production has a valid one).
 * **Anthropic** — API key returns 401. System silently falls back to the Emergent universal

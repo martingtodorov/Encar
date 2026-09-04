@@ -85,6 +85,7 @@ import ports as ports_mod   # noqa: E402
 import curate               # noqa: E402
 import sync as sync_mod      # noqa: E402
 import aicost                # noqa: E402
+import watchdog              # noqa: E402
 from encar import encar, image_url, full_image_url, detail_photo_paths, under_contract, sales_status  # noqa: E402
 from translate import (LANGS, HAIKU_MODEL, breaker_status,  # noqa: E402
                        cached_label_set,
@@ -3651,6 +3652,14 @@ async def admin_ai_usage(request: Request, days: int = 30,
 
 
 
+@api.get("/admin/incidents")
+async def admin_incidents(request: Request, run: bool = False,
+                          x_admin_token: str = Header(default="")):
+    """Open outages and the last 30 incidents. `run=1` probes everything on the spot."""
+    await _require_admin(request, x_admin_token)
+    return await watchdog.health(run=run)
+
+
 class AiBudgetBody(BaseModel):
     daily_usd: float
 
@@ -4999,6 +5008,10 @@ async def on_startup():
     asyncio.get_running_loop().create_task(deposits.scheduler())
     # Token spend: an evening report at 21:00 Sofia and a budget probe every half hour.
     asyncio.get_running_loop().create_task(aicost.scheduler(db))
+    # Outage watch: egress, Encar, Mongo and the mail key. Every admin is pushed AND
+    # emailed the moment one of them fails twice in a row.
+    watchdog.set_db(db)
+    asyncio.get_running_loop().create_task(watchdog.scheduler())
     log.info("startup complete: %s listings in index",
              await db.listings.count_documents({}))
 
