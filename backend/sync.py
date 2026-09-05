@@ -15,6 +15,7 @@ import asyncio
 import logging
 import time
 import os
+import uuid
 from datetime import datetime, timezone
 
 from pymongo import UpdateOne
@@ -796,6 +797,23 @@ async def get_brand_coverage(db):
     return {k: v for k, v in doc.items() if k != "_id"}
 
 
+_TAX_LOCKS: dict = {}
+
+
+def _tax_lock():
+    """One build lock per event loop.
+
+    A module-level `asyncio.Lock()` binds to whichever loop touches it first, which makes it
+    unusable from a second loop (a test suite, or a one-off script). Keyed by the running
+    loop it behaves the same in the server, where there is only ever one.
+    """
+    loop = asyncio.get_running_loop()
+    lock = _TAX_LOCKS.get(loop)
+    if lock is None:
+        lock = _TAX_LOCKS[loop] = asyncio.Lock()
+    return lock
+
+
 async def build_taxonomy(db):
     """Precompute the Make -> Model -> Trim -> Sub-trim tree into its own collection.
 
@@ -803,14 +821,30 @@ async def build_taxonomy(db):
     listings collection plus blocking translation). Precomputed + indexed, each level
     is a single indexed lookup, so the dropdowns open instantly. Refreshed on every
     sync and at most weekly on demand.
-    """
-    # A leftover staging collection (crashed build, or two rebuilds overlapping) would be
-    # inserted into again and every node would appear twice in the dropdowns.
-    try:
-        await db.taxonomy_new.drop()
-    except Exception:
-        pass
 
+    Two builds must never overlap. They used to be able to: the nightly sync calls this
+    directly while `refresh_taxonomy_if_stale` can fire it from a request, both wrote into
+    the same fixed staging collection, and the result was EVERY node stored twice — 2 630
+    entries in sitemap-models.xml for 1 315 landings, and doubled dropdown options. So the
+    build now takes a lock AND stages into a collection named after this build alone, which
+    makes an interleaved write impossible rather than merely unlikely.
+    """
+    async with _tax_lock():
+        return await _build_taxonomy(db)
+
+
+async def _build_taxonomy(db):
+    staging = f"taxonomy_build_{uuid.uuid4().hex[:12]}"
+    stage = db[staging]
+    # Sweep up staging collections a crashed build left behind. Safe under the lock: no
+    # other build can be running in this process, and one is never left mid-flight across
+    # processes because the swap is a single rename.
+    for name in await db.list_collection_names():
+        if name.startswith("taxonomy_build_") and name != staging:
+            try:
+                await db[name].drop()
+            except Exception:
+                pass
     levels = [
         (1, ["manufacturer"]),
         (2, ["manufacturer", "model"]),
@@ -842,27 +876,32 @@ async def build_taxonomy(db):
             })
             total += 1
             if len(docs) >= 4000:
-                await db.taxonomy_new.insert_many(docs, ordered=False)
+                await stage.insert_many(docs, ordered=False)
                 docs = []
     if docs:
-        await db.taxonomy_new.insert_many(docs, ordered=False)
+        await stage.insert_many(docs, ordered=False)
 
     # atomic-ish swap so the dropdowns never see a half-built tree
-    await db.taxonomy_new.create_index([("level", 1), ("make", 1), ("model", 1),
-                                       ("badge", 1), ("count", -1)])
-    try:
-        await db.taxonomy.drop()
-    except Exception:
-        pass
-    await db.taxonomy_new.rename("taxonomy", dropTarget=True)
+    await stage.create_index([("level", 1), ("make", 1), ("model", 1),
+                             ("badge", 1), ("count", -1)])
+    await stage.rename("taxonomy", dropTarget=True)
     await db.taxonomy.create_index([("level", 1), ("make", 1), ("model", 1),
                                    ("badge", 1), ("count", -1)])
+    # Slugs are part of BUILDING the tree, not an optional extra step.
+    #
+    # A rebuild recreates every document from the aggregation, so the tree comes out with no
+    # `slug` field at all — and `refresh_taxonomy_if_stale` (which fires from a request when
+    # the tree is a few hours old) called the build without ever re-assigning them. Every
+    # /bg/bmw style landing page — 1 315 of them — silently 404'd until the next full sync
+    # got round to the separate "slugs" step. Doing it here makes that impossible.
+    import slugs as slugs_mod
+    slugged = await slugs_mod.ensure_taxonomy_slugs(db, force=True)
     await db.sync_state.update_one(
         {"_id": "taxonomy"},
         {"$set": {"built_at": datetime.now(timezone.utc), "nodes": total}},
         upsert=True)
-    log.info("taxonomy built: %s nodes", total)
-    return {"nodes": total}
+    log.info("taxonomy built: %s nodes, %s slugs", total, slugged)
+    return {"nodes": total, "slugs": slugged}
 
 
 async def taxonomy_is_stale(db):

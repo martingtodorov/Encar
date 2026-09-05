@@ -110,6 +110,19 @@ T = {
         "makes": "Популярни марки",
         "models": "Модели",
         "pages": "Информация",
+        # Model/make landings are the site's main category layer. "Обяви BMW" is not a
+        # phrase anybody searches or writes, so the template says what the page is FOR.
+        "landing_title": "{sel} от Корея — крайна цена до България | Encar Europe",
+        "landing_h1": "Автомобили {sel} от Корея",
+        "landing_desc": "{n} обяви за {sel} от Корея — от {lo} до {hi}. Крайна цена до "
+                        "България с включени мито, ДДС, морски транспорт и доставка.",
+        "landing_desc_plain": "Обяви за {sel} от Корея с крайна цена до България — мито, "
+                              "ДДС, морски транспорт и доставка са включени в цената.",
+        # A car's snippet was 68 characters of facts. Same data, full usable length: the
+        # trim, the gearbox and what the price actually covers.
+        "car_desc_tpl": "{title} от Корея — {facts}. {price} крайна цена до България "
+                        "с мито, ДДС и доставка.",
+        "car_desc_history": "Със застрахователна история и инспекционен лист.",
         "auto": "автоматична",
         "manual": "ръчна",
     },
@@ -140,6 +153,15 @@ T = {
         "makes": "Mărci populare",
         "models": "Modele",
         "pages": "Informații",
+        "landing_title": "{sel} din Coreea — preț final livrat | Encar Europe",
+        "landing_h1": "Mașini {sel} din Coreea",
+        "landing_desc": "{n} anunțuri {sel} din Coreea — de la {lo} la {hi}. Preț final "
+                        "livrat, cu taxe vamale, TVA, transport maritim și livrare incluse.",
+        "landing_desc_plain": "Anunțuri {sel} din Coreea cu preț final livrat — taxe "
+                              "vamale, TVA, transport maritim și livrare sunt incluse.",
+        "car_desc_tpl": "{title} din Coreea — {facts}. {price} preț final livrat, cu "
+                        "taxe vamale, TVA și livrare incluse.",
+        "car_desc_history": "Cu istoric de asigurare și raport de inspecție.",
         "auto": "automată",
         "manual": "manuală",
     },
@@ -169,6 +191,15 @@ T = {
         "makes": "Popularne marki",
         "models": "Modele",
         "pages": "Informacje",
+        "landing_title": "{sel} z Korei — cena końcowa z dostawą | Encar Europe",
+        "landing_h1": "Samochody {sel} z Korei",
+        "landing_desc": "{n} ofert {sel} z Korei — od {lo} do {hi}. Cena końcowa zawiera "
+                        "cło, VAT, transport morski i dostawę pod wskazany adres.",
+        "landing_desc_plain": "Oferty {sel} z Korei z ceną końcową — cło, VAT, transport "
+                              "morski i dostawa są już zawarte w cenie.",
+        "car_desc_tpl": "{title} z Korei — {facts}. {price} to cena końcowa z cłem, "
+                        "VAT-em i dostawą pod adres.",
+        "car_desc_history": "Z historią ubezpieczeniową i raportem z inspekcji.",
         "auto": "automatyczna",
         "manual": "manualna",
     },
@@ -199,6 +230,15 @@ T = {
         "makes": "Popular makes",
         "models": "Models",
         "pages": "Information",
+        "landing_title": "{sel} from Korea — final landed price | Encar Europe",
+        "landing_h1": "{sel} cars from Korea",
+        "landing_desc": "{n} {sel} cars from Korea, from {lo} to {hi}. The final landed "
+                        "price includes customs duty, VAT, sea freight and delivery.",
+        "landing_desc_plain": "{sel} cars from Korea with a final landed price — customs "
+                              "duty, VAT, sea freight and delivery are all included.",
+        "car_desc_tpl": "{title} from Korea — {facts}. {price} is the final landed "
+                        "price, with customs duty, VAT and delivery included.",
+        "car_desc_history": "Insurance history and inspection sheet included.",
         "auto": "automatic",
         "manual": "manual",
     },
@@ -713,8 +753,12 @@ async def _car_page(lang, listing_id, base):
     if row.get("transmission"):
         gear = T[lang]["auto"] if row["transmission"] == "auto" else T[lang]["manual"]
     region = row.get("region_t") or row.get("region") or ""
-    facts = " · ".join([f for f in [ym, mileage, fuel, price] if f])
-    description = f"{facts} — {T[lang]['car_desc']}" if facts else T[lang]["car_desc"]
+    facts = ", ".join([f for f in [ym, mileage, fuel, gear] if f])
+    description = T[lang]["car_desc_tpl"].format(
+        title=title, facts=facts or T[lang]["listings"], price=price or "")
+    if len(description) < 120 and (doc.get("has_record") or doc.get("has_inspection")):
+        description = f"{description} {T[lang]['car_desc_history']}"
+    description = description[:300]
 
     spec = []
     for label, value in ((T[lang]["year"], ym), (T[lang]["mileage"], mileage),
@@ -813,6 +857,22 @@ def _int(value):
         return None
 
 
+async def _price_span(query, lang):
+    """The cheapest and dearest car in a landing's inventory, formatted for the snippet.
+
+    A description that names the count and the price range is what makes a category page
+    worth clicking; both come from one grouped read over the same query the grid uses.
+    """
+    rows = await _db.listings.aggregate([
+        {"$match": {**query, "sale_eur": {"$gt": 0}}},
+        {"$group": {"_id": None, "lo": {"$min": "$sale_eur"}, "hi": {"$max": "$sale_eur"}}},
+    ]).to_list(1)
+    if not rows:
+        return "", ""
+    return (await H["share_price"](rows[0]["lo"], lang),
+            await H["share_price"](rows[0]["hi"], lang))
+
+
 async def _list_page(lang, segs, params, base):
     """One renderer for the language home, the make/model landings and filter URLs."""
     await curate.refresh(_db)
@@ -894,9 +954,17 @@ async def _list_page(lang, segs, params, base):
     canonical = f"{base}/{lang}{canon_path}"
 
     if sel:
-        title = f"{T[lang]['listings']} {sel} | Encar Europe"
-        description = f"{T[lang]['listings']} {sel} — {T[lang]['car_desc']}"
-        h1 = f"{T[lang]['listings']} {sel}"
+        # "Listings BMW" was inverted, intent-free and not a phrase anybody writes. The
+        # landing template names the make, where the car comes from and what the price
+        # covers, and the description carries the inventory count and the price range.
+        lo, hi = await _price_span(query, lang)
+        title = T[lang]["landing_title"].format(sel=sel)
+        h1 = T[lang]["landing_h1"].format(sel=sel)
+        if total and lo and hi:
+            description = T[lang]["landing_desc"].format(
+                n=H["fmt_int"](total, lang), sel=sel, lo=lo, hi=hi)
+        else:
+            description = T[lang]["landing_desc_plain"].format(sel=sel)
     else:
         title = T[lang]["home_title"]
         description = T[lang]["home_desc"]

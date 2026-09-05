@@ -142,6 +142,39 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
   fwmark design is removed and asserted against. `/etc/hosts` pin on api.encar.com removed.
 * Full detail, measurements and the owner's remaining steps in CHANGELOG.md.
 
+## 2026-06 — Landing template + sitemap canonicals + the taxonomy build (DONE, awaiting deploy)
+From the owner's audit of the live site. Five findings, plus a sixth bug found while fixing them.
+
+* **Landing template (1 315 pages, highest leverage)**: `Listings BMW | Encar Europe` (27 chars,
+  inverted, no intent) → `BMW from Korea — final landed price | Encar Europe`; H1
+  `Listings BMW` → `BMW cars from Korea`; description 39 chars → 120-160 naming the
+  **inventory count and price range** (`_price_span`, one grouped read over the same query).
+  Localised for bg/ro/pl/en in `prerender.T` and mirrored client-side in `SearchPage.LANDING`.
+* **sitemap-models.xml stated every URL twice** (2 630 entries / 1 315 landings). ROOT CAUSE:
+  the nightly sync calls `build_taxonomy` directly while a request can fire it through
+  `refresh_taxonomy_if_stale`; both staged into the fixed `taxonomy_new`, so overlapping builds
+  interleaved inserts and stored every node twice (doubling the dropdowns as well). Now: one
+  build lock per event loop **and** a staging collection named per build, so interleaving is
+  impossible. Plus a dedupe guard at serialisation.
+* **BUG FOUND WHILE FIXING (worse than the sitemap)**: a rebuild recreates every taxonomy
+  document from the aggregation, so the tree comes out with **no slugs** — and the on-demand
+  refresh never re-assigned them. Every `/bg/bmw` landing (1 315 pages) 404'd until the next
+  full sync reached its separate "slugs" step. Slug assignment is now part of the build.
+* **26% of listing sitemap URLs were non-canonical** (the slug-less `/car/<id>` form): the slug
+  was built from the RAW make/model, which is Hangul for a quarter of the catalogue and
+  slugifies to nothing, while the page derives it from the latin values. The sitemap now
+  resolves the latin labels cache-only (never any LLM work) and uses `_share_title` +
+  `_car_slug` — the exact pair the canonical tag uses, trim included.
+* **Car page description** 68 chars → 120-160, from fields already held: title, registration,
+  mileage, fuel, gearbox, price, plus a history note when it would otherwise fall short.
+  Backend `car_desc_tpl` + client `seoCarDescLong`, identical wording.
+* **Primary `<loc>` is now the bg variant** (`/` redirects to `/bg`, so bg is the default
+  locale a crawler ignoring alternates should walk); x-default stays English and all four
+  languages remain enumerated as alternates.
+* Tests: `tests/test_taxonomy_build.py` (4, including the actual race), sitemap canonical/dedupe
+  cases in `tests/test_sitemap_limits.py` (7 total), landing + description cases in
+  `tests/test_prerender.py` (15 total). 43 green across the SEO suite.
+
 ## 2026-06 — Car page speed: the side documents no longer block it (DONE, awaiting deploy)
 Owner: "car detail page loading issues… при някои обяви… просто го направи по-бърз". Measured on
 production: a COLD car took **5.4 s and 15.8 s** (`?refresh=1`, two runs). Cause found: upstream

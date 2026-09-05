@@ -44,6 +44,38 @@ import {
 import { describeSearch } from "@/lib/describeSearch";
 
 // 16 ads per page on every viewport: mobile shows them as cards, desktop as rows.
+// Model and make landings are the site's main category layer and its best shot at
+// "BMW from Korea" style queries. "Обяви BMW" / "BMW listings" was inverted, carried no
+// intent and is not a phrase anybody writes, so the template names the make, where the car
+// comes from and what the price covers. The server-rendered HTML (backend/prerender.py)
+// says the same thing, with a price range added.
+const LANDING = {
+  bg: {
+    title: (s) => `${s} от Корея — крайна цена до България | Encar Europe`,
+    h1: (s) => `Автомобили ${s} от Корея`,
+    desc: (s, n) =>
+      `${n} обяви за ${s} от Корея. Крайна цена до България с включени мито, ДДС, морски транспорт и доставка.`,
+  },
+  ro: {
+    title: (s) => `${s} din Coreea — preț final livrat | Encar Europe`,
+    h1: (s) => `Mașini ${s} din Coreea`,
+    desc: (s, n) =>
+      `${n} anunțuri ${s} din Coreea. Preț final livrat, cu taxe vamale, TVA, transport maritim și livrare incluse.`,
+  },
+  pl: {
+    title: (s) => `${s} z Korei — cena końcowa z dostawą | Encar Europe`,
+    h1: (s) => `Samochody ${s} z Korei`,
+    desc: (s, n) =>
+      `${n} ofert ${s} z Korei. Cena końcowa zawiera cło, VAT, transport morski i dostawę pod wskazany adres.`,
+  },
+  en: {
+    title: (s) => `${s} from Korea — final landed price | Encar Europe`,
+    h1: (s) => `${s} cars from Korea`,
+    desc: (s, n) =>
+      `${n} ${s} cars from Korea. The final landed price includes customs duty, VAT, sea freight and delivery.`,
+  },
+};
+
 const PAGE_SIZE = 16;
 
 // Query keys that turn this page into one of thousands of near-identical filter URLs.
@@ -229,21 +261,18 @@ export default function SearchPage() {
   const selName = [taxLabels.make || tax.make, taxLabels.model || tax.model]
     .filter(Boolean)
     .join(" ");
-  const listPhrase = selName
-    ? { bg: `Обяви ${selName}`, ro: `Anunțuri ${selName}`, en: `${selName} listings` }[lang]
-      || `${selName} listings`
-    : "";
+  const landing = selName ? LANDING[lang] || LANDING.en : null;
   useSeo({
     lang,
     title: notFound
       ? `${t("notFoundTitle")} · Encar`
-      : listPhrase
-        ? `${listPhrase} | Encar`
+      : landing
+        ? landing.title(selName)
         : seoHome.title || t("seoHomeTitle"),
     description: notFound
       ? t("notFoundLead")
-      : listPhrase
-        ? `${listPhrase} — ${t("seoCarDesc")}`
+      : landing
+        ? landing.desc(selName, formatNumber(result.total || 0, lang))
         : seoHome.description || t("seoHomeDesc"),
     // A pretty-URL slug we could not resolve is a 404 wearing a 200: keep it out of the
     // index even though SearchPage is still the mounted component underneath NotFoundPage.

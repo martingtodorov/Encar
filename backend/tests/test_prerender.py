@@ -147,3 +147,46 @@ def test_shell_scripts_survive():
     """The bundle must still be referenced, or the prerendered page would never hydrate."""
     body = render("/bg").text
     assert "<script" in body and "/static/js/" in body or "bundle.js" in body
+
+
+# ── the landing template (make / model pages) ────────────────────────────────
+# 1 315 of these pages carried "Listings BMW | Encar Europe" - inverted, intent-free and
+# not a phrase anybody writes - with a 39-character description. One template, all of them.
+def test_landing_title_and_h1_read_like_a_page_worth_clicking():
+    r = render("/en/bmw")
+    assert r.status_code == 200
+    head, body = head_of(r.text), r.text
+    title = re.search(r"<title>(.*?)</title>", head, re.S).group(1)
+    assert title == "BMW from Korea — final landed price | Encar Europe", title
+    assert "Listings BMW" not in r.text
+    assert "<h1>BMW cars from Korea</h1>" in body
+
+
+def test_landing_description_uses_the_usable_length():
+    head = head_of(render("/en/bmw").text)
+    desc = re.search(r'name="description" content="(.*?)"', head, re.S).group(1)
+    # 120-160 is the band Google actually renders; the old one was 39 characters.
+    assert 100 <= len(desc) <= 170, f"{len(desc)}: {desc}"
+    # It names the inventory and the price range, which is what makes it clickable.
+    assert "from Korea" in desc
+    assert "€" in desc or "cars from Korea" in desc
+
+
+def test_landing_template_is_localised():
+    seen = {}
+    for code, needle in (("bg", "от Корея"), ("ro", "din Coreea"), ("pl", "z Korei"),
+                         ("en", "from Korea")):
+        head = head_of(render(f"/{code}/bmw").text)
+        title = re.search(r"<title>(.*?)</title>", head, re.S).group(1)
+        assert needle in title, title
+        seen[code] = title
+    assert len(set(seen.values())) == 4
+
+
+def test_car_description_uses_the_usable_length(listing):
+    head = head_of(render(f"/bg/car/{listing['id']}").text)
+    desc = re.search(r'name="description" content="(.*?)"', head, re.S).group(1)
+    assert 100 <= len(desc) <= 170, f"{len(desc)}: {desc}"
+    # The make is in there, not just a string of bare facts.
+    make = (listing.get("manufacturer_t") or listing.get("manufacturer")).split()[0]
+    assert make in desc

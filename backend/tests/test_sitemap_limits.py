@@ -40,3 +40,45 @@ def test_chunk_size_is_not_raised_without_measuring():
     assert server._SITEMAP_CHUNK <= 20_000, (
         "each <url> weighs ~1.6 KB with hreflang and images; above 20 000 a file can "
         "cross Google's 50 MB limit")
+
+
+# ── a sitemap is a list of CANONICAL URLs, each stated once ──────────────────
+def test_model_sitemap_states_each_landing_once():
+    """It carried 2 630 entries for 1 315 landings — an exact 2x across the whole file."""
+    r = requests.get(f"{BASE}/sitemap-models.xml", timeout=180)
+    assert r.status_code == 200
+    locs = re.findall(r"<loc>(.*?)</loc>", r.text)
+    assert locs, "no model landings in the sitemap at all"
+    assert len(locs) == len(set(locs)), (
+        f"{len(locs) - len(set(locs))} duplicate URLs in sitemap-models.xml")
+
+
+def test_listing_sitemap_emits_the_canonical_slug_form():
+    """A quarter of the URLs were the slug-less /car/<id> form, which then canonicalises
+    somewhere else — a sitemap contradicting the pages it points at."""
+    r = requests.get(f"{BASE}/sitemap-listings-1.xml", timeout=300)
+    assert r.status_code == 200
+    locs = [u for u in re.findall(r"<loc>(.*?)</loc>", r.text) if "/car/" in u]
+    assert locs, "no listings in the sitemap at all"
+    bare = [u for u in locs if re.search(r"/car/[^/]+/?$", u)]
+    # A car with no latin name anywhere (not even in the translation cache) legitimately has
+    # no slug, so this is a ceiling rather than a zero.
+    assert len(bare) / len(locs) < 0.05, (
+        f"{len(bare)} of {len(locs)} listing URLs are the non-canonical slug-less form")
+
+
+def test_listing_sitemap_urls_are_unique():
+    r = requests.get(f"{BASE}/sitemap-listings-1.xml", timeout=300)
+    locs = re.findall(r"<loc>(.*?)</loc>", r.text)
+    assert len(locs) == len(set(locs))
+
+
+def test_primary_loc_is_the_default_locale():
+    """`/` redirects to /bg, so bg is what a crawler ignoring hreflang should walk."""
+    r = requests.get(f"{BASE}/sitemap-static.xml", timeout=120)
+    locs = re.findall(r"<loc>(.*?)</loc>", r.text)
+    assert locs
+    assert all("/bg" in u for u in locs), locs[:5]
+    # ...while every language is still enumerated as an alternate, bg included.
+    for code in ("bg", "ro", "pl", "en"):
+        assert f'hreflang="{code}"' in r.text

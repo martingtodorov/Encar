@@ -2634,14 +2634,17 @@ def _sitemap_url(base: str, path_for: dict, lastmod: str,
     """One <url> entry with an hreflang alternate for every language.
 
     `path_for` maps a language code to its URL path (starting with `/`). The primary
-    <loc> is the English variant so a crawler that ignores alternates still walks the
-    canonical version; x-default points there too.
+    <loc> is the BULGARIAN variant, because bg is this site's default locale — `/`
+    redirects to `/bg` — so a crawler that ignores alternates walks the version the
+    business actually lands people on. x-default stays English: it is the version for a
+    visitor whose language we cannot match.
 
     `images` is a list of absolute image URLs. When present, an `<image:image>` block
     is emitted for each (capped at 6 - the Google Image sitemap protocol allows more
     but past ~6 the extra bytes stop helping and just inflate the sitemap size).
     """
-    parts = [f"<loc>{_attr(base + path_for['en'])}</loc>"]
+    primary = path_for.get("bg") or path_for["en"]
+    parts = [f"<loc>{_attr(base + primary)}</loc>"]
     for code, path in path_for.items():
         parts.append(f'<xhtml:link rel="alternate" hreflang="{code}" '
                      f'href="{_attr(base + path)}"/>')
@@ -2751,6 +2754,19 @@ async def sitemap_models(request: Request):
     langs = list(LANGS)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     urls = []
+    # The same taxonomy entity can appear twice (an interrupted or overlapping build left
+    # two documents for it, which is fixed in sync.build_taxonomy), and two upstream values
+    # curation has merged can slugify to the same landing. Either way a sitemap is a list of
+    # URLs, so each one is emitted ONCE and the file stops claiming twice the site it has.
+    seen = set()
+
+    def emit(path_for, freq, prio):
+        key = path_for["bg"]
+        if key in seen:
+            return
+        seen.add(key)
+        urls.append(_sitemap_url(base, path_for, today, freq, prio))
+
     # Make landings (level 1)
     async for row in db.taxonomy.find(
             {"level": 1, "slug": {"$nin": [None, ""]}},
@@ -2758,8 +2774,7 @@ async def sitemap_models(request: Request):
         slug = row.get("slug")
         if not slug:
             continue
-        path_for = {code: f"/{code}/{slug}" for code in langs}
-        urls.append(_sitemap_url(base, path_for, today, "daily", "0.8"))
+        emit({code: f"/{code}/{slug}" for code in langs}, "daily", "0.8")
     # Make + model landings (level 2). The make slug must be resolved alongside the
     # model slug so the URL matches the router's /:lang/:makeSlug/:modelSlug shape.
     make_slugs = {}
@@ -2774,8 +2789,7 @@ async def sitemap_models(request: Request):
         modelslug = row.get("slug")
         if not mslug or not modelslug:
             continue
-        path_for = {code: f"/{code}/{mslug}/{modelslug}" for code in langs}
-        urls.append(_sitemap_url(base, path_for, today, "daily", "0.7"))
+        emit({code: f"/{code}/{mslug}/{modelslug}" for code in langs}, "daily", "0.7")
     return Response(_sitemap_wrap(urls), headers=_sitemap_headers())
 
 
@@ -2880,9 +2894,24 @@ async def sitemap_listings(n: int, request: Request):
     urls = []
     cursor = db.listings.find(
         {"active": True, "duplicate": {"$ne": True}, "under_contract": {"$ne": True}},
-        {"_id": 1, "last_seen": 1, "photos": 1, "manufacturer": 1, "model": 1, "grade": 1}
+        {"_id": 1, "last_seen": 1, "photos": 1, "manufacturer": 1, "model": 1,
+         "badge": 1, "badge_detail": 1}
     ).sort([("_id", 1)]).skip(skip).limit(_SITEMAP_CHUNK)
-    async for row in cursor:
+    rows = await cursor.to_list(_SITEMAP_CHUNK)
+
+    # A sitemap is a statement of CANONICAL URLs, so the slug here has to be the same one
+    # the page declares. It is built from the latin (English) make/model/trim, which for a
+    # quarter of the catalogue only exists in the translation cache - the raw values are
+    # Hangul, they slugify to nothing, and those rows used to be emitted as the slug-less
+    # `/car/{id}` form that then canonicalised somewhere else. Cache-only lookup: a sitemap
+    # must never trigger LLM work.
+    latin = {}
+    if rows:
+        raw = [r.get(f) for r in rows
+               for f in ("manufacturer", "model", "badge", "badge_detail") if r.get(f)]
+        latin = await translate_cached_only(db, raw, "en")
+
+    for row in rows:
         lid = row["_id"]
         # last_seen is when the sync last confirmed the ad is live; that is the
         # freshness signal Google wants, not the day the row was inserted.
@@ -2897,11 +2926,12 @@ async def sitemap_listings(n: int, request: Request):
         # already fetches, and Google's cache stays warm across surfaces.
         photos = row.get("photos") or []
         images = [image_url(p, 900, 506) for p in photos[:5] if p]
-        # Slug from make + model so the sitemap emits the canonical (`/car/{id}/{slug}`)
-        # URL directly rather than relying on the client-side redirect to canonicalise.
-        # Falls back to the id-only URL when the row has no title fragments.
-        title = " ".join(filter(None, [row.get("manufacturer"), row.get("model")]))
-        slug = _car_slug(title)
+        titled = dict(row)
+        for f in ("manufacturer", "model", "badge", "badge_detail"):
+            hit = latin.get((row.get(f) or "").strip())
+            if hit:
+                titled[f"{f}_t"] = hit
+        slug = _car_slug(_share_title(titled))
         suffix = f"/car/{lid}/{slug}" if slug else f"/car/{lid}"
         path_for = {code: f"/{code}{suffix}" for code in langs}
         urls.append(_sitemap_url(base, path_for, lastmod, "daily", "0.6", images=images))

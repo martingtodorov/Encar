@@ -286,16 +286,20 @@ export default function CarDetailPage() {
   // page uses (backend `share_car`), so a Google snippet and a Messenger preview of one car
   // never read differently.
   const km = car?.mileage ?? car?.spec?.mileage ?? null;
+  const price = q?.suggested_sale ? money(q.suggested_sale) : "";
   const facts = [
     car?.year_month ? formatYearMonth(car.year_month) : "",
     km ? formatMileage(km, lang) : "",
-    q?.suggested_sale ? money(q.suggested_sale) : "",
-  ].filter(Boolean).join(" · ");
+    car?.spec?.fuel || car?.fuel_t || car?.fuel_type || "",
+    car?.spec?.transmission || car?.transmission_t || "",
+  ].filter(Boolean).join(", ");
 
   useSeo({
     lang,
     title: seoTitle ? `${seoTitle} \u00b7 Encar` : "Encar",
-    description: facts ? `${facts} \u2014 ${t("seoCarDesc")}` : t("seoCarDesc"),
+    description: facts
+      ? t("seoCarDescLong", { title: seoTitle || "", facts, price })
+      : t("seoCarDesc"),
     // Two shared-preview paths need this og:image and they read it in different places:
     //   * A social crawler (Messenger, Viber, Facebook, iMessage's own fetch) hits the URL
     //     directly - nginx routes it to /api/share/car/{id}, which is SSR and has the right

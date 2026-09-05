@@ -136,6 +136,10 @@ const EXTRA = {
     seoSavedDesc: "Вашите запазени автомобили с крайна цена до България.",
     seoSearchesDesc: "Вашите запазени търсения и новите обяви, които им отговарят.",
     seoCarDesc: "крайна цена до България.",
+    // The car snippet used to be 68 characters of bare facts. Same data, full usable
+    // length — the server-rendered HTML (backend/prerender.py) says the same sentence.
+    seoCarDescLong:
+      "{title} от Корея — {facts}. {price} крайна цена до България с мито, ДДС и доставка.",
     passkeyPromptTitle: "Влизайте по-бързо следващия път",
     passkeyPromptBody: "Създайте ключ за достъп и влизайте с пръстов отпечатък, лице или PIN - без парола.",
     passkeyPromptFailed: "Ключът за достъп не беше създаден. Можете да опитате отново от профила си.",
@@ -448,6 +452,8 @@ const EXTRA = {
     seoSavedDesc: "Mașinile dumneavoastră salvate, cu prețul final livrat.",
     seoSearchesDesc: "Căutările dumneavoastră salvate și anunțurile noi care le corespund.",
     seoCarDesc: "preț final până în Bulgaria.",
+    seoCarDescLong:
+      "{title} din Coreea — {facts}. {price} preț final livrat, cu taxe vamale, TVA și livrare incluse.",
     passkeyPromptTitle: "Autentificare mai rapidă data viitoare",
     passkeyPromptBody: "Creați o cheie de acces și intrați cu amprenta, fața sau PIN-ul - fără parolă.",
     passkeyPromptFailed: "Cheia de acces nu a fost creată. Puteți încerca din nou din contul dumneavoastră.",
@@ -758,6 +764,8 @@ const EXTRA = {
     seoSavedDesc: "Your saved cars, each with its final landed price.",
     seoSearchesDesc: "Your saved searches and the new listings that match them.",
     seoCarDesc: "final price to Bulgaria.",
+    seoCarDescLong:
+      "{title} from Korea — {facts}. {price} is the final landed price, with customs duty, VAT and delivery included.",
     passkeyPromptTitle: "Sign in faster next time",
     passkeyPromptBody: "Create a passkey and sign in with your fingerprint, face or PIN \u2014 no password to remember.",
     passkeyPromptFailed: "We couldn\u2019t create a passkey. You can try again from your account.",
@@ -1066,6 +1074,8 @@ const EXTRA = {
     seoSavedDesc: "Twoje zapisane samochody, każdy z ceną końcową do Twojego adresu.",
     seoSearchesDesc: "Twoje zapisane wyszukiwania i nowe ogłoszenia, które do nich pasują.",
     seoCarDesc: "cena końcowa dostawy.",
+    seoCarDescLong:
+      "{title} z Korei — {facts}. {price} to cena końcowa z cłem, VAT-em i dostawą pod adres.",
     passkeyPromptTitle: "Loguj się szybciej następnym razem",
     passkeyPromptBody: "Utwórz passkey i loguj się odciskiem palca, twarzą lub PIN-em — bez zapamiętywania hasła.",
     passkeyPromptFailed: "Nie udało się utworzyć klucza passkey. Możesz spróbować ponownie z konta.",
