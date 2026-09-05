@@ -142,6 +142,34 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
   fwmark design is removed and asserted against. `/etc/hosts` pin on api.encar.com removed.
 * Full detail, measurements and the owner's remaining steps in CHANGELOG.md.
 
+## 2026-06 — Car page speed: the side documents no longer block it (DONE, awaiting deploy)
+Owner: "car detail page loading issues… при някои обяви… просто го направи по-бърз". Measured on
+production: a COLD car took **5.4 s and 15.8 s** (`?refresh=1`, two runs). Cause found: upstream
+is paced at one request every **1.2 s globally** (`EncarClient.min_interval`, one lock for the
+whole process), and an uncached car made **five** paced calls before answering — `detail`, then
+the insurance record, inspection sheet, diagnosis and factory options. None of the last four is
+above the fold.
+
+* `car_detail` now answers as soon as it has `detail`, writes the `car_details` document
+  immediately (so the next visitor is instant too) with `sections_pending: True`, and finishes
+  the four side documents in a background task (`_fetch_sections` / `_arm_sections`, guarded by
+  an in-flight set so five visitors on one cold car queue a single fetch).
+* A section set that comes back incomplete because upstream is unwell is **not** stored and the
+  pending flag stays, so the next read re-arms the fetch — self-healing, and the permanent
+  record never gets a half-empty row (the original reason it waited).
+* `?refresh=1` keeps the old synchronous full fetch: an explicit refresh wants the whole truth.
+* The page polls for the sections at 2 s / 4 s / 7 s / 11 s (it already had this machinery for
+  `description_pending`), and the insurance/inspection panels say **"Зарежда…"** instead of
+  "Няма налични данни" while `sections_pending` is on — a different, and untrue, statement.
+* Tests: `tests/test_car_detail_two_phase.py` (3) with a fake paced upstream, asserting it
+  answers BEFORE the sections land, that the flag clears, and that a failed fetch is retried.
+
+**Lightbox photo preloading**: opening the viewer now pulls every photo into the browser cache
+**one at a time**, starting at the photo on screen and wrapping (`hooks/usePhotoPreload.js`,
+used by both `Lightbox.jsx` and the mobile photo column). Chained on decode rather than fired
+in parallel, so the photo being looked at is never starved. Verified in a browser: 6 preloads
+at 2.5 s, 13 at 8.5 s, climbing one by one.
+
 ## 2026-06 — Merchant Listings schema + sitemap size + deploy verification (DONE, awaiting deploy)
 The owner verified production as Googlebot and got the plain 3 749-byte shell everywhere: the
 prerender above was written but **never deployed** (nginx still served the SPA and back1 had no

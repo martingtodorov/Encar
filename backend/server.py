@@ -2979,6 +2979,7 @@ async def _partial_detail(listing, listing_id, lang, reason):
         "insurance": None,
         "inspection": None,
         "diagnosis": None,
+        "sections_pending": False,
         "body_panels": [],
         "mech_checks": [],
         "translation_pending": False,
@@ -2986,6 +2987,61 @@ async def _partial_detail(listing, listing_id, lang, reason):
         "quote": {"suggested_sale": row.get("sale_eur")},
         "lang": lang,
     })
+
+
+# Cars whose side documents are being fetched in the background right now, so five
+# visitors opening the same cold car queue one fetch between them rather than five.
+_sections_inflight: set[str] = set()
+
+
+async def _fetch_sections(listing_id, vid, vno):
+    """The four side documents, fetched AFTER the page has already been served.
+
+    Upstream is paced at one request every 1.2s GLOBALLY, so waiting for the insurance
+    record, the inspection sheet, the diagnosis and the factory options before answering
+    cost a cold car 5 to 16 seconds of spinner - measured on production. Only `detail`
+    is needed for everything above the fold (photos, spec, price, options), so that is
+    what the visitor waits for; these four land a couple of seconds later and the page
+    picks them up on its own.
+
+    A section set that came back incomplete because upstream is unwell is NOT stored and
+    `sections_pending` stays on the document, so the next reader re-arms this fetch. That
+    keeps the permanent record honest: a half-empty `car_details` row would otherwise hide
+    the real history forever.
+    """
+    try:
+        record, inspection_raw, diagnosis_raw, choice = await asyncio.gather(
+            encar.record(vid, vno),
+            encar.inspection(vid),
+            encar.diagnosis(vid),
+            encar.choice_options(vid),
+            return_exceptions=True,
+        )
+        if any(isinstance(v, EncarUnavailable)
+               for v in (record, inspection_raw, diagnosis_raw, choice)):
+            log.warning("sections for %s came back incomplete; leaving them pending",
+                        listing_id)
+            return
+        clean = lambda v: None if isinstance(v, Exception) else v  # noqa: E731
+        await db.car_details.update_one(
+            {"_id": listing_id},
+            {"$set": {"record": clean(record), "inspection": clean(inspection_raw),
+                      "diagnosis": clean(diagnosis_raw),
+                      "choice_options": clean(choice) or [],
+                      "fetched_at": datetime.now(timezone.utc)},
+             "$unset": {"sections_pending": ""}},
+            upsert=True)
+    except Exception as e:                                       # noqa: BLE001
+        log.warning("sections fetch failed for %s: %s", listing_id, str(e)[:200])
+    finally:
+        _sections_inflight.discard(listing_id)
+
+
+def _arm_sections(listing_id, vid, vno):
+    if listing_id in _sections_inflight:
+        return
+    _sections_inflight.add(listing_id)
+    asyncio.get_running_loop().create_task(_fetch_sections(listing_id, vid, vno))
 
 
 @api.get("/car/{listing_id}")
@@ -3024,39 +3080,58 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
             return await _gone(listing, listing_id, lang, contract=True)
         vid = detail.get("vehicleId") or listing_id
         vno = detail.get("vehicleNo") or ""
-        # all four documents in parallel - previously sequential, which cost
-        # ~1.2s of forced pacing each
-        record, inspection_raw, diagnosis_raw, choice = await asyncio.gather(
-            encar.record(vid, vno),
-            encar.inspection(vid),
-            encar.diagnosis(vid),
-            encar.choice_options(vid),
-            return_exceptions=True,
-        )
-        clean = lambda v: None if isinstance(v, Exception) else v  # noqa: E731
-        # If a side document failed because upstream is unwell (rather than because this car
-        # has no inspection sheet), the result is not fit to become the permanent record —
-        # the missing history would never be fetched again. Serve it, do not store it.
-        incomplete = any(isinstance(v, EncarUnavailable)
-                         for v in (record, inspection_raw, diagnosis_raw, choice))
-        cached = {
+        base = {
             "_id": listing_id,
             "vehicle_id": vid,
             "vehicle_no": vno,
             "detail": detail,
-            "record": clean(record),
-            "inspection": clean(inspection_raw),
-            "diagnosis": clean(diagnosis_raw),
-            "choice_options": clean(choice) or [],
             "sales_status": sales_status(detail),
             "status_at": datetime.now(timezone.utc),
             "fetched_at": datetime.now(timezone.utc),
         }
-        if incomplete:
-            log.warning("car %s fetched with missing sections; not caching it", listing_id)
-        else:
+        if not refresh:
+            # Answer with `detail` alone and let the four side documents land in the
+            # background: they are worth 5-16 seconds of upstream pacing and none of them
+            # is above the fold. The document is written now (so the NEXT visitor is
+            # instant too) and marked pending until the sections arrive.
+            cached = {**base, "record": None, "inspection": None, "diagnosis": None,
+                      "choice_options": [], "sections_pending": True}
             await db.car_details.update_one({"_id": listing_id}, {"$set": cached},
                                             upsert=True)
+            _arm_sections(listing_id, vid, vno)
+        else:
+            # An explicit refresh is somebody asking for the whole truth, so it waits.
+            # all four documents in parallel - previously sequential, which cost
+            # ~1.2s of forced pacing each
+            record, inspection_raw, diagnosis_raw, choice = await asyncio.gather(
+                encar.record(vid, vno),
+                encar.inspection(vid),
+                encar.diagnosis(vid),
+                encar.choice_options(vid),
+                return_exceptions=True,
+            )
+            clean = lambda v: None if isinstance(v, Exception) else v  # noqa: E731
+            # If a side document failed because upstream is unwell (rather than because this
+            # car has no inspection sheet), the result is not fit to become the permanent
+            # record — the missing history would never be fetched again. Serve it, do not
+            # store it.
+            incomplete = any(isinstance(v, EncarUnavailable)
+                             for v in (record, inspection_raw, diagnosis_raw, choice))
+            cached = {**base, "record": clean(record), "inspection": clean(inspection_raw),
+                      "diagnosis": clean(diagnosis_raw),
+                      "choice_options": clean(choice) or []}
+            if incomplete:
+                log.warning("car %s fetched with missing sections; not caching it",
+                            listing_id)
+            else:
+                await db.car_details.update_one({"_id": listing_id}, {"$set": cached},
+                                                upsert=True)
+    elif cached.get("sections_pending"):
+        # A document whose background fetch never completed (upstream was unwell, or the
+        # process restarted mid-flight). Re-arm it: this is what stops a car from being
+        # stuck without its history for good.
+        _arm_sections(listing_id, cached.get("vehicle_id") or listing_id,
+                      cached.get("vehicle_no") or "")
 
     detail = cached.get("detail") or {}
     if cached.get("sales_status", "").upper() == "CONTRACT":
@@ -3372,6 +3447,10 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
         "insurance": insurance,
         "inspection": inspection,
         "diagnosis": diagnosis,
+        # The four side documents are still being fetched in the background, so the panels
+        # must say "loading" rather than "no data available" - which is a different, and
+        # untrue, statement about the car.
+        "sections_pending": bool(cached.get("sections_pending")),
         "body_panels": body_panels,
         "mech_checks": mech_checks,
         # Public quote carries the customer-facing price only. Landed cost, margins and

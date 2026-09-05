@@ -1,5 +1,6 @@
 import React, { useEffect, useCallback, useRef, useState } from "react";
 import { X, ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react";
+import { usePhotoPreload } from "@/hooks/usePhotoPreload";
 
 /**
  * Fullscreen image lightbox: one big photo, thumbnail strip, keyboard/swipe navigation.
@@ -65,6 +66,10 @@ export default function Lightbox({ images, thumbnails, index, onClose, onChange,
     setGliding(false);
     applyZoom(IDENTITY);
   }, [index]);
+
+  // Every photo into the browser cache, one after another, starting where the visitor is,
+  // so a swipe never waits on the CDN.
+  usePhotoPreload(images, index, total > 0);
 
   // ── zoom maths ────────────────────────────────────────────────────
   // Keep the photo's own edges outside the frame: `offsetWidth/Height` is the UNSCALED

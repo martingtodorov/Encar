@@ -39,6 +39,7 @@ import { MoreFromModel } from "@/components/MoreFromModel";
 import { useLangNav } from "@/hooks/useLangNav";
 import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { useShare } from "@/hooks/useShare";
+import { usePhotoPreload } from "@/hooks/usePhotoPreload";
 import { getCar, warmCar, forgetCar, countView } from "@/lib/api";
 import { noteView, WEIGHT } from "@/lib/taste";
 import { setBackScroll } from "@/lib/backScroll";
@@ -129,7 +130,6 @@ export default function CarDetailPage() {
   // photo inside that column then hands off to the single-photo lightbox (`shot`),
   // which owns the zoom (pinch + double tap, ours, not the browser's).
   const [lightbox, setLightbox] = useState(false);
-
   // No zoom at all in the photo column. `touch-action: pan-y` on the panel covers
   // Chrome/Android, but Safari's pinch arrives as `gesture*` events on the document and
   // is only stoppable here — and only with a non-passive listener.
@@ -181,9 +181,19 @@ export default function CarDetailPage() {
           // background so the page renders immediately; pick it up when it lands. The
           // diagnosis comment can take the LLM a while, so we wait it out rather than
           // leaving the buyer with a paragraph of Korean: 4s, 7s, 11s, 16s.
-          if ((d?.description_pending || d?.translation_pending) && retries < 4) {
+          //
+          // `sections_pending` is the same idea for the insurance record, inspection
+          // sheet and diagnosis: the backend now serves the page as soon as it has the
+          // car itself and fetches those four documents behind it (they cost 5-16s of
+          // upstream pacing), so they are polled for sooner - 2s, 4s, 7s, 11s.
+          const pending = d?.description_pending || d?.translation_pending
+            || d?.sections_pending;
+          if (pending && retries < 4) {
             retries += 1;
-            retry = setTimeout(() => load(true), 1000 + retries * 3500);
+            const wait = d?.sections_pending && !d?.description_pending
+              ? 1000 + retries * 1500
+              : 1000 + retries * 3500;
+            retry = setTimeout(() => load(true), wait);
           }
         })
         .catch((e) => {
@@ -220,6 +230,15 @@ export default function CarDetailPage() {
 
   const photos = car?.photos || [];
   const q = car?.quote;
+
+  // The mobile viewer is a column of every photo. While it is open they are pulled into
+  // the browser cache one after another, in the order they are scrolled past, so
+  // scrolling down the column does not wait on the CDN photo by photo.
+  usePhotoPreload(
+    photos.map((p) => p.full_lightbox || p.full),
+    0,
+    lightbox
+  );
 
   // The SEO/preview title carries the trim: "Mercedes-Benz AMG GT 4-door 43 4MATIC+" says far
   // more in a search result or a chat bubble than the make and model alone. The H1 keeps its
@@ -839,7 +858,11 @@ export default function CarDetailPage() {
                         995 EUR of damage. The claim COUNT above is the useful figure. */}
                   </>
                 ) : (
-                  <p className="py-2 text-[13px] text-muted-foreground">{t("docNotAvailable")}</p>
+                  <p className="py-2 text-[13px] text-muted-foreground">
+                    {/* Still on its way from Encar is not the same statement as "this car
+                        has no history", so the panel says which one it is. */}
+                    {car.sections_pending ? t("loading") : t("docNotAvailable")}
+                  </p>
                 )}
               </Panel>
 
@@ -878,7 +901,11 @@ export default function CarDetailPage() {
                     )}
                   </>
                 ) : (
-                  <p className="py-2 text-[13px] text-muted-foreground">{t("docNotAvailable")}</p>
+                  <p className="py-2 text-[13px] text-muted-foreground">
+                    {/* Still on its way from Encar is not the same statement as "this car
+                        has no history", so the panel says which one it is. */}
+                    {car.sections_pending ? t("loading") : t("docNotAvailable")}
+                  </p>
                 )}
               </Panel>
 
