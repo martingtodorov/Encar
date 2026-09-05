@@ -66,7 +66,18 @@ export function stripLang(pathname) {
   return parts.length ? `/${parts.join("/")}` : "";
 }
 
-export function useSeo({ lang, title, description, image, noindex = false }) {
+export function useSeo({
+  lang,
+  title,
+  description,
+  image,
+  noindex = false,
+  // A page that must not be INDEXED is not automatically one whose links should be
+  // ignored: a filter URL is a crawl trap worth following (its cars are real pages),
+  // while an account page is not.
+  follow = false,
+  ogType = "website",
+}) {
   const { pathname } = useLocation();
 
   useEffect(() => {
@@ -78,7 +89,14 @@ export function useSeo({ lang, title, description, image, noindex = false }) {
     const self = `${origin}/${lang}${rest}`;
 
     // Private pages are kept out of the index, but never out of a crawler's reach.
-    meta("robots", noindex ? "noindex, nofollow" : "index, follow, max-image-preview:large");
+    meta(
+      "robots",
+      noindex
+        ? follow
+          ? "noindex, follow"
+          : "noindex, nofollow"
+        : "index, follow, max-image-preview:large"
+    );
 
     link("canonical", null, self);
     LANGS.forEach((l) => link("alternate", l.code, `${origin}/${l.code}${rest}`));
@@ -87,7 +105,7 @@ export function useSeo({ lang, title, description, image, noindex = false }) {
     property("og:site_name", SITE_NAME);
     property("og:title", title || document.title);
     property("og:url", self);
-    property("og:type", "website");
+    property("og:type", ogType);
     if (image) {
       // Facebook, LinkedIn and iOS Safari's Share Sheet all downgrade to a plain
       // thumbnail when no size is declared - a large card only renders when at least
@@ -108,7 +126,7 @@ export function useSeo({ lang, title, description, image, noindex = false }) {
     if (image) meta("twitter:image", image);
     if (image) meta("twitter:image:alt", title || SITE_NAME);
     if (description) meta("twitter:description", description);
-  }, [lang, title, description, image, noindex, pathname]);
+  }, [lang, title, description, image, noindex, follow, ogType, pathname]);
 }
 
 /**

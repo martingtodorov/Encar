@@ -52,6 +52,9 @@
       loop:
         - { path: "{{ app_dir }}", mode: "0755" }
         - { path: "{{ app_dir }}/releases", mode: "0755" }
+        # The built index.html, pushed here by deploy_frontend.yml. backend/prerender.py
+        # reads it as the shell for every server-rendered page.
+        - { path: "{{ app_dir }}/shell", mode: "0755" }
         - { path: "{{ env_dir }}", mode: "0750", group: www-data }
         # Archived photos of purchased cars are served from here — never wipe it.
         - { path: "{{ media_dir }}", mode: "0755", owner: www-data, group: www-data }

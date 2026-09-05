@@ -112,7 +112,7 @@ server {
     client_max_body_size 32m;
 
     # ── the API ───────────────────────────────────────────────────────────────
-    location /api/ {
+    location ^~ /api/ {
         proxy_pass http://{{ app_name }}_backend;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
@@ -140,7 +140,7 @@ server {
     }
 
     # ── the app ───────────────────────────────────────────────────────────────
-    location /static/ {
+    location ^~ /static/ {
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
 
@@ -149,7 +149,7 @@ server {
     # for a year and mark immutable so the browser skips revalidation entirely. The 4 h
     # default that Lighthouse flagged came from the SPA fallback below (`try_files ...
     # /index.html`) picking up its no-cache heuristic for anything without a location match.
-    location /fonts/ {
+    location ^~ /fonts/ {
         add_header Cache-Control "public, max-age=31536000, immutable";
     }
     location ~* ^/logo-\d+\.(webp|png)$ {
@@ -190,7 +190,8 @@ server {
         if ($encar_crawler) {
             proxy_pass http://{{ app_name }}_backend/api/share/car/$share_id?lang=$share_lang;
         }
-        try_files $uri $uri/index.html /index.html;
+        # Everyone else - visitors and search engines alike - gets the server-rendered ad.
+        try_files /__prerender @prerender;
     }
 
     # The Track page: the crawler gets a page whose og:image is the shipment's own route drawn
@@ -200,7 +201,7 @@ server {
         if ($encar_crawler) {
             proxy_pass http://{{ app_name }}_backend/api/share/track?lang=$share_lang&$args;
         }
-        try_files $uri $uri/index.html /index.html;
+        try_files /__prerender @prerender;
     }
 
     # Every route is client side: /bg, /ro, /en and everything under them.
@@ -214,10 +215,39 @@ server {
         return 301 /bg;
     }
 
+    # Every page is SERVER-RENDERED by the backend (backend/prerender.py): the raw HTML for
+    # an ad carries its own title, description, canonical, hreflang, H1, price, photos and
+    # Vehicle/Offer/BreadcrumbList schema, and a missing ad answers a real 404 (a sold one a
+    # 410) instead of a 200 with an empty React shell. Anything WITHOUT a file extension is
+    # an app route and comes through here; assets (they all carry a dot) fall through to the
+    # static block below. `^~` on /api/, /static/ and /fonts/ above keeps this regex off them.
+    location ~ ^/[^.]*$ {
+        try_files /__prerender @prerender;
+    }
+
+    location @prerender {
+        proxy_pass http://{{ app_name }}_backend/api/prerender?path=$uri&$args;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection        "";
+        proxy_read_timeout 15s;
+        proxy_send_timeout 15s;
+        # If the backend cannot render (down, restarting, no shell yet) the visitor still
+        # gets the app: the plain SPA shell, exactly as before this existed.
+        proxy_intercept_errors on;
+        error_page 500 502 503 504 = @spa;
+    }
+
+    location @spa {
+        try_files /index.html =404;
+    }
+
     location / {
-        # `$uri/index.html` before the shell: it is what serves build/bg|ro|en/index.html, the
-        # per-language copies with translated <title>/description (scripts/gen-lang-html.js).
-        # Deeper routes still fall through to the shell, which patches its own tags in JS.
+        # Assets with an extension: the hashed bundles, images, manifest and the per-language
+        # index.html files gen-lang-html.js writes (the fallback when the backend is down).
         try_files $uri $uri/index.html /index.html;
     }
 }

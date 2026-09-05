@@ -86,6 +86,7 @@ import curate               # noqa: E402
 import sync as sync_mod      # noqa: E402
 import aicost                # noqa: E402
 import watchdog              # noqa: E402
+import prerender             # noqa: E402
 from encar import (EncarUnavailable, encar, image_url, full_image_url,  # noqa: E402
                    detail_photo_paths, under_contract, sales_status)
 from translate import (LANGS, HAIKU_MODEL, breaker_status,  # noqa: E402
@@ -5022,6 +5023,16 @@ postqueue.set_db(db)
 api.include_router(postqueue.router)
 traffic.set_db(db)
 api.include_router(traffic.router)
+# Server-rendered HTML for every public route (prerender.py). nginx routes page requests
+# here, so a crawler gets the ad's own title, price, photos and schema instead of an empty
+# React shell. Everything it needs from this module is injected rather than imported back.
+prerender.set_db(db)
+prerender.configure(
+    listing_out=listing_out, publish_prices=publish_prices, build_query=build_query,
+    sorts=SORTS, share_base=_share_base, fmt_int=_fmt_int, share_price=_share_price,
+    car_slug=_car_slug, apply_home_floor=apply_home_floor, unfiltered=unfiltered,
+    share_title=_share_title, sanitise=cms.sanitise)
+api.include_router(prerender.router)
 app.include_router(api)
 
 # The archived photos of purchased cars, served from our own disk so a withdrawn ad still

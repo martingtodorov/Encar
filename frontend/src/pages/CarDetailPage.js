@@ -288,6 +288,14 @@ export default function CarDetailPage() {
     // The picture is our /api/og/{id}.jpg proxy - the same URL the SSR endpoint uses - so
     // there is exactly one image address for a listing across every share path.
     image: `${window.location.origin}/api/og/${id}.jpg`,
+    // An ad is a product listing, not an article or a plain page: Facebook, Pinterest and
+    // Google all read og:type, and the prerendered HTML (backend/prerender.py) says the
+    // same thing, so the two never disagree.
+    ogType: "product",
+    // A retired ad, or one we could not load at all, must not stay in the index — but its
+    // links (the similar cars we offer instead) are worth following.
+    noindex: !!sold || !!error,
+    follow: true,
   });
 
   // Structured data: this is what earns a car a rich result with its price and mileage

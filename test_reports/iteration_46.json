@@ -1,0 +1,34 @@
+{
+  "summary": "Verified server-side prerender (/api/prerender) + client-side SEO meta after full SEO/prerender overhaul. Existing pytest suite (test_prerender.py 11, test_dedupe_twins.py 4) all pass; wrote test_prerender_extended.py (10 new tests) covering the review request gaps and everything passes. Frontend Playwright checks on the deployed preview confirm client-side meta, filter noindex, junk-make 404 (no silent redirect), and language switching.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_results": {
+    "pytest_test_prerender": "11/11 passed",
+    "pytest_test_dedupe_twins": "4/4 passed",
+    "pytest_test_prerender_extended": "10/10 passed (price_min-only noindex+clean canonical, car canonical carries slug, /bg/purchases + /bg/admin noindex,nofollow, static /bg/privacy /cookies /fees /contact /sitemap all index,follow with H1, description differs across bg/ro/pl/en, /api/health OK, all three sitemaps return XML, /api/robots.txt OK, /api/share/car/{id} OK, /api/car/{id} unaffected)",
+    "frontend_/bg": "robots='index, follow, max-image-preview:large', canonical='.../bg'",
+    "frontend_/bg/car/41728299": "title='BMW 1M Coupe · Encar', og:type=product, robots='index, follow, max-image-preview:large', canonical='.../bg/car/41728299/bmw-1m-coupe', H1='BMW 1M Coupe', price 33 199 € rendered, 20 real photos",
+    "frontend_/bg?price_min=20000": "URL preserved, robots='noindex, follow', canonical='.../bg' (clean)",
+    "frontend_/bg?make=bmw": "rewritten to /bg/bmw, robots='index, follow, max-image-preview:large', canonical='.../bg/bmw'",
+    "frontend_/bg/junk-make-xyz-zzz": "STAYS on URL (no silent redirect), title='Не намерихме тази страница · Encar', H1='Не намерихме тази страница', robots='noindex, nofollow' — soft-404 fix verified",
+    "frontend_/bg/bmw_real_make": "renders results, robots='index, follow, max-image-preview:large', canonical='.../bg/bmw'",
+    "frontend_/en": "loads with English title 'Encar Europe - Korean Cars, All-Inclusive Price to Bulgaria', canonical '.../en'",
+    "picked_for_you_shelf": "Screenshot shows two DISTINCT BMW 1M cars (121,055 km @ €33,199 vs 219,352 km @ €27,999) — no duplication observed in this run"
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_prerender.py",
+    "/app/backend/tests/test_prerender_extended.py",
+    "/app/backend/tests/test_dedupe_twins.py",
+    "/app/test_reports/pytest/pytest_prerender.xml",
+    "/app/test_reports/pytest/pytest_prerender_extended.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": ["/app/backend/tests/test_prerender_extended.py"],
+  "success_rate": {"backend": "100% (25/25)", "frontend": "100%"},
+  "test_credentials": "not needed — private routes were exercised via /api/prerender only (server-side robots check)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Prerender cache is in-process 300-1800s keyed on path+query; add a dummy query param for fresh renders. Preview catalogue is ~6 BMW 1M listings only — pull real ids via POST /api/search. Preview nginx does NOT route pages to /api/prerender (production Ansible template only); test the endpoint directly."
+}

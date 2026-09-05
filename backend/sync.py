@@ -638,6 +638,39 @@ async def _collect_manual(q):
     return ids
 
 
+async def _flag_duplicates(db, group_by, extra=None):
+    """Flag every ad but the most informative one in each group. Returns the group count.
+
+    `group_by` is whatever `$group._id` should be — a single field path or a compound
+    document. Only rows still marked as keepers are considered, so a second pass never
+    reconsiders an ad the first one already hid.
+    """
+    match = {"active": True, "duplicate": {"$ne": True}}
+    match.update(extra or {})
+    pipe = [
+        {"$match": match},
+        {"$sort": {"has_record": -1, "has_inspection": -1, "has_resume": -1,
+                   "photo_count": -1, "recency": 1}},
+        {"$group": {"_id": group_by,
+                    "keep": {"$first": "$_id"},
+                    "ids": {"$push": "$_id"},
+                    "n": {"$sum": 1}}},
+        {"$match": {"n": {"$gt": 1}}},
+    ]
+    losers, groups = [], 0
+    async for g in db.listings.aggregate(pipe, allowDiskUse=True):
+        groups += 1
+        losers += [i for i in g["ids"] if i != g["keep"]]
+        if len(losers) >= 5000:
+            await db.listings.update_many({"_id": {"$in": losers}},
+                                          {"$set": {"duplicate": True}})
+            losers = []
+    if losers:
+        await db.listings.update_many({"_id": {"$in": losers}},
+                                      {"$set": {"duplicate": True}})
+    return groups
+
+
 async def dedupe_pass(db):
     """Encar carries many duplicate ads for the same physical car (dealers re-register
     listings under fresh IDs). Roughly 30% of rows are duplicates, so without this the
@@ -647,46 +680,39 @@ async def dedupe_pass(db):
     vehicleId) and keep the MOST INFORMATIVE ad, not merely the newest one. Duplicate
     ads for one physical car are not equivalent: typically only one of them carries the
     insurance history (`Record`), and the other shows nothing on the detail page. So the
-    keep-order is:
-        1. has insurance history       (Record)
+    keep-order is:        1. has insurance history       (Record)
         2. has inspection report       (Inspection)
         3. has performance/resume doc  (Resume)
         4. most photos
         5. freshest ad (lowest `recency`)
     The rest stay in the collection but are flagged and hidden from search.
+
+    Two passes run: the `vehicle_key` one above, then an odometer-fingerprint one for the
+    re-listings whose photos were re-uploaded (see the comment on the second pass below).
     """
     try:
         await db.listings.update_many({}, {"$set": {"duplicate": False}})
 
-        pipe = [
-            {"$match": {"active": True}},
-            {"$sort": {"has_record": -1, "has_inspection": -1, "has_resume": -1,
-                       "photo_count": -1, "recency": 1}},
-            {"$group": {"_id": "$vehicle_key",
-                        "keep": {"$first": "$_id"},
-                        "ids": {"$push": "$_id"},
-                        "n": {"$sum": 1}}},
-            {"$match": {"n": {"$gt": 1}}},
-        ]
-
-        losers = []
-        groups = 0
-        async for g in db.listings.aggregate(pipe, allowDiskUse=True):
-            groups += 1
-            losers += [i for i in g["ids"] if i != g["keep"]]
-            if len(losers) >= 5000:
-                await db.listings.update_many({"_id": {"$in": losers}},
-                                              {"$set": {"duplicate": True}})
-                losers = []
-        if losers:
-            await db.listings.update_many({"_id": {"$in": losers}},
-                                          {"$set": {"duplicate": True}})
+        groups = await _flag_duplicates(db, "$vehicle_key")
+        # SECOND PASS — the odometer fingerprint.
+        #
+        # `vehicle_key` only works while the re-registered ad KEEPS the original photo
+        # folder; when the dealer re-uploads the pictures the new ad gets a folder named
+        # after its own id, the key falls back to that id, and the two ads for one car both
+        # stay live. That is how the same car showed up twice in "Picked for you" and in the
+        # grid. Make + model + trim + registration month + the EXACT odometer reading is a
+        # fingerprint no two different cars realistically share (kilometres to the single
+        # km), so the second of them is hidden by the same keep-order as above. Ads with no
+        # mileage are left alone — a zero would group every one of them together.
+        fingerprint = {"make": "$manufacturer", "model": "$model", "badge": "$badge",
+                       "ym": "$year_month", "km": "$mileage"}
+        twins = await _flag_duplicates(db, fingerprint, extra={"mileage": {"$gt": 0}})
 
         hidden = await db.listings.count_documents({"active": True, "duplicate": True})
         unique = await db.listings.count_documents({"active": True, "duplicate": False})
-        log.info("dedupe: %s duplicate groups, %s ads hidden, %s unique cars",
-                 groups, hidden, unique)
-        return {"groups": groups, "hidden": hidden, "unique": unique}
+        log.info("dedupe: %s vehicle-key groups, %s odometer twins, %s ads hidden, "
+                 "%s unique cars", groups, twins, hidden, unique)
+        return {"groups": groups, "twins": twins, "hidden": hidden, "unique": unique}
     except Exception as e:
         log.warning("dedupe failed: %s", e)
         return {"error": str(e)}

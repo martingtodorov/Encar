@@ -142,6 +142,49 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
   fwmark design is removed and asserted against. `/etc/hosts` pin on api.encar.com removed.
 * Full detail, measurements and the owner's remaining steps in CHANGELOG.md.
 
+## 2026-06 — Server-side rendering for every public route (DONE)
+Answer to the owner's SEO audit of encareurope.com. Owner's choices: render for ALL visitors
+(not bots only), full scope at once, noindex **plus** fast cleanup (410) for junk filter URLs.
+
+* `backend/prerender.py` — `GET /api/prerender?path=…` returns real HTML for every public
+  route: unique title/description, self-referencing canonical, hreflang (bg/ro/pl/en +
+  x-default), og/twitter tags (`og:type=product` + the ad's lead photo on a car), a robots
+  meta, and REAL markup inside `#root` (H1, price, spec, photos, breadcrumbs, similar cars,
+  make/model link blocks) plus Car/Offer + BreadcrumbList + ItemList + Organization/WebSite
+  JSON-LD. React's `createRoot` clears `#root`, so the app takes over untouched.
+* Honest status codes: unknown ad or unknown make slug = **404**, sold/retired ad = **410**,
+  junk or empty filter URL = **410**, filter URLs = `noindex, follow` with the canonical
+  pointing at the clean landing page, private routes = `noindex, nofollow`.
+* nginx (`templates/nginx-encar.conf.j2`): extensionless paths → `@prerender`
+  (`?path=$uri&$args`), `^~` on /api/ /static/ /fonts/ so the regex cannot touch them,
+  `error_page 5xx = @spa` so a backend problem just serves the old SPA shell. Social
+  crawlers still get `/api/share/*`. Config validated with a real nginx render + route matrix.
+* The shell: `deploy_frontend.yml` pushes the built `index.html` to back1
+  (`FRONTEND_SHELL={{ app_dir }}/shell/index.html`); fallback is an HTTP fetch of
+  `PUBLIC_SITE_URL/index.html`. Re-read once a minute, cached per path 5–30 min in-process.
+* Client side: `useSeo` gained `follow` and `ogType`; car pages are `og:type=product` and go
+  `noindex, follow` when sold or unloadable; the search page is `noindex, follow` on any
+  filter param, page > 1, zero results or a load error.
+* **Soft-404 root-caused and fixed**: `/bg/junk-make` resolved to nothing, the URL mirror
+  rewrote the address to `/bg`, App.js remounted SearchPage on the new path, `notFound` reset
+  and the visitor got an indexable 200 home page. The mirror now stands down when `notFound`.
+* `gen-lang-html.js` writes canonical + hreflang into each `build/<lang>/index.html`;
+  `seo-landing.json` gained the missing **pl** entry (its absence crashed the postbuild).
+* Tests: `tests/test_prerender.py` (11) + testing agent's `test_prerender_extended.py` (10),
+  all green; iteration_46 report: 25/25 backend, frontend 100%.
+
+## 2026-06 — Duplicate ads for one physical car (dedupe second pass, DONE)
+Owner reported the same car twice in "Подбрани за теб". The shelf itself cannot repeat an id
+(curated dedupes on `seen`, the popular/taste paths draw from one query), so the duplicate is
+two Encar ads for one car that `dedupe_pass` missed: `vehicle_key` is parsed from the photo
+path, and when a dealer re-uploads photos the re-registered ad gets a folder named after its
+own id, so the key no longer matches the original. `sync.dedupe_pass` now runs a **second**
+pass over the survivors keyed on make + model + badge + `year_month` + exact `mileage`
+(mileage > 0 only), same keep-order (record → inspection → resume → photos → freshness).
+Tests in `tests/test_dedupe_twins.py`. **Takes effect on the next sync, or immediately via
+`POST /api/admin/dedupe`.** Still waiting on the owner's concrete example (the two ad ids) to
+confirm this is the pair they saw.
+
 ## Encar upstream (2026-06)
 * PRIMARY route now: sticky residential proxy (IPRoyal) via protected `encar_proxy_url` →
   `ENCAR_PROXY_URL`. Only api.encar.com; CDN/Stripe/Claude/Resend/GitHub direct. Owner must put

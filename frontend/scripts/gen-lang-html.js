@@ -109,6 +109,25 @@ function retag(source, { lang, title, description }) {
     );
 }
 
+/**
+ * Canonical + hreflang, written into the HTML rather than left to JavaScript.
+ *
+ * lib/seo.js adds both once React has booted, which covers a browser and (eventually)
+ * Googlebot, but an SEO auditor reading the raw HTML saw neither - and these files are the
+ * ones nginx serves when the backend cannot prerender, so they have to stand on their own.
+ */
+function alternates(source, lang, route) {
+  if (!SITE) return source;
+  const suffix = route ? `/${route}` : "";
+  const links = [`<link rel="canonical" href="${SITE}/${lang}${suffix}" />`]
+    .concat(
+      LANGS.map((l) => `<link rel="alternate" hreflang="${l}" href="${SITE}/${l}${suffix}" />`)
+    )
+    .concat([`<link rel="alternate" hreflang="x-default" href="${SITE}/en${suffix}" />`])
+    .join("");
+  return source.replace("</title>", `</title>${links}`);
+}
+
 // A page whose preview picture is NOT the logo: every og:image/twitter:image is repointed.
 function repoint(source, image) {
   return source.replace(
@@ -120,13 +139,18 @@ function repoint(source, image) {
 LANGS.forEach((lang) => {
   const dir = path.join(build, lang);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "index.html"), retag(html, MAP[lang]));
+  fs.writeFileSync(path.join(dir, "index.html"),
+                   alternates(retag(html, MAP[lang]), lang, ""));
 
   // /bg/track and friends get their own file, so a link pasted into a chat previews with the
   // route map instead of the site's logo. nginx serves it through `try_files $uri/index.html`.
   Object.entries(ROUTES).forEach(([route, copy]) => {
     const [title, description] = copy[lang];
-    const page = repoint(retag(html, { lang, title, description }), `${SITE}${copy.image}`);
+    const page = alternates(
+      repoint(retag(html, { lang, title, description }), `${SITE}${copy.image}`),
+      lang,
+      route
+    );
     const sub = path.join(dir, route);
     fs.mkdirSync(sub, { recursive: true });
     fs.writeFileSync(path.join(sub, "index.html"), page);

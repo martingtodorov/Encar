@@ -136,6 +136,26 @@
         force: true
       tags: [publish]
 
+    # The backend renders every page's HTML (backend/prerender.py) and needs the SHELL - this
+    # build's index.html - so what it writes references the real hashed bundle. back1 holds no
+    # copy of the build, so one is pushed across at publish time. If this ever fails the app
+    # is unaffected: prerender.py falls back to fetching the shell over HTTP.
+    - name: Read the built shell
+      ansible.builtin.slurp:
+        src: "{{ release_dir }}/frontend/build/index.html"
+      register: built_shell
+      tags: [publish]
+
+    - name: Hand the shell to the backend for prerendering
+      ansible.builtin.copy:
+        content: "{{ built_shell.content | b64decode }}"
+        dest: "{{ app_dir }}/shell/index.html"
+        mode: "0644"
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['backend'] | default([]) }}"
+      failed_when: false
+      tags: [publish]
+
     - name: Prune old releases
       ansible.builtin.shell: >-
         ls -1dt {{ web_root }}/releases/*/ | tail -n +{{ (releases_kept | int) + 1 }}

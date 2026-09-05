@@ -46,6 +46,16 @@ import { describeSearch } from "@/lib/describeSearch";
 // 16 ads per page on every viewport: mobile shows them as cards, desktop as rows.
 const PAGE_SIZE = 16;
 
+// Query keys that turn this page into one of thousands of near-identical filter URLs.
+// Google picked up a great many of them (`?make=hyundai&badge=…`), most showing "0 cars",
+// which is a crawl trap and a quality signal against the whole domain. Any URL carrying one
+// of these is `noindex, follow` with its canonical pointing at the clean landing page; the
+// server-rendered HTML says exactly the same thing (backend/prerender.py).
+const FILTER_PARAMS = ["make", "model", "badge", "badgeDetail", "fuels", "regions",
+                       "transmissions", "year_min", "year_max", "mileage_min",
+                       "mileage_max", "price_min", "price_max", "only_inspection",
+                       "only_record", "only_diagnosed", "q"];
+
 // Scroll offset handed back by a car page, read on the next mount of this one.
 let pendingRestore = null;
 
@@ -237,7 +247,16 @@ export default function SearchPage() {
         : seoHome.description || t("seoHomeDesc"),
     // A pretty-URL slug we could not resolve is a 404 wearing a 200: keep it out of the
     // index even though SearchPage is still the mounted component underneath NotFoundPage.
-    noindex: notFound,
+    // Same treatment for a filter URL, for a search that matched nothing and for a page
+    // that failed to load — Google has indexed several of the last two ("0 cars",
+    // "Could not load results"), and those pages hurt every other page on the domain.
+    noindex:
+      notFound ||
+      !!error ||
+      FILTER_PARAMS.some((k) => searchParams.get(k)) ||
+      (initial.page || 1) > 1 ||
+      (!loading && !error && (result.total || 0) === 0),
+    follow: true,
   });
 
 
@@ -522,6 +541,12 @@ export default function SearchPage() {
   // opened already carries this URL, which is exactly what Back needs to restore.
   useEffect(() => {
     if (resolving) return;
+    // A junk path segment (/bg/no-such-make) resolved to nothing, so the mirror below would
+    // write `/bg` — and that rewrite REMOUNTS this page (App.js keys it on the path), which
+    // reset `notFound` and quietly landed the visitor on the home page with an indexable
+    // 200. That is the soft 404 the SEO audit found. Leaving the URL alone keeps the 404
+    // page on screen and keeps it out of the index.
+    if (notFound) return;
     const p = stateToParams({ filters, tax, sort, page }, slugFor);
     let path = `/${lang}`;
     const makeSeg = tax.make ? slugFor("make", tax.make) : "";
@@ -539,7 +564,7 @@ export default function SearchPage() {
     if (`${window.location.pathname}${window.location.search}` !== next) {
       navigate(next, { replace: true });
     }
-  }, [filters, tax, sort, page, navigate, lang, slugFor, resolving]);
+  }, [filters, tax, sort, page, navigate, lang, slugFor, resolving, notFound]);
 
   // Snapshot the painted state against the URL it belongs to, so a Back to it hydrates
   // instantly. Declared AFTER the URL mirror above so `window.location.search` is already
