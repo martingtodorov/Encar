@@ -26,6 +26,7 @@ sold is a 410, and an arbitrary filter URL (`?make=…&badge=…`) that resolves
 the index instead of sitting there advertising "0 cars".
 """
 
+import json
 import logging
 import os
 import re
@@ -37,6 +38,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, Response
 
 import curate
+import fx as fx_mod
 import slugs as slugs_mod
 from encar import image_url
 from translate import translate_listings
@@ -452,14 +454,26 @@ def _crumbs(lang, trail):
     return '<nav class="pr-crumbs">' + "".join(out) + "</nav>"
 
 
+def _ld(obj):
+    """JSON-LD as JSON, not as hand-glued strings.
+
+    The first cut escaped values with `_e()`, which turned every `&` in a photo URL into
+    `&amp;` — and inside a <script> element entities are NOT decoded, so Google would have
+    read broken image URLs. json.dumps is the only correct escaping here; `_head` handles
+    the one HTML concern by escaping `</`.
+    """
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
 def _crumb_ld(base, trail):
     items = []
     for i, (label, href) in enumerate(trail, start=1):
-        item = f',"item":"{_e(base + href)}"' if href else ""
-        items.append('{"@type":"ListItem","position":%d,"name":"%s"%s}'
-                     % (i, _e(label).replace('"', ""), item))
-    return ('{"@context":"https://schema.org","@type":"BreadcrumbList",'
-            '"itemListElement":[' + ",".join(items) + "]}")
+        item = {"@type": "ListItem", "position": i, "name": label}
+        if href:
+            item["item"] = base + href
+        items.append(item)
+    return _ld({"@context": "https://schema.org", "@type": "BreadcrumbList",
+                "itemListElement": items})
 
 
 def _car_title(row):
@@ -486,6 +500,22 @@ def _ym(row, lang):
 
 async def _price(row, lang):
     return await H["share_price"](row.get("sale_eur"), lang)
+
+
+async def _price_pair(row, lang):
+    """The price as a NUMBER plus its currency, matching what the page prints.
+
+    Structured data has to quote the same figure the visitor sees or Merchant Listings
+    rejects the offer: Romanian visitors are quoted in RON (AppContext), everyone else in
+    euro, so the JSON-LD follows the same rule instead of always saying EUR.
+    """
+    eur = row.get("sale_eur")
+    if not eur:
+        return None, "EUR"
+    if lang != "ro":
+        return int(round(float(eur))), "EUR"
+    rates = await fx_mod.get_rates(_db)
+    return int(round(float(eur) * float(rates.get("eur_ron") or 4.977))), "RON"
 
 
 def _card(row, lang, base):
@@ -559,33 +589,86 @@ async def _similar(listing, listing_id, lang, base):
     return await _cards(rows, lang, base)
 
 
-def _car_ld(row, lang, canonical, photos, price, title):
-    fields = [f'"@type":"Car"', f'"name":"{_e(title)}"', f'"url":"{_e(canonical)}"']
+def _car_ld(row, lang, canonical, photos, price_pair, title, description, listing_id):
+    """Product + Car in one node, with the Offer Google Merchant Listings asks for.
+
+    `Car` is a subtype of `Product`, so both types on one node is valid and lets the same
+    block satisfy the vehicle rich result AND the merchant listing. The offer's price is the
+    one the PAGE prints (RON for a Romanian visitor), because a mismatch between visible and
+    structured price is a rejection. Nothing is invented: shipping is declared as included
+    and free because the quoted price is the landed price, and no return policy is claimed.
+    """
+    amount, currency = price_pair
+    node = {
+        "@context": "https://schema.org",
+        "@type": ["Product", "Car"],
+        "name": title,
+        "description": description,
+        "url": canonical,
+        "sku": listing_id,
+        "productID": listing_id,
+        "itemCondition": "https://schema.org/UsedCondition",
+    }
     if photos:
-        fields.append('"image":[' + ",".join(f'"{_e(p)}"' for p in photos[:8]) + "]")
+        node["image"] = photos[:8]
     make = row.get("manufacturer_t") or row.get("manufacturer")
     if make:
-        fields.append('"brand":{"@type":"Brand","name":"%s"}' % _e(make))
+        node["brand"] = {"@type": "Brand", "name": make}
+        node["manufacturer"] = {"@type": "Organization", "name": make}
     model = row.get("model_t") or row.get("model")
     if model:
-        fields.append(f'"model":"{_e(model)}"')
+        node["model"] = model
     if row.get("form_year"):
-        fields.append(f'"vehicleModelDate":"{_e(row["form_year"])}"')
+        node["vehicleModelDate"] = str(row["form_year"])
+    ym = str(row.get("year_month") or "")
+    if len(ym) >= 6:
+        node["productionDate"] = f"{ym[:4]}-{ym[4:6]}"
+        node["dateVehicleFirstRegistered"] = f"{ym[:4]}-{ym[4:6]}-01"
     if row.get("mileage"):
-        fields.append('"mileageFromOdometer":{"@type":"QuantitativeValue",'
-                      '"value":%d,"unitCode":"KMT"}' % int(row["mileage"]))
+        node["mileageFromOdometer"] = {"@type": "QuantitativeValue",
+                                       "value": int(row["mileage"]), "unitCode": "KMT"}
     fuel = row.get("fuel_type_t") or row.get("fuel_type")
     if fuel:
-        fields.append(f'"fuelType":"{_e(fuel)}"')
+        node["fuelType"] = fuel
     if row.get("transmission"):
-        gear = T[lang]["auto"] if row["transmission"] == "auto" else T[lang]["manual"]
-        fields.append(f'"vehicleTransmission":"{_e(gear)}"')
-    if row.get("sale_eur"):
-        fields.append('"offers":{"@type":"Offer","price":%s,"priceCurrency":"EUR",'
-                      '"availability":"https://schema.org/InStock","url":"%s",'
-                      '"itemCondition":"https://schema.org/UsedCondition"}'
-                      % (int(row["sale_eur"]), _e(canonical)))
-    return '{"@context":"https://schema.org",' + ",".join(fields) + "}"
+        node["vehicleTransmission"] = (T[lang]["auto"] if row["transmission"] == "auto"
+                                       else T[lang]["manual"])
+    trim = row.get("badge_t") or row.get("badge")
+    if trim:
+        node["vehicleConfiguration"] = trim
+    if amount:
+        node["offers"] = {
+            "@type": "Offer",
+            "price": amount,
+            "priceCurrency": currency,
+            "availability": "https://schema.org/InStock",
+            "url": canonical,
+            "itemCondition": "https://schema.org/UsedCondition",
+            "seller": {"@type": "Organization", "name": "Encar Europe"},
+            # Delivery sits INSIDE the quoted price - that is the whole proposition of the
+            # site - so the shipping rate is a truthful zero rather than an omission.
+            "shippingDetails": {
+                "@type": "OfferShippingDetails",
+                "shippingRate": {"@type": "MonetaryAmount", "value": 0,
+                                 "currency": currency},
+                "shippingDestination": [{"@type": "DefinedRegion", "addressCountry": c}
+                                        for c in ("BG", "RO", "PL")],
+            },
+        }
+    return _ld(node)
+
+
+def _site_ld(base, lang):
+    """Organization + WebSite. Every page carries it, not just the home page."""
+    home = f"{base}/{lang}"
+    return _ld({"@context": "https://schema.org", "@graph": [
+        {"@type": "Organization", "name": "Encar Europe", "url": home,
+         "logo": f"{base}/icons/icon-512.png"},
+        {"@type": "WebSite", "name": "Encar Europe", "url": home, "inLanguage": lang,
+         "potentialAction": {"@type": "SearchAction",
+                             "target": f"{home}?q={{search_term_string}}",
+                             "query-input": "required name=search_term_string"}},
+    ]})
 
 
 async def _car_page(lang, listing_id, base):
@@ -666,8 +749,10 @@ async def _car_page(lang, listing_id, base):
     head = _head(
         lang=lang, title=f"{title} · Encar Europe", description=description,
         canonical=canonical, base=base, alt_path=alt_path, image=lead, og_type="product",
-        jsonld=(_car_ld(row, lang, canonical, photos, price, title),
-                _crumb_ld(base, trail)))
+        jsonld=(_car_ld(row, lang, canonical, photos, await _price_pair(row, lang), title,
+                        description, listing_id),
+                _crumb_ld(base, trail),
+                _site_ld(base, lang)))
     return 200, head, body, 600
 
 
@@ -867,21 +952,15 @@ async def _list_page(lang, segs, params, base):
 
     ld = [_crumb_ld(base, trail)] if len(trail) > 1 else []
     if rows:
-        items = ",".join(
-            '{"@type":"ListItem","position":%d,"url":"%s"}'
-            % (i + 1, _e(f"{base}/{lang}/car/{d['_id']}"))
-            for i, d in enumerate(rows))
-        ld.append('{"@context":"https://schema.org","@type":"ItemList",'
-                  f'"numberOfItems":{len(rows)},"itemListElement":[{items}]}}')
+        ld.append(_ld({
+            "@context": "https://schema.org", "@type": "ItemList",
+            "numberOfItems": len(rows),
+            "itemListElement": [{"@type": "ListItem", "position": i + 1,
+                                 "url": f"{base}/{lang}/car/{d['_id']}"}
+                                for i, d in enumerate(rows)],
+        }))
     if not make_slug and not has_filters:
-        ld.append('{"@context":"https://schema.org","@graph":['
-                  '{"@type":"Organization","name":"Encar Europe","url":"%s/%s",'
-                  '"logo":"%s/icons/icon-512.png"},'
-                  '{"@type":"WebSite","name":"Encar Europe","url":"%s/%s",'
-                  '"inLanguage":"%s","potentialAction":{"@type":"SearchAction",'
-                  '"target":"%s/%s?q={search_term_string}",'
-                  '"query-input":"required name=search_term_string"}}]}'
-                  % (_e(base), lang, _e(base), _e(base), lang, lang, _e(base), lang))
+        ld.append(_site_ld(base, lang))
 
     head = _head(lang=lang, title=title, description=description, canonical=canonical,
                  base=base, alt_path=canon_path, image=f"{base}/og.png", robots=robots,
@@ -917,7 +996,8 @@ async def _static_page(lang, slug, base):
             + "</main>")
     head = _head(lang=lang, title=title, description=description,
                  canonical=f"{base}/{lang}{path}", base=base, alt_path=path,
-                 image=f"{base}/og.png", jsonld=(_crumb_ld(base, trail),))
+                 image=f"{base}/og.png",
+                 jsonld=(_crumb_ld(base, trail), _site_ld(base, lang)))
     return 200, head, body, 1800
 
 

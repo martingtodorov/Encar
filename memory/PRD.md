@@ -142,6 +142,36 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
   fwmark design is removed and asserted against. `/etc/hosts` pin on api.encar.com removed.
 * Full detail, measurements and the owner's remaining steps in CHANGELOG.md.
 
+## 2026-06 — Merchant Listings schema + sitemap size + deploy verification (DONE, awaiting deploy)
+The owner verified production as Googlebot and got the plain 3 749-byte shell everywhere: the
+prerender above was written but **never deployed** (nginx still served the SPA and back1 had no
+`FRONTEND_SHELL`). Nothing was silently reporting that, so this round makes the failure loud
+and finishes the schema work:
+
+* **Sitemap size defect (real bug)**: `sitemap-listings-1.xml` was 62 759 055 bytes — 40 000
+  URLs × ~1.6 KB (five hreflang alternates + up to five image entries) against Google's 50 MB
+  ceiling, so the file could be rejected wholesale. `_SITEMAP_CHUNK` is now **10 000**
+  (~16 MB/file, 25 files for the current catalogue); the index recalculates automatically.
+  Guarded by `tests/test_sitemap_limits.py`.
+* **Merchant Listings schema**: the car node is now `["Product","Car"]` with `sku`,
+  `productID`, `brand`, `manufacturer`, `image[]`, `description`, `itemCondition`,
+  `productionDate`, `dateVehicleFirstRegistered`, `vehicleConfiguration` and an `Offer`
+  carrying price, currency, availability, url, itemCondition, seller and free
+  `shippingDetails` for BG/RO/PL (delivery genuinely sits inside the quoted price). No return
+  policy is claimed — nothing invented. `Organization` + `WebSite` are now on **every** page.
+* **The price in JSON-LD matches the visible price**, including RON for `ro` (`_price_pair`).
+  A mismatch is an automatic Merchant Listings rejection.
+* **JSON-LD is built with `json.dumps`**, not glued strings: the first cut escaped values with
+  `_e()` and turned every `&` in a photo URL into `&amp;`, which inside a `<script>` is a
+  broken image URL to Google.
+* **Watchdog check `prerender`** (critical): fetches `PUBLIC_SITE_URL/bg` and fails unless the
+  HTML carries an H1, a canonical, JSON-LD and the `<main class="pr">` marker — so an
+  undeployed or shell-less prerender shows up in Admin → Health instead of staying invisible.
+* **`deploy_nginx.yml` verifies itself**: after the reload it fetches `/bg` **as Googlebot**
+  and asserts H1 + canonical + hreflang + JSON-LD + the prerender marker, and asserts
+  `/bg/car/00000000` answers 404/410. The deploy now FAILS instead of quietly leaving the SPA
+  in place.
+
 ## 2026-06 — Server-side rendering for every public route (DONE)
 Answer to the owner's SEO audit of encareurope.com. Owner's choices: render for ALL visitors
 (not bots only), full scope at once, noindex **plus** fast cleanup (410) for junk filter URLs.

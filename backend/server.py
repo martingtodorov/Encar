@@ -2615,9 +2615,11 @@ async def share_track(request: Request, ref: str = "", by: str = "bol", lang: st
 # alternates counts as 40 000 URLs, not 120 000, so a chunk holds three times
 # more real listings.
 
-# 40 000 keeps a good headroom under Google's 50 000 hard limit and produces
-# ~4 files for a 146k catalogue.
-_SITEMAP_CHUNK = 40_000
+# 10 000 URLs per file. The old 40 000 stayed well under Google's 50 000-URL limit but blew
+# the OTHER limit: each <url> carries five hreflang alternates and up to five image entries,
+# which measured ~1.6 KB, so a 40 000-URL chunk shipped 62 MB uncompressed against a 50 MB
+# ceiling and Google was entitled to reject the file outright. 10 000 lands at ~16 MB.
+_SITEMAP_CHUNK = 10_000
 _SITEMAP_TTL = 3600
 
 

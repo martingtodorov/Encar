@@ -64,6 +64,11 @@ CHECKS = {
     "site": ("critical", 120, "Публичен сайт",
              "Сайтът не отговаря през публичния адрес (Cloudflare → front1 nginx → back1). "
              "Провери: systemctl status nginx на front1 и encar-backend на back1."),
+    "prerender": ("critical", 300, "Сървърен рендер (SEO)",
+                  "Публичните страници не се сървър-рендерират: Googlebot получава празна "
+                  "React обвивка без H1, цена, canonical и JSON-LD. Или nginx не праща "
+                  "страниците към /api/prerender (пусни deploy_nginx.yml), или бекендът не "
+                  "намира построения index.html (FRONTEND_SHELL — пусни deploy_frontend.yml)."),
     "mongo": ("critical", 60, "База данни",
               "MongoDB не отговаря на ping. Сайтът не може да покаже нищо. Провери: "
               "sudo systemctl status mongod и дисковото място."),
@@ -351,16 +356,44 @@ async def _probe_push():
     return f"{n} устройства"
 
 
+async def _probe_prerender():
+    """Does a real page come back server-rendered, the way Googlebot must see it?
+
+    The check is against the PUBLIC address, so it fails for either reason that matters:
+    nginx not routing pages to /api/prerender, or the backend having no shell to render
+    into. It looks for the marker the prerendered markup always carries plus a canonical -
+    a plain SPA shell has neither.
+    """
+    import httpx
+    url = _site_url()
+    if not url.startswith("https://"):
+        raise Skip("PUBLIC_SITE_URL не е https адрес")
+    async with httpx.AsyncClient(timeout=20, follow_redirects=True) as c:
+        r = await c.get(f"{url}/bg", headers={"User-Agent": "EncarWatchdog/1.0"})
+    if r.status_code != 200:
+        raise RuntimeError(f"{url}/bg отговори {r.status_code}")
+    html = r.text
+    missing = [name for name, needle in (("H1", "<h1"), ("canonical", 'rel="canonical"'),
+                                         ("JSON-LD", "application/ld+json"),
+                                         ("markup", '<main class="pr"'))
+               if needle not in html]
+    if missing:
+        raise RuntimeError("страницата се връща без " + ", ".join(missing))
+    return f"{len(html) // 1024} KB рендерирани"
+
+
 PROBES = {
     "mongo": _probe_mongo, "egress": _probe_egress, "proxy": _probe_proxy,
     "encar": _probe_encar, "site": _probe_site, "disk": _probe_disk,
+    "prerender": _probe_prerender,
     "memory": _probe_memory, "errors": _probe_errors, "mail": _probe_mail,
     "stripe": _probe_stripe, "cargo": _probe_cargo, "cert": _probe_cert,
     "sync": _probe_sync, "fx": _probe_fx, "translate": _probe_translate,
     "backup": _probe_backup, "push": _probe_push,
 }
 # A failure upstream of another check is one outage, not two.
-DEPENDS_ON = {"encar": ("egress", "proxy"), "proxy": ("egress",), "site": ("egress",)}
+DEPENDS_ON = {"encar": ("egress", "proxy"), "proxy": ("egress",), "site": ("egress",),
+              "prerender": ("egress", "site")}
 
 
 def severity(check):

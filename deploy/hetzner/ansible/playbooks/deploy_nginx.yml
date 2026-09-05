@@ -139,6 +139,54 @@
         direction: incoming
       tags: [firewall]
 
+    # ── verify ────────────────────────────────────────────────────────────────
+    # The whole point of the routing above is that a crawler which does not run JavaScript
+    # gets the page's content. That is checked here, against the live site, and the deploy
+    # FAILS if it does not hold - the previous round shipped "working" nginx while Googlebot
+    # was still being handed the empty React shell, and nothing said so.
+    - name: Flush pending nginx reload before verifying
+      ansible.builtin.meta: flush_handlers
+      tags: [config, verify]
+
+    - name: Fetch a page the way Googlebot does
+      ansible.builtin.uri:
+        url: "https://{{ site_domains[0] }}/bg"
+        return_content: true
+        headers:
+          User-Agent: >-
+            Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
+        timeout: 30
+      register: seo_probe
+      retries: 3
+      delay: 5
+      until: seo_probe.status is defined and seo_probe.status == 200
+      tags: [config, verify]
+
+    - name: The HTML must carry the page, not an empty shell
+      ansible.builtin.assert:
+        that:
+          - "'<h1' in seo_probe.content"
+          - "'rel=\"canonical\"' in seo_probe.content"
+          - "'hreflang=' in seo_probe.content"
+          - "'application/ld+json' in seo_probe.content"
+          - "'<main class=\"pr\"' in seo_probe.content"
+        fail_msg: >-
+          https://{{ site_domains[0] }}/bg came back WITHOUT server-rendered content
+          ({{ seo_probe.content | length }} bytes). Either this nginx config is not the one
+          in use, or the backend could not render: check FRONTEND_SHELL on the backend host
+          (deploy_frontend.yml pushes {{ app_dir | default('/opt/encar') }}/shell/index.html)
+          and `journalctl -u {{ app_name }}-backend | grep prerender`.
+        success_msg: "Server-rendered HTML confirmed for https://{{ site_domains[0] }}/bg"
+      tags: [config, verify]
+
+    - name: A listing that does not exist must answer 404, not 200
+      ansible.builtin.uri:
+        url: "https://{{ site_domains[0] }}/bg/car/00000000"
+        status_code: [404, 410]
+        timeout: 30
+      changed_when: false
+      tags: [config, verify]
+
   handlers:
     - name: Reload nginx
       ansible.builtin.service:

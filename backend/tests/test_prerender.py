@@ -69,8 +69,14 @@ def test_car_page_carries_its_own_metadata(listing):
     assert make.split()[0] in head
     assert 'property="og:type" content="product"' in head
     assert f'rel="canonical" href="{BASE}/bg/car/{listing["id"]}' in head
-    assert '"@type":"Car"' in head
+    assert '"@type":["Product","Car"]' in head
+    assert '"@type":"Offer"' in head and '"priceCurrency":"EUR"' in head
+    assert '"sku":"' in head and '"@type":"Brand"' in head
     assert '"@type":"BreadcrumbList"' in head
+    assert '"@type":"Organization"' in head and '"@type":"WebSite"' in head
+    # JSON-LD is JSON, so a photo URL keeps its raw ampersands (entities are not decoded
+    # inside a <script>, and an escaped one would be a broken image to Google).
+    assert "&amp;" not in head.split('application/ld+json">')[1].split("</script>")[0]
     assert re.search(r"<h1>[^<]{4,}</h1>", body)
     # Real photos and real internal links, not a script placeholder.
     assert body.count("<img") >= 1
