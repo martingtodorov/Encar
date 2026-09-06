@@ -3,6 +3,7 @@ import { Activity, Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getIncidents } from "@/lib/api";
 import { stampSofia } from "@/components/admin/AdminBits";
+import { AdminEncarRoute } from "@/components/admin/AdminEncarRoute";
 
 const DOT = {
   ok: "bg-emerald-500",
@@ -66,7 +67,6 @@ export const AdminHealth = () => {
   }, [load]);
 
   const checks = data?.checks || [];
-  if (!checks.length) return null;
   const failing = checks.filter((c) => c.status === "fail").length;
   const critical = checks.filter((c) => c.severity === "critical");
   const warning = checks.filter((c) => c.severity !== "critical");
@@ -78,7 +78,9 @@ export const AdminHealth = () => {
           <Activity className="h-4 w-4" aria-hidden="true" />
           Здраве на системата
           <span data-testid="admin-health-summary" className="text-[12px] font-normal text-muted-foreground">
-            · {checks.length} проверки{failing ? `, ${failing} паднали` : ", всички минават"}
+            {checks.length
+              ? ` · ${checks.length} проверки${failing ? `, ${failing} паднали` : ", всички минават"}`
+              : " · чака първата проверка"}
           </span>
         </h3>
         <Button
@@ -92,6 +94,7 @@ export const AdminHealth = () => {
           Провери сега
         </Button>
       </div>
+      <AdminEncarRoute />
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         {critical.map((c) => <Check key={c.check} c={c} />)}
       </div>

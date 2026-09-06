@@ -58,7 +58,12 @@
         - { path: "{{ env_dir }}", mode: "0750", group: www-data }
         # Archived photos of purchased cars are served from here — never wipe it.
         - { path: "{{ media_dir }}", mode: "0755", owner: www-data, group: www-data }
-        - { path: "{{ backup_dir }}", mode: "0700" }
+        # The dumps are read back by the health check, which runs inside the backend
+        # process (www-data). Owned by root they were unreadable and the nightly-backup
+        # alarm fired every hour with `[Errno 13] Permission denied` while the backup
+        # itself was perfectly fine. 0700 keeps a full database dump readable by nobody
+        # else.
+        - { path: "{{ backup_dir }}", mode: "0700", owner: www-data, group: www-data }
       tags: [base]
 
     # ── mongodb 7, native, loopback only ──────────────────────────────────────

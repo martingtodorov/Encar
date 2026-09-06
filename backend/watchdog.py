@@ -100,6 +100,10 @@ CHECKS = {
     "translate": ("warning", 300, "Преводи (AI)",
                   "Преводният слой е спрян — най-често изчерпан бюджет на ключа. Новите "
                   "обяви ще излизат на корейски, докато не се презареди."),
+    "route": ("warning", 300, "Маршрут към Encar",
+              "Encar трафикът беше превключен автоматично, защото основният маршрут спря да "
+              "отговаря. Сайтът работи, но провери проксито (трафик, кредитиали) и върни "
+              "маршрута от Админ → Здраве на системата."),
     "backup": ("warning", 3600, "Нощен бекъп",
                "Няма пресен mongodump. Провери cron-а encar-mongodump и мястото в "
                "/var/backups/encar."),
@@ -163,9 +167,13 @@ async def _probe_egress():
 
 async def _probe_proxy():
     import httpx
-    from encar import _scrub, proxy_url
-    if not proxy_url():
+    from encar import _scrub, proxy_configured, proxy_url, route_mode
+    if route_mode() == "direct":
+        raise Skip("маршрутът е зададен на директен — проксито не се използва")
+    if not proxy_configured():
         raise Skip("ENCAR_PROXY_URL не е зададен — директен маршрут")
+    if not proxy_url():
+        raise Skip("проксито не се използва при този маршрут")
     try:
         async with httpx.AsyncClient(timeout=10, proxy=proxy_url()) as c:
             r = await c.get(EGRESS_URL)
@@ -183,7 +191,19 @@ async def _probe_encar():
     got = await asyncio.wait_for(encar_mod.encar.search(offset=0, limit=1), timeout=25)
     if not got:
         raise RuntimeError("search returned nothing")
-    return f"route={encar_mod.route()}, {got.get('Count', '?')} обяви upstream"
+    return (f"route={encar_mod.route()} (режим {encar_mod.route_mode()}), "
+            f"{got.get('Count', '?')} обяви upstream")
+
+
+async def _probe_route():
+    """Did the client have to move traffic itself? That is a warning, not an emergency."""
+    import encar as encar_mod
+    st = encar_mod.encar.status()
+    fo = st.get("last_failover") or {}
+    if fo and time.time() - float(fo.get("at") or 0) < 86400:
+        raise RuntimeError(f"автоматично превключен {fo.get('from')} → {fo.get('to')}: "
+                           f"{fo.get('reason') or '?'}")
+    return f"{st['route']} (режим {st['mode']})"
 
 
 def _site_url():
@@ -306,7 +326,19 @@ async def _probe_sync():
         return "разписанието е изключено"
     finished = state.get("finished_at")
     if not finished:
-        raise RuntimeError("никога не е завършвал успешно")
+        # "never finished" on its own tells the owner nothing. Whatever the state document
+        # does hold — when it started, how far it got, what upstream last said — is the
+        # difference between a diagnosable alarm and a shrug.
+        started = state.get("started_at")
+        bits = [f"статус {status}"]
+        if started:
+            bits.append(f"започнал {_aware(started):%d.%m %H:%M} UTC")
+        if state.get("pages_total") or state.get("pages_done"):
+            bits.append(f"стигнал до {state.get('pages_done', 0)}/"
+                        f"{state.get('pages_total', 0)} страници")
+        if state.get("error"):
+            bits.append(f"последна грешка: {str(state['error'])[:120]}")
+        raise RuntimeError("никога не е завършвал успешно — " + ", ".join(bits))
     age = _now() - _aware(finished)
     if age > timedelta(hours=SYNC_STALE_H):
         raise RuntimeError(f"последният успешен sync е преди {age.days}д {age.seconds // 3600}ч")
@@ -337,10 +369,17 @@ async def _probe_backup():
     if not os.path.isdir(folder):
         raise Skip(f"{folder} не съществува на този хост")
     newest = 0.0
-    with os.scandir(folder) as it:
-        for entry in it:
-            if entry.name.endswith(".archive.gz"):
-                newest = max(newest, entry.stat().st_mtime)
+    try:
+        with os.scandir(folder) as it:
+            for entry in it:
+                if entry.name.endswith(".archive.gz"):
+                    newest = max(newest, entry.stat().st_mtime)
+    except PermissionError:
+        # The dumps are almost certainly there; this process simply cannot look. Say so,
+        # instead of reporting a raw errno as if the backup had failed.
+        raise RuntimeError(
+            f"{folder} не е четима от бекенда (www-data) — бекъпът вероятно работи, но "
+            f"проверката не го вижда. Оправя се с: chown -R www-data:www-data {folder}")
     if not newest:
         raise RuntimeError(f"в {folder} няма нито един архив")
     age_h = (time.time() - newest) / 3600
@@ -385,6 +424,7 @@ async def _probe_prerender():
 PROBES = {
     "mongo": _probe_mongo, "egress": _probe_egress, "proxy": _probe_proxy,
     "encar": _probe_encar, "site": _probe_site, "disk": _probe_disk,
+    "route": _probe_route,
     "prerender": _probe_prerender,
     "memory": _probe_memory, "errors": _probe_errors, "mail": _probe_mail,
     "stripe": _probe_stripe, "cargo": _probe_cargo, "cert": _probe_cert,

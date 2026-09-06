@@ -276,6 +276,38 @@ Tests in `tests/test_dedupe_twins.py`. **Takes effect on the next sync, or immed
 `POST /api/admin/dedupe`.** Still waiting on the owner's concrete example (the two ad ids) to
 confirm this is the pair they saw.
 
+## 2026-09-06 — Encar route is a setting, with auto-failover (DONE)
+The residential proxy timed out at exactly 15s on every request while a direct call answered in
+0.4s, the circuit opened, background syncs failed and the only cure was an env change + restart.
+Now:
+* `encar.py`: route MODE (`auto` | `proxy` | `direct`) decided at runtime. `switch_route()` does
+  the three things that have to happen together — change the setting, throw away the cached
+  `httpx.AsyncClient` (it holds the old proxy) and clear the circuit breaker, so the new route
+  does not sit out the cooldown earned by the old one. Credentials are still never logged
+  (`_scrub`); `status()` is credential-free by construction.
+* **Auto-failover**: an opened circuit asks for the other route to be tried (`proxy ⇄ direct`)
+  BEFORE anybody is woken up, at most once per 10 min (`FAILOVER_MIN_GAP`) so a dead upstream
+  cannot flap. The switch is persisted, so a restart keeps it. Bug found and fixed while
+  testing: `other_route()` used to offer `direct` when the mode was `auto` with no proxy
+  configured — i.e. a failover to the route that had just failed.
+* Persistence: `site_settings.encar_routing` (`mode`, `reason`, `changed_by`, `updated_at`),
+  read on startup in `server.py`, written by `_store_encar_route` (registered via
+  `encar.set_persist`).
+* Admin API: `GET /api/admin/encar-route`, `POST /api/admin/encar-route` {mode} (audited,
+  refuses `proxy` when `ENCAR_PROXY_URL` is unset), `POST /api/admin/encar-route/test` (one real
+  upstream request, reports latency or the sanitized error).
+* Admin UI: `components/admin/AdminEncarRoute.js` inside Admin → Overview → Здраве на системата:
+  three mode buttons, current route, live breaker state (open/closed, seconds left, consecutive
+  failures), the last auto-failover with its reason, and "Пробвай сега".
+* Watchdog: new WARNING check `route` (an automatic switch in the last 24h is a warning, not an
+  emergency — pages still serve); the critical `proxy` check now skips cleanly when the mode is
+  `direct` instead of reporting the absence of a proxy as a failure.
+* Backup permissions: already handled in `deploy_backend.yml` (`{{ backup_dir }}` 0700
+  www-data:www-data) — verified, nothing to add.
+* Tests: `tests/test_encar_route.py` (6) incl. the failover with a dead transport and a
+  no-credential-leak assertion; 46 green across the touched SEO/sync suites. Endpoints verified
+  by curl on the preview host (407 from Encar there is expected: datacentre IP, no proxy).
+
 ## Encar upstream (2026-06)
 * PRIMARY route now: sticky residential proxy (IPRoyal) via protected `encar_proxy_url` →
   `ENCAR_PROXY_URL`. Only api.encar.com; CDN/Stripe/Claude/Resend/GitHub direct. Owner must put

@@ -39,13 +39,85 @@ ATTEMPTS = 2                # one retry, never for 404
 RETRY_AFTER_MAX_WAIT = 5    # longer than this and the circuit opens for that long instead
 
 
+# Which way Encar traffic leaves, decided at RUNTIME rather than by the presence of an env
+# var. The residential proxy is the normal route (Encar's CloudFront blocks datacentre IPs),
+# but a proxy can fail on its own — traffic exhausted, credentials rotated, the vendor down —
+# and on 06/09 every request through it timed out at exactly 15s while a direct call from
+# back1 answered in 0.4s. So the route is a SETTING: an admin can flip it, the watchdog flips
+# it automatically before it wakes anybody up, and it survives a restart because server.py
+# loads it from the database on startup.
+#   "auto"   - use the proxy when one is configured (the previous behaviour)
+#   "proxy"  - insist on the proxy
+#   "direct" - ignore the proxy entirely
+_mode = {"route": "auto"}
+ROUTE_MODES = ("auto", "proxy", "direct")
+
+# How a route change is written down, so it survives a restart. server.py registers a
+# coroutine that stores it in `site_settings.encar_routing`; without one, a change is
+# in-process only (that is what the tests use).
+_persist = {"fn": None}
+
+# An automatic switch is allowed at most this often. Without a floor, a genuinely dead
+# upstream would make traffic flap between proxy and direct on every fourth failure.
+FAILOVER_MIN_GAP = 600
+
+
+def set_persist(fn):
+    _persist["fn"] = fn
+
+
+def set_route(mode):
+    """Choose the route. Returns the mode actually in force."""
+    if mode in ROUTE_MODES:
+        _mode["route"] = mode
+    return _mode["route"]
+
+
+def route_mode():
+    return _mode["route"]
+
+
 def proxy_url():
+    if _mode["route"] == "direct":
+        return None
     return os.environ.get(PROXY_ENV, "").strip() or None
+
+
+def proxy_configured():
+    """Is there a proxy to switch TO, whatever the current mode is?"""
+    return bool(os.environ.get(PROXY_ENV, "").strip())
 
 
 def route():
     """Where Encar traffic leaves from — the only thing about the proxy that is ever logged."""
     return "residential_proxy" if proxy_url() else "direct"
+
+
+def other_route(mode=None):
+    """The route to try when the current one has stopped working."""
+    current = mode or _mode["route"]
+    if current == "direct":
+        return "proxy" if proxy_configured() else None
+    if not proxy_configured():
+        # "auto" with no proxy configured is already a direct route: there is nowhere else
+        # to go, and offering "direct" would be a failover to the route that just failed.
+        return None
+    return "direct"
+
+
+def _why(e):
+    """A transport failure described in words that survive the log.
+
+    `str()` on most httpx transport exceptions is EMPTY — `ProxyError()`, `ConnectError()`,
+    `ReadTimeout()` all carry no message — so incidents read "transport error: " and told
+    nobody anything (that is exactly what the 06/09 02:33 upstream alarm said). The class
+    name is always there, and which route the request took is the first thing worth knowing
+    when the residential proxy is the suspect.
+    """
+    msg = _scrub(e).strip()
+    name = type(e).__name__
+    detail = f"{name}: {msg}" if msg and msg != name else name
+    return f"{detail} (route={route()})"
 
 
 def _scrub(text):
@@ -156,14 +228,46 @@ class EncarClient:
         self._fails = 0
         self._open_until = 0.0
         self._open_reason = ""
+        self._trips = 0
+        self._route = None
+        # Auto-failover bookkeeping: an opened circuit asks for the other route to be
+        # tried BEFORE anybody's phone rings.
+        self._pending_failover = False
+        self._last_failover = 0.0
+        self._failover = None
 
     async def client(self):
+        # Rebuild when the route changes. The client is cached for the process lifetime, so
+        # without this check flipping the setting would do nothing until a restart — which
+        # is exactly the trap the old env-var-only switch was.
+        if self._client is not None and self._route != route():
+            await self.close()
         if self._client is None:
+            self._route = route()
             self._client = httpx.AsyncClient(
                 headers=HEADERS, follow_redirects=True, proxy=proxy_url(),
                 timeout=httpx.Timeout(TOTAL_TIMEOUT, connect=CONNECT_TIMEOUT))
-            log.info("encar client ready route=%s", route())
+            log.info("encar client ready route=%s", self._route)
         return self._client
+
+    async def switch_route(self, mode):
+        """Move traffic to another route, immediately.
+
+        Three things have to happen together or the switch is a no-op: the setting changes,
+        the cached client is thrown away (it holds the old proxy), and the circuit breaker is
+        cleared — otherwise the new route sits out the remaining cooldown earned by the old
+        one and looks just as broken.
+        """
+        set_route(mode)
+        await self.close()
+        self.reset_breaker()
+        log.warning("encar route switched mode=%s route=%s", route_mode(), route())
+        return route()
+
+    def reset_breaker(self):
+        self._fails = 0
+        self._open_until = 0.0
+        self._open_reason = ""
 
     async def close(self):
         if self._client:
@@ -213,7 +317,7 @@ class EncarClient:
                 r = await c.get(f"{API}{path}")
             except Exception as e:
                 self.stats["errors"] += 1
-                last = f"transport error: {_scrub(e)}"
+                last = f"transport error: {_why(e)}"
                 log.warning("encar route=%s status=- latency_ms=%d circuit=%s path=%s %s",
                             route(), (time.monotonic() - t0) * 1000, self._state(), path,
                             last)
@@ -252,6 +356,7 @@ class EncarClient:
             if r.status_code in BLOCK_STATUSES:
                 # Blocked. One attempt, no retries, and the circuit opens straight away.
                 self._trip(f"HTTP {r.status_code} from upstream", BLOCK_COOLDOWN)
+                await self._failover_if_pending()
                 raise EncarUnavailable(f"upstream refused the request "
                                        f"(HTTP {r.status_code})", r.status_code)
             if r.status_code in RATE_LIMIT_STATUSES:
@@ -263,6 +368,7 @@ class EncarClient:
                     # Encar named a wait we cannot make a caller sit through: honour it by
                     # keeping everyone away for exactly that long.
                     self._trip(f"HTTP 429, Retry-After {asked}s", min(asked, 600))
+                    await self._failover_if_pending()
                     raise EncarUnavailable(f"rate limited, retry after {asked}s", 429)
                 if asked is not None:
                     wait = asked
@@ -273,10 +379,12 @@ class EncarClient:
                 continue
             # Unexpected status: no retry (we do not know what it means), no None either.
             self._fail(f"HTTP {r.status_code}")
+            await self._failover_if_pending()
             raise EncarUnavailable(f"unexpected HTTP {r.status_code} from upstream",
                                    r.status_code)
 
         self._fail(last)
+        await self._failover_if_pending()
         raise EncarUnavailable(f"upstream did not answer for {path}: {last}", last_status)
 
     def _state(self):
@@ -293,10 +401,52 @@ class EncarClient:
 
     def _trip(self, reason, cooldown):
         self._fails = 0
+        self._trips += 1
         self._open_until = time.monotonic() + cooldown
         self._open_reason = _scrub(reason)
+        # The circuit is open because THIS route stopped working. If there is another way
+        # out, ask for it to be tried; `_failover_if_pending` decides (it needs to await).
+        self._pending_failover = bool(other_route())
         log.error("encar circuit=open for %ss route=%s: %s", cooldown, route(),
                   self._open_reason)
+
+    async def _failover_if_pending(self):
+        """Try the other way out before anybody's phone rings.
+
+        On 06/09 every request through the residential proxy timed out at exactly 15s while
+        a direct call from back1 answered in 0.4s — a working site was taken down by one
+        broken hop with a perfectly good alternative sitting next to it. So an opened
+        circuit now moves traffic to the other route and clears the cooldown: one request
+        proves whether the outage was the route or Encar itself. The move is recorded and
+        surfaced as a WARNING by the watchdog, not an emergency, because pages still serve.
+        """
+        if not self._pending_failover:
+            return None
+        self._pending_failover = False
+        alt = other_route()
+        now = time.monotonic()
+        if not alt or (self._last_failover and now - self._last_failover < FAILOVER_MIN_GAP):
+            return None
+        self._last_failover = now
+        was, reason = route(), self._open_reason
+        await self.switch_route(alt)
+        self._failover = {"at": time.time(), "from": was, "to": route(),
+                          "mode": route_mode(), "reason": reason, "auto": True}
+        log.error("encar auto-failover %s -> %s after: %s", was, route(), reason)
+        fn = _persist["fn"]
+        if fn:
+            try:
+                await fn(route_mode(), reason)
+            except Exception as e:                              # noqa: BLE001
+                log.warning("could not store the new encar route: %s", _scrub(e)[:160])
+        return self._failover
+
+    def status(self):
+        """Everything the admin screen and the watchdog need — and no credentials."""
+        return {"mode": route_mode(), "route": route(), "alternate": other_route(),
+                "proxy_configured": proxy_configured(), "modes": list(ROUTE_MODES),
+                "breaker": self.breaker(), "trips": self._trips,
+                "last_failover": self._failover, "stats": dict(self.stats)}
 
     def breaker(self):
         """For the admin screen and the watchdog: is upstream currently shut out?"""

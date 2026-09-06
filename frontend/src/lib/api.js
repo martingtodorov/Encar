@@ -481,6 +481,24 @@ export async function getIncidents(run = false) {
   return data;
 }
 
+/** Which way Encar traffic leaves, plus the live circuit-breaker state. Admin only. */
+export async function getEncarRoute() {
+  const { data } = await http.get("/admin/encar-route");
+  return data;
+}
+
+/** Move Encar traffic to `auto` | `proxy` | `direct`, effective immediately. Admin only. */
+export async function setEncarRoute(mode) {
+  const { data } = await http.post("/admin/encar-route", { mode });
+  return data;
+}
+
+/** One real upstream request through the route in force. Admin only. */
+export async function testEncarRoute() {
+  const { data } = await http.post("/admin/encar-route/test");
+  return data;
+}
+
 /** The daily ceiling that triggers an alert email. Admin only. */
 export async function setAiBudget(dailyUsd) {
   const { data } = await http.put("/admin/ai-budget", { daily_usd: Number(dailyUsd) });

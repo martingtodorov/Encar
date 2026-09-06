@@ -6,27 +6,17 @@ re-uploaded, the new ad's folder is named after its own id, the key falls back t
 and both ads stay live — which is how the same car appeared twice in the grid and in
 "Picked for you". Make + model + trim + registration month + the exact odometer reading is
 the fingerprint that catches those, and it must not touch two genuinely different cars.
+
+Each test owns one `asyncio.run`: motor binds a client to the loop it is created on, and
+sharing a loop across fixtures in a suite that also builds its own is how the previous
+version of this file ended up talking to a closed one.
 """
 import asyncio
 import os
 
-import pytest
 from motor.motor_asyncio import AsyncIOMotorClient
 
 import sync
-
-
-@pytest.fixture
-def db():
-    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-    name = f"{os.environ['DB_NAME']}_test_dedupe_{os.getpid()}"
-    yield client[name]
-
-    async def cleanup():
-        await client.drop_database(name)
-        client.close()
-
-    asyncio.get_event_loop().run_until_complete(cleanup())
 
 
 def _ad(ad_id, **over):
@@ -39,58 +29,66 @@ def _ad(ad_id, **over):
     return doc
 
 
-def _run(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+def dedupe(ads):
+    """Seed a throwaway database, run the real pass, hand back the result and survivors."""
+    async def run():
+        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+        name = f"{os.environ['DB_NAME']}_test_dedupe_{os.getpid()}_{id(ads)}"
+        db = client[name]
+        try:
+            await db.listings.insert_many(ads)
+            out = await sync.dedupe_pass(db)
+            kept = [d async for d in db.listings.find(
+                {"active": True, "duplicate": {"$ne": True}}).sort([("_id", 1)])]
+            return out, [d["_id"] for d in kept]
+        finally:
+            await client.drop_database(name)
+            client.close()
+
+    return asyncio.run(run())
 
 
-def test_relisted_ad_with_fresh_photos_is_hidden(db):
+def test_relisted_ad_with_fresh_photos_is_hidden():
     """Two ads, two photo folders, one car — only the informative one stays visible."""
-    _run(db.listings.insert_many([
+    out, kept = dedupe([
         _ad("relisted", recency=10),                       # newer ad, no history
         _ad("original", has_record=True, recency=900),     # older ad, carries the history
-    ]))
-    out = _run(sync.dedupe_pass(db))
+    ])
     assert out["twins"] == 1
     assert out["unique"] == 1
-    kept = _run(db.listings.find_one({"active": True, "duplicate": {"$ne": True}}))
-    # The keep-order is about information, not freshness: the ad with the insurance
-    # history is the one a buyer should land on.
-    assert kept["_id"] == "original"
+    # The keep-order is about information, not freshness: the ad with the insurance history
+    # is the one a buyer should land on.
+    assert kept == ["original"]
 
 
-def test_different_cars_are_left_alone(db):
+def test_different_cars_are_left_alone():
     """Same model and month, different odometer readings: two real cars."""
-    _run(db.listings.insert_many([
+    out, kept = dedupe([
         _ad("car-a", mileage=12_345),
         _ad("car-b", mileage=40_002),
         _ad("car-c", mileage=12_345, year_month=202312),
         _ad("car-d", mileage=12_345, model="M4 (G82)"),
-    ]))
-    out = _run(sync.dedupe_pass(db))
+    ])
     assert out["twins"] == 0
-    assert out["unique"] == 4
+    assert len(kept) == 4
 
 
-def test_missing_mileage_never_groups(db):
+def test_missing_mileage_never_groups():
     """A zero odometer is unknown, not a match — otherwise every such ad would collapse."""
-    _run(db.listings.insert_many([
+    out, kept = dedupe([
         _ad("no-km-1", mileage=0),
         _ad("no-km-2", mileage=0),
         _ad("no-km-3", mileage=None),
-    ]))
-    out = _run(sync.dedupe_pass(db))
+    ])
     assert out["twins"] == 0
-    assert out["unique"] == 3
+    assert len(kept) == 3
 
 
-def test_vehicle_key_pass_still_runs_first(db):
+def test_vehicle_key_pass_still_runs_first():
     """The original grouping is untouched: a shared vehicle_key still collapses."""
-    _run(db.listings.insert_many([
+    out, kept = dedupe([
         _ad("ad-1", vehicle_key="99887766", mileage=1_000),
         _ad("ad-2", vehicle_key="99887766", mileage=2_000, has_record=True),
-    ]))
-    out = _run(sync.dedupe_pass(db))
+    ])
     assert out["groups"] == 1
-    assert out["unique"] == 1
-    kept = _run(db.listings.find_one({"active": True, "duplicate": {"$ne": True}}))
-    assert kept["_id"] == "ad-2"
+    assert kept == ["ad-2"]

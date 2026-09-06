@@ -87,6 +87,7 @@ import sync as sync_mod      # noqa: E402
 import aicost                # noqa: E402
 import watchdog              # noqa: E402
 import prerender             # noqa: E402
+import encar as encar_mod     # noqa: E402
 from encar import (EncarUnavailable, encar, image_url, full_image_url,  # noqa: E402
                    detail_photo_paths, under_contract, sales_status)
 from translate import (LANGS, HAIKU_MODEL, breaker_status,  # noqa: E402
@@ -3885,6 +3886,69 @@ async def admin_incidents(request: Request, run: bool = False,
     return await watchdog.health(run=run)
 
 
+async def _store_encar_route(mode, reason="", actor="автоматично"):
+    """Remember the route so a restart does not undo the decision."""
+    await db.site_settings.update_one(
+        {"_id": "encar_routing"},
+        {"$set": {"mode": mode, "reason": str(reason)[:300], "changed_by": actor,
+                  "updated_at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+
+
+async def _encar_route_state():
+    doc = await db.site_settings.find_one({"_id": "encar_routing"}) or {}
+    out = encar.status()
+    out["stored"] = {"mode": doc.get("mode") or "", "reason": doc.get("reason") or "",
+                     "changed_by": doc.get("changed_by") or "",
+                     "updated_at": doc.get("updated_at") or ""}
+    return out
+
+
+class EncarRouteBody(BaseModel):
+    mode: str
+
+
+@api.get("/admin/encar-route")
+async def admin_encar_route(request: Request, x_admin_token: str = Header(default="")):
+    """Which way Encar traffic leaves, the live circuit state and the last auto-failover."""
+    await _require_admin(request, x_admin_token)
+    return await _encar_route_state()
+
+
+@api.post("/admin/encar-route")
+async def admin_set_encar_route(body: EncarRouteBody, request: Request,
+                                x_admin_token: str = Header(default="")):
+    """Move Encar traffic now: the setting changes, the cached client is thrown away and
+    the circuit breaker is cleared, so it takes effect without a restart."""
+    admin = await _require_admin(request, x_admin_token)
+    mode = (body.mode or "").strip().lower()
+    if mode not in encar_mod.ROUTE_MODES:
+        raise HTTPException(status_code=400, detail=f"mode must be one of "
+                                                    f"{', '.join(encar_mod.ROUTE_MODES)}")
+    if mode == "proxy" and not encar_mod.proxy_configured():
+        raise HTTPException(status_code=400,
+                            detail="ENCAR_PROXY_URL не е зададен на този сървър")
+    await encar.switch_route(mode)
+    await _store_encar_route(mode, "ръчна промяна", _actor(admin))
+    await _audit(request, _actor(admin), "encar.route", "encar_routing",
+                 f"mode={mode}, route={encar_mod.route()}")
+    return await _encar_route_state()
+
+
+@api.post("/admin/encar-route/test")
+async def admin_encar_route_test(request: Request, x_admin_token: str = Header(default="")):
+    """One real upstream request through the route in force, so the answer is not a guess."""
+    await _require_admin(request, x_admin_token)
+    t0 = time.monotonic()
+    try:
+        got = await encar.search(offset=0, limit=1)
+    except EncarUnavailable as e:
+        return {"ok": False, "route": encar_mod.route(), "mode": encar_mod.route_mode(),
+                "latency_ms": int((time.monotonic() - t0) * 1000), "error": str(e)[:300]}
+    return {"ok": True, "route": encar_mod.route(), "mode": encar_mod.route_mode(),
+            "latency_ms": int((time.monotonic() - t0) * 1000),
+            "count": (got or {}).get("Count", 0)}
+
+
 class AiBudgetBody(BaseModel):
     daily_usd: float
 
@@ -5253,6 +5317,13 @@ async def on_startup():
     # emailed the moment one of them fails twice in a row.
     watchdog.set_db(db)
     asyncio.get_running_loop().create_task(watchdog.scheduler())
+    # Which way Encar traffic leaves is a setting, not the presence of an env var: an admin
+    # can flip it and the client itself flips it on a failover, so it has to be read back
+    # here or a restart would silently undo the decision.
+    _route_doc = await db.site_settings.find_one({"_id": "encar_routing"}) or {}
+    encar_mod.set_route(_route_doc.get("mode") or "auto")
+    encar_mod.set_persist(_store_encar_route)
+    log.info("encar route mode=%s route=%s", encar_mod.route_mode(), encar_mod.route())
     log.info("startup complete: %s listings in index",
              await db.listings.count_documents({}))
 
