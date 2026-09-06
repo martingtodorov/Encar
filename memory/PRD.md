@@ -592,3 +592,14 @@ from 2325 to 4509 while scrolling.
 * Проверено: flick до долу → само 6 декодирани снимки, всички резки; връщане нагоре
   презарежда горните; зуум/пан/затваряне работят. iOS crash-ът НЕ е репродуцируем в теста —
   чака потвърждение от устройството на потребителя.
+
+### Follow-up 3 — scroll lock оставаше след затваряне със зуум
+* Sticky X бутонът вика `setLightbox(false)` директно, без да минава през `onOpenChange` на
+  Radix Dialog → `photoZoom` оставаше true → при повторно отваряне диалогът беше с
+  `overflowY: hidden` и `touchAction: none`, т.е. без скрол. Флагът вече се чисти с ефект
+  `useEffect(() => { if (!lightbox) setPhotoZoom(false); }, [lightbox])` в CarDetailPage.
+* Проверено: зуум → X → отваряне отново → overflowY `auto`, touchAction `pan-y`, скролът
+  работи (scrollTop 900), всички снимки с `data-zoom = 1`.
+* ОТВОРЕН ВЪПРОС към потребителя: кой "друг lightbox с миниатюри отдолу" да се премахне за
+  мобилни — `Lightbox.jsx` (в момента се отваря само при ≥1024px) или хоризонталната лента
+  `detail-thumb-strip` под голямата снимка.

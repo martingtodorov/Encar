@@ -245,6 +245,13 @@ export default function CarDetailPage() {
   const [warmPhotos, setWarmPhotos] = useState(false);
   // True while one photo in the column is zoomed in.
   const [photoZoom, setPhotoZoom] = useState(false);
+  // Closing while a photo was zoomed used to leave the scroll lock behind: the sticky X sets
+  // `lightbox` straight, without going through the dialog's own `onOpenChange`. Whichever way
+  // the column goes away, it now reopens scrollable.
+  useEffect(() => {
+    if (!lightbox) setPhotoZoom(false);
+  }, [lightbox]);
+
   useEffect(() => {
     setWarmPhotos(false);
     if (!photos.length) return undefined;
@@ -1107,13 +1114,7 @@ export default function CarDetailPage() {
           reads. Each photo zooms where it sits — double tap, then pinch and drag — so
           reading a service record no longer means leaving the column and finding your
           place in it again afterwards. */}
-      <Dialog
-        open={lightbox}
-        onOpenChange={(open) => {
-          setLightbox(open);
-          if (!open) setPhotoZoom(false);   // never reopen with the scroll still frozen
-        }}
-      >
+      <Dialog open={lightbox} onOpenChange={setLightbox}>
         <DialogContent
           data-testid="detail-lightbox"
           // FULL viewport, not a centred 92vh card. While this is open Radix locks the page
