@@ -561,3 +561,15 @@ from 2325 to 4509 while scrolling.
 * Full-resolution file is still swapped in over the 800px column copy while zoomed.
 * Verified with the screenshot tool: double tap -> data-zoom 2.50 with neighbours visible
   above/below; double tap again -> data-zoom 1, stage removed, slot box identical.
+
+### Follow-up fixes (same session)
+* Malката снимка отгоре: базовият `<img>` в слота се рисуваше СЛЕД зуум слоя (по-късен sibling
+  = по-горе). Зуум слоят вече се рендира последен, а базовият/thumb слой е скрит докато е
+  зуумнато (`opacity-0`).
+* Touch навсякъде: зуумнатата снимка е `pointer-events-none`, а жестовете се хващат от
+  прозрачен `fixed inset-0` capture слой (`{testId}-capture`) — пръст върху разлялата се част
+  над съседните снимки вече мести същата снимка.
+* Заклещен зуум: случаен двупръстов допир оставяше scale 1.05 (невидимо) → колоната спираше да
+  скролва и close бутонът беше под слоя. Добавен SNAP = 1.2: всичко под това се връща на 1 при
+  вдигане на пръста или при `pointercancel` (iOS отменя докосвания често).
+* Close бутонът: sticky rail вдигнат от z-20 на z-[80], над зуум слота (z-60).

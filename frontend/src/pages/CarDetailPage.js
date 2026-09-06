@@ -1160,7 +1160,10 @@ export default function CarDetailPage() {
           </DialogDescription>
           {/* Sticky, zero-height rail: the close button rides along at the top of the
               viewport however far down the photos the visitor has scrolled. */}
-          <div className="pointer-events-none sticky top-0 z-20 flex h-0 justify-end">
+          {/* Above the zoomed photo's own layers (z-60): a magnified photo spills over its
+              neighbours and takes every touch on screen, and the way out must never be
+              underneath it. */}
+          <div className="pointer-events-none sticky top-0 z-[80] flex h-0 justify-end">
             <button
               type="button"
               data-testid="lightbox-close-button"

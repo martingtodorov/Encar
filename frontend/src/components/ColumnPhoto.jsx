@@ -4,6 +4,10 @@ const MAX = 4;
 const DOUBLE_TAP_MS = 300;
 const TAP_SLOP = 12;        // a tap that moves more than this was a scroll, not a tap
 const DOUBLE_TAP_TO = 2.5;  // what a double tap zooms to
+// A stray two-finger touch while scrolling used to leave a photo at 1.05x: invisible, but
+// enough to count as zoomed, which froze the column's scrolling and put the photo's own
+// full-screen touch layer over the close button. Anything under this snaps back to rest.
+const SNAP = 1.2;
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -158,8 +162,15 @@ export const ColumnPhoto = ({
     points.current.delete(e.pointerId);
     e.currentTarget.releasePointerCapture?.(e.pointerId);
     const g = gesture.current;
-    if (points.current.size === 0) gesture.current = null;
-    else if (points.current.size === 1) {
+    if (points.current.size === 0) {
+      gesture.current = null;
+      // Barely magnified is not magnified: come all the way back so the column scrolls and
+      // the close button is reachable again.
+      if (scale > 1.01 && scale < SNAP) {
+        reset();
+        return;
+      }
+    } else if (points.current.size === 1) {
       // One finger lifted out of a pinch: carry on as a drag from where it is.
       const [only] = [...points.current.values()];
       gesture.current = { kind: "drag", from: only, pan: { ...pan }, moved: 0 };
@@ -184,7 +195,12 @@ export const ColumnPhoto = ({
     // A capture left behind by an interrupted gesture is one of the ways a phone stops
     // delivering touches at all, so it is released on every exit path.
     e.currentTarget.releasePointerCapture?.(e.pointerId);
-    if (points.current.size === 0) gesture.current = null;
+    if (points.current.size === 0) {
+      gesture.current = null;
+      // iOS cancels touches freely (a notification, an edge swipe). A pinch interrupted
+      // halfway must not leave the photo stuck barely-zoomed with the column frozen.
+      if (scale > 1.01 && scale < SNAP) reset();
+    }
   };
 
   // Scanned service records are absurdly tall (6000px and up). Given the whole photo, the
@@ -213,7 +229,9 @@ export const ColumnPhoto = ({
       data-testid={testId}
       data-loaded={loaded ? "true" : "false"}
       data-zoom={zoomed ? scale.toFixed(2) : "1"}
-      {...hands}
+      // Zoomed, every finger belongs to the full-viewport capture layer below, so the slot
+      // itself stops listening — otherwise the same gesture would arrive twice by bubbling.
+      {...(zoomed ? {} : hands)}
       // Only take the gestures away from the browser once there is something to pan: at rest
       // the column has to keep scrolling exactly as it did.
       // Zoomed, the slot stops clipping and rises above its neighbours, so the magnified
@@ -228,40 +246,7 @@ export const ColumnPhoto = ({
         zoomed ? "overflow-visible" : "overflow-hidden"
       }`}
     >
-      {/* Zoomed in, the FULL resolution file is swapped in over the column's own 800px copy
-          — sharp at arm's length, not under a magnifying glass. Both layers carry the same
-          transform, so the picture never blinks while the big one arrives. */}
-      {zoomed && (
-        <div
-          data-testid={`${testId}-stage`}
-          className="pointer-events-none absolute inset-0 overflow-visible"
-        >
-          {!sharp && (
-            <img
-              src={src}
-              alt=""
-              aria-hidden="true"
-              style={moving}
-              className={`absolute inset-0 h-full w-full ${
-                tall ? "object-cover object-top" : "object-contain"
-              }`}
-            />
-          )}
-          <img
-            src={zoomSrc || src}
-            alt={alt}
-            decoding="async"
-            fetchPriority="high"
-            draggable={false}
-            onLoad={() => setSharp(true)}
-            style={moving}
-            className={`absolute inset-0 h-full w-full ${
-              tall ? "object-cover object-top" : "object-contain"
-            } ${sharp ? "opacity-100" : "opacity-0"}`}
-          />
-        </div>
-      )}
-      {thumb && !loaded && (
+      {thumb && !loaded && !zoomed && (
         // Already in the cache from the card and the strip. Outside the decoded window this
         // IS the photo — soft, but never a black rectangle, which is what iOS showed once it
         // started throwing decoded images away.
@@ -288,10 +273,55 @@ export const ColumnPhoto = ({
           onError={onFail}
           className={`absolute inset-0 h-full w-full ${
             tall ? "object-cover object-top" : "object-contain"
-          } ${loaded ? "opacity-100" : "opacity-0"}`}
+          } ${loaded && !zoomed ? "opacity-100" : "opacity-0"}`}
         />
       )}
       {placeholder}
+      {/* Zoomed in, the magnified photo is drawn LAST so nothing in the slot can paint over
+          it, and the FULL resolution file is swapped in over the column's own 800px copy —
+          sharp at arm's length, not under a magnifying glass.
+          The gestures are taken on a transparent layer the size of the whole screen: the
+          picture spills far outside its little slot, and a finger landing on the part that
+          hangs over the neighbours has to move THIS photo. The picture itself is
+          `pointer-events-none` so every touch reaches that layer. */}
+      {zoomed && (
+        <>
+          <div
+            data-testid={`${testId}-capture`}
+            {...hands}
+            style={{ touchAction: "none" }}
+            className="fixed inset-0 z-[1]"
+          />
+          <div
+            data-testid={`${testId}-stage`}
+            className="pointer-events-none absolute inset-0 z-[2] overflow-visible"
+          >
+            {!sharp && (
+              <img
+                src={src}
+                alt=""
+                aria-hidden="true"
+                style={moving}
+                className={`absolute inset-0 h-full w-full ${
+                  tall ? "object-cover object-top" : "object-contain"
+                }`}
+              />
+            )}
+            <img
+              src={zoomSrc || src}
+              alt={alt}
+              decoding="async"
+              fetchPriority="high"
+              draggable={false}
+              onLoad={() => setSharp(true)}
+              style={moving}
+              className={`absolute inset-0 h-full w-full ${
+                tall ? "object-cover object-top" : "object-contain"
+              } ${sharp ? "opacity-100" : "opacity-0"}`}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 };
