@@ -428,6 +428,38 @@ frozen at whatever the cached details had taught it.
   the CLI, that the phase is named in the progress bar, and that a colour query keeps the
   shared base filters (a pass without them would tag hidden and lease cars). 9 tests green.
 
+## 2026-09-06 — hardcoded car ids in the deploy probes, and two bugs found while fixing them
+Another session flagged committed hardcoded vehicle ids. **True this time**, and worse than
+reported: `deploy_nat.yml` had TWO curl probes pinned to vehicle 42207598, one of them wrapped
+in `assert stdout == '200'` ("that is the whole point of the home exit"). That car has since
+sold, so api.encar.com answers 404 for it — a perfectly healthy home exit would have failed
+the play. A third copy sat in `home-exit/setup-mac.sh` as a hint. All three now ask the
+CATALOGUE for a count (`encar_probe_url`, percent-encoded exactly as `EncarClient.search`
+builds it) — a question with no expiry date.
+* Guard: `tests/test_deploy_probes.py` (3) fails on ANY `readside/vehicle/<id>` or
+  `encar --verify <id>` under `deploy/`, and checks the probe URL still matches what the
+  client itself would request.
+
+### Two real bugs surfaced while fixing that
+1. **A regression I introduced with the failover work**: `client()` rebuilt whenever
+   `self._route != route()`, and `__init__` set `_route = None`. Tests inject a mock
+   transport by assigning `c._client` directly, so the check threw the mock away and built a
+   REAL client — 13 unit tests had silently become live network calls. `client()` now leaves
+   a client it did not build alone (`_route is None`), and `close()` clears `_route`.
+2. **The failover was firing on the wrong kind of failure.** A 403/407 means the route WORKS
+   and Encar refused us; switching to `direct` then is worse than useless — if CloudFront
+   blocks the residential address it blocks the datacentre one harder, and going direct puts
+   the server's own IP in front of the blocklist that started the whole problem. Only a
+   TRANSPORT fault (no HTTP status came back at all — the 15s proxy timeout that started
+   this) now moves traffic: `_trip(..., failover=...)`, armed only from
+   `_fail(..., transport=last_status is None)`. Test added for the block case.
+* Suites green: `test_encar_proxy.py` 16, `test_encar_route.py` 11, `test_colors.py` 9,
+  `test_deploy_probes.py` 3.
+* NOTE on the full suite: 39 failures / 24 errors are PRE-EXISTING and environmental — the
+  preview catalogue holds 6 cars because Encar answers 407 to this host, so every suite that
+  needs the real catalogue fails on shapes like `assert 6 > 100000`. The endpoints themselves
+  answer 200.
+
 ## Encar upstream (2026-06)
 * PRIMARY route now: sticky residential proxy (IPRoyal) via protected `encar_proxy_url` →
   `ENCAR_PROXY_URL`. Only api.encar.com; CDN/Stripe/Claude/Resend/GitHub direct. Owner must put

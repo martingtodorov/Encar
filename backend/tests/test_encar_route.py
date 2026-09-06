@@ -175,3 +175,36 @@ def test_verify_fails_when_the_count_comes_back_empty_handed(monkeypatch, capsys
 
     assert asyncio.run(encar_mod.verify()) == 1
     assert capsys.readouterr().out.startswith("FAIL")
+
+
+def test_a_block_does_not_fail_over(monkeypatch):
+    """403/407 means the route WORKS and Encar refused us.
+
+    Switching then is worse than useless: if CloudFront blocks the residential address it
+    blocks the datacentre one harder, and going direct puts the server's own IP in front of
+    the blocklist that started the problem. Only a transport fault moves traffic.
+    """
+    c = EncarClient(min_interval=0)
+
+    class Blocked:
+        async def get(self, url):
+            return encar_mod.httpx.Response(407, text="")
+
+        async def aclose(self):
+            pass
+
+    async def fake_client(self):
+        self._route = encar_mod.route()
+        return Blocked()
+
+    monkeypatch.setattr(EncarClient, "client", fake_client)
+
+    async def run():
+        with pytest.raises(EncarUnavailable) as e:
+            await c.get_json("/v1/readside/vehicle/1")
+        assert e.value.status == 407
+        assert encar_mod.route() == "residential_proxy"    # unmoved
+        assert c.breaker()["open"] is True                 # and asked politely to stop
+        assert c.status()["last_failover"] is None
+
+    asyncio.run(run())

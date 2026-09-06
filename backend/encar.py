@@ -239,8 +239,10 @@ class EncarClient:
     async def client(self):
         # Rebuild when the route changes. The client is cached for the process lifetime, so
         # without this check flipping the setting would do nothing until a restart — which
-        # is exactly the trap the old env-var-only switch was.
-        if self._client is not None and self._route != route():
+        # is exactly the trap the old env-var-only switch was. `_route is None` means the
+        # client was not built here (a test injects a mock transport): it is not ours to
+        # throw away, and discarding it silently turned unit tests into live network calls.
+        if self._client is not None and self._route is not None and self._route != route():
             await self.close()
         if self._client is None:
             self._route = route()
@@ -273,6 +275,7 @@ class EncarClient:
         if self._client:
             await self._client.aclose()
             self._client = None
+            self._route = None
 
     async def _throttle(self):
         async with self._lock:
@@ -356,7 +359,6 @@ class EncarClient:
             if r.status_code in BLOCK_STATUSES:
                 # Blocked. One attempt, no retries, and the circuit opens straight away.
                 self._trip(f"HTTP {r.status_code} from upstream", BLOCK_COOLDOWN)
-                await self._failover_if_pending()
                 raise EncarUnavailable(f"upstream refused the request "
                                        f"(HTTP {r.status_code})", r.status_code)
             if r.status_code in RATE_LIMIT_STATUSES:
@@ -368,7 +370,6 @@ class EncarClient:
                     # Encar named a wait we cannot make a caller sit through: honour it by
                     # keeping everyone away for exactly that long.
                     self._trip(f"HTTP 429, Retry-After {asked}s", min(asked, 600))
-                    await self._failover_if_pending()
                     raise EncarUnavailable(f"rate limited, retry after {asked}s", 429)
                 if asked is not None:
                     wait = asked
@@ -379,11 +380,12 @@ class EncarClient:
                 continue
             # Unexpected status: no retry (we do not know what it means), no None either.
             self._fail(f"HTTP {r.status_code}")
-            await self._failover_if_pending()
             raise EncarUnavailable(f"unexpected HTTP {r.status_code} from upstream",
                                    r.status_code)
 
-        self._fail(last)
+        # No HTTP status at all means nothing came back down the route: THAT is the case
+        # worth trying the other way out for.
+        self._fail(last, transport=last_status is None)
         await self._failover_if_pending()
         raise EncarUnavailable(f"upstream did not answer for {path}: {last}", last_status)
 
@@ -393,20 +395,24 @@ class EncarClient:
     def _ok(self):
         self._fails = 0
 
-    def _fail(self, reason):
+    def _fail(self, reason, transport=False):
         self._fails += 1
         reason = _scrub(reason)
         if self._fails >= BREAKER_FAILS:
-            self._trip(reason, BREAKER_COOLDOWN)
+            self._trip(reason, BREAKER_COOLDOWN, failover=transport)
 
-    def _trip(self, reason, cooldown):
+    def _trip(self, reason, cooldown, failover=False):
         self._fails = 0
         self._trips += 1
         self._open_until = time.monotonic() + cooldown
         self._open_reason = _scrub(reason)
-        # The circuit is open because THIS route stopped working. If there is another way
-        # out, ask for it to be tried; `_failover_if_pending` decides (it needs to await).
-        self._pending_failover = bool(other_route())
+        # Only a TRANSPORT fault asks for the other route. A 403/407/429 means the route
+        # works and Encar refused us — switching then would be worse than useless: if
+        # CloudFront blocks the residential address, the datacentre one is blocked harder,
+        # and going direct puts the server's own IP in front of the blocklist that started
+        # this. The proxy timing out at 15s while a direct call answers in 0.4s is the case
+        # failover is for.
+        self._pending_failover = failover and bool(other_route())
         log.error("encar circuit=open for %ss route=%s: %s", cooldown, route(),
                   self._open_reason)
 
@@ -710,10 +716,11 @@ async def verify(listing_id=None):
     """
     t0 = time.monotonic()
     client = EncarClient(min_interval=0)
+    tried = route()          # the route we ASKED on; a failover must not rewrite the report
     try:
         total = await client.count()
         if total is None:
-            print(f"FAIL route={route()} the catalogue count did not come back")
+            print(f"FAIL route={tried} the catalogue count did not come back")
             return 1
         extra = ""
         if listing_id:
@@ -723,12 +730,12 @@ async def verify(listing_id=None):
                      f"still proven)" if body is None
                      else f" vehicle={listing_id} status=200")
     except EncarUnavailable as e:
-        print(f"FAIL route={route()} status={e.status or '-'} "
+        print(f"FAIL route={tried} status={e.status or '-'} "
               f"latency_ms={int((time.monotonic() - t0) * 1000)} reason={_scrub(e)}")
         return 1
     finally:
         await client.close()
-    print(f"OK route={route()} status=200 latency_ms={int((time.monotonic() - t0) * 1000)} "
+    print(f"OK route={tried} status=200 latency_ms={int((time.monotonic() - t0) * 1000)} "
           f"catalogue={total}{extra}")
     return 0
 

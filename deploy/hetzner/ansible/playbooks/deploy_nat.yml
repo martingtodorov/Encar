@@ -268,6 +268,15 @@
   become: true
   roles: [nat_defaults]
 
+  vars:
+    # These checks ask the CATALOGUE how many cars it holds, not whether one particular car
+    # is still for sale. They used to fetch vehicle 42207598; that car has since sold, so
+    # api.encar.com answers 404 for it and the "must be 200" assert below would have failed
+    # a perfectly healthy home exit. A count query has no expiry date. Percent-encoded
+    # exactly as the application encodes it (see EncarClient.search).
+    encar_probe_url: >-
+      https://api.encar.com/search/car/list/general?count=true&q=%28And.Hidden.N._.CarType.A.%29&sr=%7CModifiedDate%7C0%7C1
+
   tasks:
     - name: Which interface carries the private address
       ansible.builtin.shell: >-
@@ -514,7 +523,7 @@
       ansible.builtin.command: >-
         runuser -u {{ backend_service_user }} --
         curl -sS -o /dev/null -w '%{http_code}' --max-time 25
-        'https://api.encar.com/v1/readside/vehicle/42207598'
+        '{{ encar_probe_url }}'
       register: encar_probe
       changed_when: false
       failed_when: false
@@ -576,7 +585,7 @@
         runuser -u {{ backend_service_user }} --
         curl -sS -o /dev/null -w '%{http_code}' --max-time 25
         -x http://{{ home_exit_ip }}:{{ home_exit_proxy_port }}
-        'https://api.encar.com/v1/readside/vehicle/42207598'
+        '{{ encar_probe_url }}'
       register: encar_home
       changed_when: false
       failed_when: false
