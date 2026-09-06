@@ -33,7 +33,8 @@ const RESERVE = 4 / 3;      // Encar's landscape shape: the common case, so most
                             // exactly the height they reserved
 const IN_FLIGHT = 2;        // one for the eyes, one for the queue behind it
 const AHEAD = 3;            // how far past the visible photo counts as "coming next"
-const WINDOW = 3;           // photos kept decoded either side of the one being looked at
+const WINDOW = 2;           // photos kept decoded either side of the one being looked at
+const SETTLE_MS = 140;      // a flick is not a decision: see `look` below
 const STALL_MS = 9000;      // a request this old stops holding a slot in the queue
 const TICK_MS = 1200;
 
@@ -46,6 +47,7 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
   const [tick, setTick] = useState(0);
   const startedAt = useRef({});
   const hostRef = useRef(null);
+  const settleTimer = useRef(null);
 
   useEffect(() => {
     setStarted([]);
@@ -62,7 +64,11 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
     return () => clearInterval(id);
   }, []);
 
-  // The scheduler: start at most one more photo per pass, never more than IN_FLIGHT at once.
+  // The scheduler: start at most one more photo per pass, never more than IN_FLIGHT at once,
+  // and ONLY inside the window that is actually rendered. Starting photos further away used
+  // to wedge the queue — a photo whose slot is not mounted never fires a load event, so it
+  // sat in the "in flight" count for nine seconds each and loading appeared to stop dead
+  // after a fast scroll. What is fetched and what is rendered are now the same set.
   useEffect(() => {
     const n = photos.length;
     if (!n) return;
@@ -74,10 +80,11 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
 
     const waiting = (i) => i >= 0 && i < n && !started.includes(i);
     let pick = -1;
-    for (let i = looking; i < Math.min(n, looking + AHEAD) && pick < 0; i += 1) {
+    // The one being looked at and what is coming next, then back up over what was passed.
+    for (let i = looking; i <= looking + AHEAD && pick < 0; i += 1) {
       if (waiting(i)) pick = i;
     }
-    for (let i = 0; i < n && pick < 0; i += 1) {
+    for (let i = looking - 1; i >= looking - WINDOW && pick < 0; i -= 1) {
       if (waiting(i)) pick = i;
     }
     if (pick < 0) return;
@@ -85,8 +92,26 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
     setStarted((s) => (s.includes(pick) ? s : [...s, pick]));
   }, [started, ratio, failed, looking, tick, photos]);
 
+  // A photo the visitor scrolled away from before it arrived forgets it was ever asked for,
+  // so coming back to it starts again instead of waiting on a request that no longer has a
+  // slot to land in. Anything already measured stays known — the height it reserves is what
+  // keeps the column from jumping.
+  useEffect(() => {
+    setStarted((s) =>
+      s.length && s.some((i) => !ratio[i] && (i < looking - WINDOW || i > looking + AHEAD))
+        ? s.filter((i) => ratio[i] || (i >= looking - WINDOW && i <= looking + AHEAD))
+        : s
+    );
+  }, [looking, ratio]);
+
   // Which slot is on screen. Twenty observed elements costs nothing and replaces a scroll
   // handler that would fire on every frame.
+  //
+  // A FLICK IS NOT A DECISION. Reacting to every slot a fast scroll flies past started a
+  // decode for each of them and moved the decoded window a dozen times in a second, which
+  // is what killed the tab at the bottom of the column. The observer therefore only commits
+  // once the scrolling has stood still for a moment; until then nothing is fetched and
+  // nothing is thrown away.
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return undefined;
@@ -96,14 +121,20 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
           .filter((e) => e.isIntersecting)
           .map((e) => Number(e.target.dataset.idx))
           .filter((i) => !Number.isNaN(i));
-        if (seen.length) setLooking(Math.min(...seen));
+        if (!seen.length) return;
+        const first = Math.min(...seen);
+        clearTimeout(settleTimer.current);
+        settleTimer.current = setTimeout(() => setLooking(first), SETTLE_MS);
       },
       // Root is the viewport on purpose: the column scrolls inside the dialog, and a slot
       // clipped by that overflow is already reported as not intersecting.
       { threshold: 0.01 }
     );
     host.querySelectorAll("[data-idx]").forEach((el) => io.observe(el));
-    return () => io.disconnect();
+    return () => {
+      clearTimeout(settleTimer.current);
+      io.disconnect();
+    };
   }, [photos]);
 
   const settle = useCallback((i, el) => {
@@ -133,9 +164,11 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
     >
       {photos.map((p, i) => {
         const known = !!ratio[i];
-        // Decoded only near the eyes — plus the zoomed one, which must never be dropped
-        // from under a finger.
-        const near = Math.abs(i - looking) <= WINDOW || i === zoomIdx;
+        // Decoded only near the eyes — the same window the scheduler fetches, so nothing is
+        // ever requested for a slot that is not there to receive it — plus the zoomed one,
+        // which must never be dropped from under a finger.
+        const near =
+          (i >= looking - WINDOW && i <= looking + AHEAD) || i === zoomIdx;
         return (
           <ColumnPhoto
             key={p.full_column || p.full || i}

@@ -1178,6 +1178,9 @@ export default function CarDetailPage() {
             </button>
           </div>
 
+          {/* Mounted only while open: closing throws the column away, so reopening always
+              starts with every photo back at its normal size and nothing zoomed. */}
+          {lightbox && (
           <PhotoColumn
             photos={photos}
             alt={car?.title || ""}
@@ -1185,6 +1188,7 @@ export default function CarDetailPage() {
             // picture, not slide the page out from under it.
             onZoomChange={setPhotoZoom}
           />
+          )}
         </DialogContent>
       </Dialog>
 
