@@ -968,6 +968,44 @@ async def put_taste(body: TasteIn, user=Depends(current_user)):
     return {"saved": True}
 
 
+class ConsentIn(BaseModel):
+    """A decision made BEFORE this account existed, carried up from the device cookie."""
+    v: str = ""
+    ts: str = ""
+    cats: dict = {}
+    source: str = ""
+
+
+@router.post("/auth/consent")
+async def put_consent(body: ConsentIn, user=Depends(current_user)):
+    """Attach a guest's cookie decision to the account they have just created.
+
+    Signed out, the decision lives only in a 90-day cookie on the visitor's own machine —
+    which is why almost no account carried one. When that visitor signs up inside the 90
+    days, the choice they already made comes with them instead of being asked for again.
+
+    An OLDER decision must never overwrite a newer one on the account (the buyer may have
+    changed it on another device since), and the timestamp is the buyer's own; `recorded_at`
+    is ours, so the record cannot be backdated by a client.
+    """
+    if not isinstance(body.cats, dict) or not body.cats:
+        raise HTTPException(400, "no decision to carry")
+    have = (user.get("consent_record") or {})
+    incoming_ts = str(body.ts or "")[:40]
+    if have.get("ts") and str(have["ts"]) >= incoming_ts:
+        return {"stored": False, "reason": "the account has a newer decision"}
+    cats = {str(k)[:32]: bool(v) for k, v in list(body.cats.items())[:10]}
+    rec = {"v": str(body.v or "")[:32], "ts": incoming_ts, "cats": cats,
+           "recorded_at": _now(), "source": (body.source or "")[:40]}
+    on = sorted(k for k, v in cats.items() if v)
+    summary = ("all" if set(on) >= {"personalisation", "statistics"}
+               else "+".join(on) or "necessary")
+    await _db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"consent_record": rec, "consent": summary}})
+    return {"stored": True, "consent_record": rec}
+
+
 class LangIn(BaseModel):
     lang: str = ""
 

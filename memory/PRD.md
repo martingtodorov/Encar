@@ -308,6 +308,36 @@ Now:
   no-credential-leak assertion; 46 green across the touched SEO/sync suites. Endpoints verified
   by curl on the preview host (407 from Encar there is expected: datacentre IP, no proxy).
 
+## 2026-09-06 — Ask everybody again + the guest decision follows them into an account (DONE)
+Owner: "almost all of our users have not been asked about personalisation and statistics… a
+button for the admin which gives the users the pop up next time they visit" and "if a user who
+is not logged in has consented, transfer his choice using the 90-day cookies so if he makes an
+account in the upcoming 90 days we have his choice." The database agreed: 500 accounts, ZERO
+consent records — a guest's decision lived only in their own cookie and nothing ever carried it
+up.
+
+* **Ask everyone again**: `POST /api/admin/consent/reask {on, note}` stamps
+  `site_settings.consent_reask`; `GET /api/consent/policy` is public so every browser learns
+  the stamp on its first page view. ONE timestamp, not a flag per person — a guest has no row
+  of ours to flag. Any decision taken before it stops counting: `hasDecision()` is false so the
+  blocking dialog opens, and `allows()` is false meanwhile so nothing optional is written while
+  the answer is outstanding. Cancelling restores every decision already on record.
+* **Admin UI** (`components/admin/AdminConsent.js`): "Ask everyone again" / "Cancel the
+  request", the counters that matter (never decided / asked again and still waiting / carried
+  from a pre-account cookie), and per-row "asked again — waiting" and "carried" badges.
+* **The 90-day carry**: `save()` writes a SECOND copy of the decision to `ab_consent_carry`
+  (90 days, exactly the retention asked for) alongside the 365-day `ab_consent`. On the first
+  sign-in `AuthContext` calls `carryConsent(user)` → `POST /api/auth/consent`, which stores it
+  with the visitor's OWN timestamp plus our `recorded_at` and `source:
+  "pre_account_cookie"`, then drops the carry cookie. An older carried decision NEVER
+  overwrites a newer one already on the account (enforced server-side), and a refusal is
+  carried just as an agreement is.
+* Tests: `tests/test_consent_reask.py` (7, module pinned to one xdist worker — the stamp is
+  global). Frontend verified end to end by the testing agent (iteration_47): admin toggle both
+  ways, an old decision reopening the dialog, ~90-day carry cookie on accept AND on reject, and
+  a guest choosing statistics-only whose brand-new account came out with exactly that record,
+  same timestamp, `source: pre_account_cookie`, carry cookie dropped.
+
 ## Encar upstream (2026-06)
 * PRIMARY route now: sticky residential proxy (IPRoyal) via protected `encar_proxy_url` →
   `ENCAR_PROXY_URL`. Only api.encar.com; CDN/Stripe/Claude/Resend/GitHub direct. Owner must put

@@ -300,6 +300,24 @@ export async function getConsentLog() {
   return data;
 }
 
+/** Public: has the operator asked everybody to decide again, and when. */
+export async function getConsentPolicy() {
+  const { data } = await http.get("/consent/policy");
+  return data;
+}
+
+/** Ask every visitor to decide again (or cancel that request). Admin only. */
+export async function setConsentReask(on, note = "") {
+  const { data } = await http.post("/admin/consent/reask", { on: !!on, note });
+  return data;
+}
+
+/** Attach a decision made before the account existed to the account. Signed in only. */
+export async function putCarriedConsent(rec) {
+  const { data } = await http.post("/auth/consent", { ...rec, source: "pre_account_cookie" });
+  return data;
+}
+
 export async function getAuditLog() {
   const { data } = await http.get("/admin/audit");
   return data.items;

@@ -17,10 +17,12 @@
  * the request that needs it. Signed in, the same profile is mirrored onto the account so it
  * follows them between devices — and so the operator can see what a buyer is after.
  */
-import http from "@/lib/api";
+import http, { putCarriedConsent } from "@/lib/api";
 import {
   allows,
   adopt as adoptConsent,
+  carried as carriedConsent,
+  dropCarried,
   record as consentRecord,
   save as saveConsent,
   summary,
@@ -212,4 +214,30 @@ export function syncConsent() {
     consent: getConsent(),
     consent_record: consentRecord() || {},
   }).catch(() => {});
+  dropCarried();       // it is on the account now; nothing left to carry
+}
+
+/**
+ * Carry a decision made while signed OUT onto the account that has just appeared.
+ *
+ * Without this, a visitor who chose in the dialog and signed up ten minutes later arrived as
+ * an account with no consent on record — which is why almost none of them had one. The
+ * carry copy lives 90 days (see `CARRY_DAYS`), and an older decision never overwrites a
+ * newer one already on the account; the server enforces that too.
+ */
+export async function carryConsent(user) {
+  const rec = carriedConsent();
+  if (!rec) return false;
+  const accountTs = user?.consent_record?.ts || "";
+  if (accountTs && accountTs >= (rec.ts || "")) {
+    dropCarried();
+    return false;
+  }
+  try {
+    await putCarriedConsent(rec);
+    dropCarried();
+    return true;
+  } catch (e) {
+    return false;            // next sign-in tries again; the cookie is still there
+  }
 }

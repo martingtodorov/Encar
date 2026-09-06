@@ -4802,25 +4802,76 @@ async def admin_consent(request: Request, x_admin_token: str = Header(default=""
         {}, {"email": 1, "consent": 1, "consent_record": 1, "created_at": 1}
     ).sort("created_at", -1).limit(500)]
 
+    reask = await _consent_reask_at()
     out = []
     for u in rows:
         rec = u.get("consent_record") or {}
         cats = rec.get("cats") or {}
+        decided = str(rec.get("ts") or "")
         out.append({
             "email": u.get("email") or "",
             "summary": u.get("consent") or "",
             "version": rec.get("v") or "",
             "categories": [k for k, v in cats.items() if v],
-            "decided_at": rec.get("ts") or "",
+            "decided_at": decided,
             "recorded_at": rec.get("recorded_at"),
             "joined_at": u.get("created_at"),
             "has_record": bool(rec),
+            "carried": rec.get("source") == "pre_account_cookie",
+            # Asked again and not yet answered: the decision predates the re-ask.
+            "stale": bool(reask and rec and decided < reask),
         })
     # Whoever decided most recently first; accounts that never decided sink to the bottom.
     out.sort(key=lambda r: (r["has_record"], str(r["recorded_at"] or r["decided_at"] or "")),
              reverse=True)
     return {"items": out, "with_record": sum(1 for r in out if r["has_record"]),
-            "total": len(out)}
+            "total": len(out), "reask_at": reask,
+            "not_asked": sum(1 for r in out if not r["has_record"]),
+            "awaiting": sum(1 for r in out if r["stale"]),
+            "carried": sum(1 for r in out if r["carried"])}
+
+
+# ── asking everybody again ───────────────────────────────────────────────────
+# A decision taken before this moment is treated as no decision at all: the dialog opens
+# again on the visitor's next page view, and nothing outside the strictly necessary category
+# may be written until they answer. It is ONE timestamp rather than a flag per person,
+# because a guest has no row of ours to flag — their decision lives in their own cookie.
+async def _consent_reask_at():
+    doc = await db.site_settings.find_one({"_id": "consent_reask"}) or {}
+    return str(doc.get("at") or "")
+
+
+@api.get("/consent/policy")
+async def consent_policy():
+    """Public: has the operator asked everybody to decide again, and when."""
+    doc = await db.site_settings.find_one({"_id": "consent_reask"}) or {}
+    return {"reask_at": str(doc.get("at") or ""), "note": str(doc.get("note") or "")}
+
+
+class ConsentReaskBody(BaseModel):
+    on: bool = True
+    note: str = ""
+
+
+@api.post("/admin/consent/reask")
+async def admin_consent_reask(body: ConsentReaskBody, request: Request,
+                              x_admin_token: str = Header(default="")):
+    """Ask every visitor — guest or account, on every device — to decide again."""
+    admin = await _require_admin(request, x_admin_token)
+    if body.on:
+        at = datetime.now(timezone.utc).isoformat()
+        await db.site_settings.update_one(
+            {"_id": "consent_reask"},
+            {"$set": {"at": at, "note": (body.note or "")[:200], "by": _actor(admin)}},
+            upsert=True)
+    else:
+        # Withdrawing the request restores every decision already on record; nobody is asked
+        # a second time for something they have answered.
+        at = ""
+        await db.site_settings.delete_one({"_id": "consent_reask"})
+    await _audit(request, _actor(admin), "consent.reask", "consent_reask",
+                 "asked everyone again" if body.on else "re-ask cancelled")
+    return {"reask_at": at}
 
 
 @api.get("/admin/buyers")

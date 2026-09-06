@@ -1,4 +1,4 @@
-import { getConsent, markSignedIn, setConsent } from "@/lib/taste";
+import { carryConsent, getConsent, markSignedIn, setConsent } from "@/lib/taste";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import {
   apiGoogleSession,
@@ -218,6 +218,9 @@ export function AuthProvider({ children }) {
     // Signed-in buyers get their profile mirrored to the account; taste.js needs to know,
     // and the session cookie is httpOnly so it cannot check for itself.
     markSignedIn(!!user);
+    // A decision taken before this account existed goes UP first (that is the 90-day carry
+    // cookie), so it is not overwritten by the empty record the new account starts with.
+    if (user) carryConsent(user);
     // Consent recorded on the account means we do not ask again on a new device.
     if (user?.consent_record?.cats) setConsent(user.consent_record);
     else if (user?.consent && !getConsent()) setConsent(user.consent);

@@ -13,7 +13,9 @@ import {
   onConsentChange,
   rejectAll,
   save,
+  setReaskStamp,
 } from "@/lib/consent";
+import { getConsentPolicy } from "@/lib/api";
 import { syncConsent } from "@/lib/taste";
 
 /**
@@ -47,6 +49,16 @@ export const CookieBar = () => {
 
   useEffect(() => {
     setShow(!hasDecision());
+    // The operator can ask everybody to decide again; only the server knows when they did.
+    // A decision older than that stamp stops counting, so the dialog opens on this view.
+    let alive = true;
+    getConsentPolicy()
+      .then(({ reask_at: at }) => {
+        if (!alive) return;
+        setReaskStamp(at || "");
+        setShow(!hasDecision());
+      })
+      .catch(() => {});
     const reopen = () => {
       setCats(chosen());
       setDetails(true);
@@ -55,6 +67,7 @@ export const CookieBar = () => {
     window.addEventListener(OPEN_EVENT, reopen);
     const off = onConsentChange(() => setCats(chosen()));
     return () => {
+      alive = false;
       window.removeEventListener(OPEN_EVENT, reopen);
       off();
     };

@@ -26,6 +26,23 @@ export const CATEGORIES = ["personalisation", "statistics"];
 const COOKIE = "ab_consent";
 const DAYS = 365;
 
+/**
+ * A SECOND copy of the decision, alive for 90 days, kept for one purpose: a visitor who
+ * decides while signed out and creates an account later should not be asked again — the
+ * choice they already made travels up to the account on their first sign-in. After 90 days
+ * the cookie is gone and nothing is carried, which is the retention the owner asked for.
+ */
+const CARRY = "ab_consent_carry";
+export const CARRY_DAYS = 90;
+
+/**
+ * The operator can ask EVERYBODY to decide again (Admin → Consent). It is one timestamp
+ * rather than a flag per person, because a guest has no row of ours to flag. A decision
+ * taken before it counts as no decision at all: the dialog opens, and `allows()` says no
+ * meanwhile, so nothing optional is written while the answer is outstanding.
+ */
+let reaskAt = "";
+
 // Written only under `personalisation`; cleared the moment it is refused or withdrawn.
 const PERSONALISATION_COOKIES = ["ab_taste", "ab_vid", "ab_track"];
 
@@ -64,15 +81,34 @@ export function record() {
   }
 }
 
-/** True only for a decision taken against the CURRENT policy. */
+/** True only for a decision taken against the CURRENT policy, and not superseded by a
+ *  request from the operator to decide again. */
 export function hasDecision() {
   const r = record();
-  return !!r && r.v === POLICY_VERSION;
+  return !!r && r.v === POLICY_VERSION && !superseded(r);
+}
+
+/** Was this decision taken before the operator asked everybody again? */
+function superseded(r) {
+  if (!reaskAt) return false;
+  return !r.ts || r.ts < reaskAt;
+}
+
+/** Told by the server (`GET /api/consent/policy`) on the first page view. */
+export function setReaskStamp(iso) {
+  const next = iso || "";
+  if (next === reaskAt) return;
+  reaskAt = next;
+  announce();
+}
+
+export function reaskStamp() {
+  return reaskAt;
 }
 
 export function allows(category) {
   const r = record();
-  if (!r || r.v !== POLICY_VERSION) return false;
+  if (!r || r.v !== POLICY_VERSION || superseded(r)) return false;
   return !!r.cats[category];
 }
 
@@ -85,13 +121,33 @@ export function chosen() {
 
 export function save(cats) {
   const clean = Object.fromEntries(CATEGORIES.map((c) => [c, !!cats?.[c]]));
-  writeJsonCookie(COOKIE, { v: POLICY_VERSION, ts: new Date().toISOString(), cats: clean }, DAYS);
+  const rec = { v: POLICY_VERSION, ts: new Date().toISOString(), cats: clean };
+  writeJsonCookie(COOKIE, rec, DAYS);
+  // The 90-day carry copy: if this visitor creates an account within that window, this is
+  // the decision that goes onto it, exactly as it was made here.
+  writeJsonCookie(CARRY, rec, CARRY_DAYS);
   // Refusing or withdrawing has to actually remove what was stored under that category,
   // otherwise the refusal is cosmetic.
   if (!clean.personalisation) PERSONALISATION_COOKIES.forEach(dropCookie);
   announce();
   return clean;
 }
+
+/** The decision waiting to be attached to an account, or null. */
+export function carried() {
+  const raw = readCookie(CARRY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || !parsed.cats) return null;
+    return { v: parsed.v || "", ts: parsed.ts || "", cats: parsed.cats };
+  } catch (e) {
+    return null;
+  }
+}
+
+/** Once it is on the account there is no reason to keep carrying it. */
+export const dropCarried = () => dropCookie(CARRY);
 
 export const acceptAll = () =>
   save(Object.fromEntries(CATEGORIES.map((c) => [c, true])));
