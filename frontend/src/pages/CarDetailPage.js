@@ -243,6 +243,8 @@ export default function CarDetailPage() {
   // (this route's LCP) wins the network first, and skipped outright on a metered or 2G
   // connection - warming a gallery is not worth someone's data plan.
   const [warmPhotos, setWarmPhotos] = useState(false);
+  // True while one photo in the column is zoomed in.
+  const [photoZoom, setPhotoZoom] = useState(false);
   useEffect(() => {
     setWarmPhotos(false);
     if (!photos.length) return undefined;
@@ -1102,10 +1104,16 @@ export default function CarDetailPage() {
       </div>
 
       {/* Mobile viewer: a vertical column of every photo, close to how a phone gallery
-          reads. Tapping any photo inside hands off to the single-photo lightbox, which
-          is where iOS pinch-zoom actually works (no scrolling container to compete with
-          the visualViewport pan). */}
-      <Dialog open={lightbox} onOpenChange={setLightbox}>
+          reads. Each photo zooms where it sits — double tap, then pinch and drag — so
+          reading a service record no longer means leaving the column and finding your
+          place in it again afterwards. */}
+      <Dialog
+        open={lightbox}
+        onOpenChange={(open) => {
+          setLightbox(open);
+          if (!open) setPhotoZoom(false);   // never reopen with the scroll still frozen
+        }}
+      >
         <DialogContent
           data-testid="detail-lightbox"
           // FULL viewport, not a centred 92vh card. While this is open Radix locks the page
@@ -1139,8 +1147,11 @@ export default function CarDetailPage() {
             WebkitOverflowScrolling: "touch",
             // Native zoom off entirely in the photo column: `pan-y` leaves scrolling intact
             // but forbids pinch. Zooming here dragged the sticky close button out of reach;
-            // pinching a single photo is what the zoom viewer is for.
-            touchAction: "pan-y",
+            // pinching a single photo is what the in-place zoom is for.
+            // Zoomed into one photo, the column freezes: every finger belongs to that photo
+            // until it is zoomed back out.
+            touchAction: photoZoom ? "none" : "pan-y",
+            overflowY: photoZoom ? "hidden" : "auto",
           }}
         >
           <DialogTitle className="sr-only">{car?.title || t("allPhotos")}</DialogTitle>
@@ -1167,13 +1178,9 @@ export default function CarDetailPage() {
           <PhotoColumn
             photos={photos}
             alt={car?.title || ""}
-            onPick={(i) => {
-              // Close the column and open the zoomable single-photo viewer at the photo
-              // the visitor just tapped. `setShot` after the dialog transition starts
-              // avoids a two-modal flash.
-              setLightbox(false);
-              setShot(i);
-            }}
+            // While a photo is zoomed the column must not scroll: a drag has to move the
+            // picture, not slide the page out from under it.
+            onZoomChange={setPhotoZoom}
           />
         </DialogContent>
       </Dialog>

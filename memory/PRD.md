@@ -551,3 +551,13 @@ from 2325 to 4509 while scrolling.
 * `/app/backend/server.py` (still ~4500 lines; refactoring candidate)
 * `/app/frontend/src/components/admin/` (new AdminTestimonials.js for P1)
 * `/app/frontend/src/pages/Home.js` (testimonials shelf placement)
+
+## 2026-06 Mobile photo column zoom (in-place overlay)
+* `ColumnPhoto.jsx`: removed the fixed full-screen black stage used while zoomed. A zoomed
+  photo now stays in its own slot: the slot drops `overflow-hidden` and gets `z-index: 60`,
+  so the magnified picture spills OVER its neighbours while the whole vertical column stays
+  visible. Zooming back out (double tap / pinch out) restores the column exactly as it was —
+  the slot never moves or resizes, so nothing reflows.
+* Full-resolution file is still swapped in over the 800px column copy while zoomed.
+* Verified with the screenshot tool: double tap -> data-zoom 2.50 with neighbours visible
+  above/below; double tap again -> data-zoom 1, stage removed, slot box identical.
