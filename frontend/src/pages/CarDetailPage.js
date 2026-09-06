@@ -39,6 +39,7 @@ import { MoreFromModel } from "@/components/MoreFromModel";
 import { useLangNav } from "@/hooks/useLangNav";
 import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { useShare } from "@/hooks/useShare";
+import { PhotoColumn } from "@/components/PhotoColumn";
 import { usePhotoPreload } from "@/hooks/usePhotoPreload";
 import { getCar, warmCar, forgetCar, countView } from "@/lib/api";
 import { noteView, WEIGHT } from "@/lib/taste";
@@ -231,13 +232,30 @@ export default function CarDetailPage() {
   const photos = car?.photos || [];
   const q = car?.quote;
 
-  // The mobile viewer is a column of every photo. While it is open they are pulled into
-  // the browser cache one after another, in the order they are scrolled past, so
-  // scrolling down the column does not wait on the CDN photo by photo.
+  // Silent warm-up: once the page itself has settled, the column's photos are pulled into
+  // the browser cache in order, ONE at a time, at the modest size the column actually shows.
+  // By the time a visitor taps a photo, the whole set is local, so the viewer opens with
+  // pictures instead of spinners — and because it is the same URL the column asks for,
+  // nothing is downloaded twice.
+  //
+  // The old chain did this with the FULL-resolution variant and the column started its own
+  // copies alongside it; that duplication is what froze the phone. Delayed so the hero photo
+  // (this route's LCP) wins the network first, and skipped outright on a metered or 2G
+  // connection - warming a gallery is not worth someone's data plan.
+  const [warmPhotos, setWarmPhotos] = useState(false);
+  useEffect(() => {
+    setWarmPhotos(false);
+    if (!photos.length) return undefined;
+    const link = navigator.connection || {};
+    if (link.saveData || /(^|-)2g$/.test(link.effectiveType || "")) return undefined;
+    const timer = setTimeout(() => setWarmPhotos(true), 1500);
+    return () => clearTimeout(timer);
+  }, [car?.id, photos.length]);
+
   usePhotoPreload(
-    photos.map((p) => p.full_lightbox || p.full),
+    photos.map((p) => p.full_column || p.full),
     0,
-    lightbox
+    warmPhotos
   );
 
   // The SEO/preview title carries the trim: "Mercedes-Benz AMG GT 4-door 43 4MATIC+" says far
@@ -1090,13 +1108,40 @@ export default function CarDetailPage() {
       <Dialog open={lightbox} onOpenChange={setLightbox}>
         <DialogContent
           data-testid="detail-lightbox"
+          // FULL viewport, not a centred 92vh card. While this is open Radix locks the page
+          // behind it (`body { pointer-events: none; overflow: hidden }`), and a centred card
+          // leaves a strip of that locked page around it. Reaching the end of the photos then
+          // handed the gesture to a scroll-locked body, and iOS stopped delivering touches at
+          // all — a dead phone exactly at the bottom of the column, which is where a shopper
+          // ends up. `100dvh` also keeps it right under Safari's collapsing toolbar, and with
+          // nothing showing around it the install banner can no longer paint over the photos.
           // The stock close button is absolute inside this scrolling column, so it slides
           // out of reach on the second photo. Hidden here in favour of the sticky one below.
-          className="max-h-[92vh] max-w-4xl overflow-y-auto border-border bg-black p-0 [&>button]:hidden"
-          // Native zoom off entirely in the photo column: `pan-y` leaves scrolling intact
-          // but forbids pinch, and the `gesture*` handlers below stop Safari's own
-          // document zoom. Zooming here dragged the sticky close button out of reach.
-          style={{ touchAction: "pan-y" }}
+          className="gap-0 rounded-none border-0 bg-black p-0 overflow-y-auto [&>button]:hidden"
+          style={{
+            // Geometry inline, not in classes: the dialog's own utilities centre it with
+            // `left/top: 50%` and a translate, and an inline style is the only way to win
+            // that argument deterministically. `inset: 0` on a fixed element fills the
+            // screen in every browser, including the Safari versions that do not know
+            // `dvh`.
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: "auto",
+            height: "auto",
+            maxWidth: "none",
+            maxHeight: "none",
+            transform: "none",
+            // `contain` is the one that matters: the scroll chain STOPS here, so hitting the
+            // last photo no longer bounces into the locked page underneath.
+            overscrollBehavior: "contain",
+            WebkitOverflowScrolling: "touch",
+            // Native zoom off entirely in the photo column: `pan-y` leaves scrolling intact
+            // but forbids pinch. Zooming here dragged the sticky close button out of reach;
+            // pinching a single photo is what the zoom viewer is for.
+            touchAction: "pan-y",
+          }}
         >
           <DialogTitle className="sr-only">{car?.title || t("allPhotos")}</DialogTitle>
           <DialogDescription className="sr-only">
@@ -1110,48 +1155,26 @@ export default function CarDetailPage() {
               data-testid="lightbox-close-button"
               onClick={() => setLightbox(false)}
               aria-label={t("close")}
-              className="pointer-events-auto mr-3 mt-14 flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-[0_2px_10px_rgba(0,0,0,.45)] transition-transform active:scale-95"
+              // `mt-14` used to push this button clear of the install banner, which showed
+              // through above the old centred card. The layer is full-height now, so the
+              // button belongs at the real top corner.
+              className="pointer-events-auto mr-3 mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-[0_2px_10px_rgba(0,0,0,.45)] transition-transform active:scale-95"
             >
               <X className="h-6 w-6" aria-hidden="true" />
             </button>
           </div>
 
-          <div className="flex flex-col gap-1.5 bg-black py-1.5">
-            {photos.map((p, i) => (
-              <button
-                key={p.full || i}
-                type="button"
-                data-testid={`detail-lightbox-photo-${i}`}
-                onClick={() => {
-                  // Close the column and open the zoomable single-photo viewer at the
-                  // photo the visitor just tapped. `setShot` after the dialog transition
-                  // starts avoids a two-modal flash.
-                  setLightbox(false);
-                  setShot(i);
-                }}
-                className="block w-full bg-black text-left"
-                // `content-visibility: auto` lets Safari drop the render trees for photos
-                // that are far off-screen, which stops a 40-photo column from tripping
-                // the "a problem repeatedly occurred" out-of-memory bail-out on lower-
-                // memory iPhones. The intrinsic-size hint keeps the scroll bar behaving
-                // while photos below the fold have not yet materialised.
-                style={{
-                  contentVisibility: "auto",
-                  containIntrinsicSize: "1px 60vw",
-                }}
-              >
-                <ImageWithFallback
-                  // `full_lightbox` is the CDN's uncropped variant - portrait photos
-                  // arrive portrait so `object-contain` letterboxes instead of hacking
-                  // top and bottom off a 16:9 crop the way `full` does.
-                  src={p.full_lightbox || p.full}
-                  alt={car?.title || ""}
-                  fit="contain"
-                  testId={i === 0 ? "detail-lightbox-photo" : undefined}
-                />
-              </button>
-            ))}
-          </div>
+          <PhotoColumn
+            photos={photos}
+            alt={car?.title || ""}
+            onPick={(i) => {
+              // Close the column and open the zoomable single-photo viewer at the photo
+              // the visitor just tapped. `setShot` after the dialog transition starts
+              // avoids a two-modal flash.
+              setLightbox(false);
+              setShot(i);
+            }}
+          />
         </DialogContent>
       </Dialog>
 

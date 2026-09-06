@@ -3089,6 +3089,7 @@ async def _partial_detail(listing, listing_id, lang, reason):
         "full": image_url(p, 1280, 720),
         "full_mobile": image_url(p, 900, 506),
         "full_lightbox": full_image_url(p, 1600),
+        "full_column": full_image_url(p, 800),
         "thumb": image_url(p, 356, 200),
     } for p in (listing.get("photos") or [])]
     title = " ".join(filter(None, [row.get("manufacturer_t") or row.get("manufacturer"),
@@ -3322,6 +3323,14 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
             # its native aspect - portrait photos come back portrait, so the lightbox
             # `object-contain` letterboxes but does not chop the picture in half.
             "full_lightbox": full_image_url(path, 1600),
+            # The mobile "all photos" column, uncropped and deliberately MODEST: it used to
+            # read `full_lightbox`, and twenty 1600px pictures decode to roughly 8 MB of
+            # bitmap each — a column holding all of them froze the browser outright. The
+            # column shows a photo about 390 CSS px wide, so 800 is already a 2x retina
+            # sample: it lands roughly four times faster and uses a quarter of the memory,
+            # and full resolution is still what the pinch-zoom viewer gets, because that is
+            # the one place the extra pixels are actually visible.
+            "full_column": full_image_url(path, 800),
             # 356x200 sharpens the 112x76 CSS mobile strip thumbnail on retina
             # (~224x152 physical) and the ~264x149 CSS desktop rail thumb (~528x298
             # physical) without shipping a full gallery-sized picture per thumbnail.

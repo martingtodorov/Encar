@@ -460,6 +460,47 @@ builds it) — a question with no expiry date.
   needs the real catalogue fails on shapes like `assert 6 > 100000`. The endpoints themselves
   answer 200.
 
+## 2026-09-06 — the mobile photo column: froze the phone, killed touch at the bottom (FIXED)
+Owner, in his own words: "absolutely a fucked buggy mess", "it absolutely freezes", "when I
+get to the bottom it disables all of my touch inputs", "when I get to the bottom too fast it
+stops loading the photos". All four were real and all four had different causes. Measured on a
+390x844 viewport with a 20-photo car before touching anything: twenty parallel CDN requests
+the instant the viewer opened, plus a preload chain fetching the same twenty AGAIN, at
+`rw=1600` (~8 MB of decoded bitmap each); 11 of 20 slots at zero height thanks to
+`content-visibility: auto` + `containIntrinsicSize`; and the column's `scrollHeight` moving
+from 2325 to 4509 while scrolling.
+
+* **Resolution**: new `full_column` variant at `rw=800` (uncropped). The column shows a photo
+  ~390 CSS px wide, so 800 is already 2x retina — roughly four times faster to land and a
+  quarter of the memory. Full `rw=1600` stays for the pinch-zoom viewer, the one place the
+  extra pixels are visible.
+* **Loading** (`components/PhotoColumn.jsx`, new): a queue with a hard limit of TWO requests
+  in flight. What the visitor is looking at (and the next few below) goes first, the rest is
+  filled in from the top; nothing is skipped, nothing downloads twice, no `loading="lazy"`,
+  and nothing is ever unloaded, so scrolling back up never re-fetches. The scheduler also
+  runs on a 1.2s tick, so a stalled request or a cache hit that fires no event cannot wedge
+  the queue — that wedge is exactly what "scroll down fast and it stops loading" was: the
+  visible photo finishing used to drag the sequential cursor to the end of the list, which
+  opened every slot in between at once. Measured after: peak 2 parallel, all 19 photos in
+  ~3s, 17 requests for 19 photos.
+* **Dead touch at the bottom**: while the dialog is open Radix locks the page behind it
+  (`body { pointer-events: none; overflow: hidden }`), and the column was a centred
+  `max-h-[92vh]` card — so reaching the last photo handed the scroll chain to a scroll-locked
+  body and iOS stopped delivering touches. The viewer is now a true full-screen layer
+  (geometry set INLINE, because the dialog's own utilities centre it with `left/top: 50%` and
+  a translate) with `overscroll-behavior: contain` and `-webkit-overflow-scrolling: touch`.
+  Side effect: the install banner can no longer show through around the card, so the close
+  button lost its `mt-14` dodge.
+* **No more layout jumping**: each slot reserves 4/3 and then takes the photo's real aspect
+  ratio; a blurred `thumb` (already in cache from the card and strip) shows instantly instead
+  of a black box. Measured after: zero zero-height slots, 0px scroll drift.
+* **Silent warm-up** (owner's request): the detail page pulls the column's photos into cache
+  in order, one at a time, 1.5s after load — skipped on `saveData` or a 2G link. Measured:
+  all 20 warm before the viewer is opened, and it then opens with every photo already there.
+* `usePhotoPreload` takes a `limit`; the swipe viewer warms 5 photos ahead instead of all 40.
+* Verified on 390x844 and on desktop 1920 (zoom viewer, arrows, thumbnail strip, clean
+  close, body styles restored).
+
 ## Encar upstream (2026-06)
 * PRIMARY route now: sticky residential proxy (IPRoyal) via protected `encar_proxy_url` →
   `ENCAR_PROXY_URL`. Only api.encar.com; CDN/Stripe/Claude/Resend/GitHub direct. Owner must put

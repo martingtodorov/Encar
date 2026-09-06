@@ -69,7 +69,9 @@ export default function Lightbox({ images, thumbnails, index, onClose, onChange,
 
   // Every photo into the browser cache, one after another, starting where the visitor is,
   // so a swipe never waits on the CDN.
-  usePhotoPreload(images, index, total > 0);
+  // A few photos ahead of the finger, not all of them: at full resolution each one decodes
+  // to megabytes of bitmap, and chaining forty is what made the viewer freeze on a phone.
+  usePhotoPreload(images, index, total > 0, 5);
 
   // ── zoom maths ────────────────────────────────────────────────────
   // Keep the photo's own edges outside the frame: `offsetWidth/Height` is the UNSCALED

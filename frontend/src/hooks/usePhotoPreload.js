@@ -12,15 +12,20 @@ import { useEffect } from "react";
  *
  * `active` gates the whole thing so a closed viewer downloads nothing. The chain is started
  * once per opening and is not restarted while it runs.
+ *
+ * `limit` caps how many photos ahead the chain runs. A full-resolution Encar photo decodes
+ * to roughly 8 MB of bitmap, so pulling in all forty is how a phone runs out of memory and
+ * locks up; a handful ahead of the finger is all a swipe can outrun anyway.
  */
-export const usePhotoPreload = (urls, startIndex = 0, active = true) => {
+export const usePhotoPreload = (urls, startIndex = 0, active = true, limit = Infinity) => {
   const total = urls?.length || 0;
   useEffect(() => {
     if (!active || !total) return undefined;
     let cancelled = false;
     let current = null;
     const first = ((startIndex % total) + total) % total;
-    const order = Array.from({ length: total }, (_, i) => (first + i) % total);
+    const reach = Math.max(1, Math.min(total, limit));
+    const order = Array.from({ length: reach }, (_, i) => (first + i) % total);
 
     const step = (n) => {
       if (cancelled || n >= order.length) return;
@@ -49,7 +54,7 @@ export const usePhotoPreload = (urls, startIndex = 0, active = true) => {
     // Deliberately not keyed on `startIndex`: restarting the chain on every swipe would
     // throw away a queue that is already most of the way through.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [total, active]);
+  }, [total, active, limit]);
 };
 
 export default usePhotoPreload;
