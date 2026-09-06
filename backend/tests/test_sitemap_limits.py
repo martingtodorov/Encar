@@ -82,3 +82,76 @@ def test_primary_loc_is_the_default_locale():
     # ...while every language is still enumerated as an alternate, bg included.
     for code in ("bg", "ro", "pl", "en"):
         assert f'hreflang="{code}"' in r.text
+
+
+# ── the formatting and freshness work (2026-09) ──────────────────────────────
+def _xml(path, timeout=300):
+    """Parse it the way a validator does: a sitemap that will not parse is not a sitemap."""
+    import xml.etree.ElementTree as ET
+
+    r = requests.get(f"{BASE}{path}", timeout=timeout)
+    assert r.status_code == 200, path
+    return r, ET.fromstring(r.content)
+
+
+def test_every_sitemap_is_well_formed_xml():
+    for path in ("/sitemap.xml", "/sitemap-static.xml", "/sitemap-models.xml",
+                 "/sitemap-listings-1.xml"):
+        _xml(path)
+
+
+def test_files_are_pretty_printed():
+    """These are read by people (Search Console, the owner) as often as by crawlers."""
+    r, _ = _xml("/sitemap-listings-1.xml")
+    lines = r.text.splitlines()
+    assert lines[0] == '<?xml version="1.0" encoding="UTF-8"?>'
+    assert any(ln.strip() == "<url>" for ln in lines), "everything is still on one line"
+    assert any(ln.startswith("    <loc>") for ln in lines), "no indentation"
+
+
+def test_lastmod_is_per_sitemap_not_todays_date():
+    """`lastmod` said TODAY for every entry, recomputed on each fetch — a claim that the
+    whole site changed this morning, every morning, which devalues the signal."""
+    r, root = _xml("/sitemap.xml")
+    ns = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+    stamps = {}
+    for node in root.findall(f"{ns}sitemap"):
+        loc = node.findtext(f"{ns}loc")
+        stamps[loc.rsplit("/", 1)[-1]] = node.findtext(f"{ns}lastmod")
+    assert stamps, "no child sitemaps"
+    # W3C datetime with a zone, not a bare date.
+    for name, stamp in stamps.items():
+        assert re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$", stamp), (name, stamp)
+    # The evergreen pages and the catalogue have different clocks; they used to share one.
+    assert stamps["sitemap-static.xml"] != stamps["sitemap-listings-1.xml"]
+
+
+def test_listing_images_carry_a_title_and_one_caption():
+    r, root = _xml("/sitemap-listings-1.xml")
+    ns = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+    img = "{http://www.google.com/schemas/sitemap-image/1.1}"
+    urls = root.findall(f"{ns}url")
+    assert urls
+    for url in urls[:20]:
+        images = url.findall(f"{img}image")
+        if not images:
+            continue
+        assert all(i.findtext(f"{img}title") for i in images), "an image with no title"
+        captions = [i for i in images if i.findtext(f"{img}caption")]
+        # The lead photo only: five captions per car buy nothing and cost megabytes.
+        assert len(captions) == 1, f"{len(captions)} captions on one car"
+        assert captions[0] is images[0]
+
+
+def test_a_full_chunk_would_still_fit_google_ceiling():
+    """Titles and captions add bytes, and preview holds far fewer cars than production, so
+    the guard has to be per-URL weight projected onto a full chunk rather than file size."""
+    import server
+
+    r, _ = _xml("/sitemap-listings-1.xml")
+    urls = r.text.count("<url>")
+    assert urls, "no listings to measure"
+    per_url = len(r.content) / urls
+    projected = per_url * server._SITEMAP_CHUNK
+    assert projected <= SAFE_BYTES, (
+        f"{per_url:.0f} bytes per URL x {server._SITEMAP_CHUNK} = {projected / 1e6:.1f} MB")

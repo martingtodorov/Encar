@@ -30,6 +30,36 @@ PAGE = 500
 # Transmission is not in the list payload but IS an upstream facet.
 MANUAL_Q = "(And.Hidden.N._.CarType.A._.Transmission.\uc218\ub3d9.)"
 
+# Exterior colour is the same story as transmission: the search feed we crawl carries no
+# colour at all (only the per-car detail does, via `spec.colorName`, and we hold a detail
+# for well under 1% of the catalogue), but colour IS an upstream facet. So the colour of
+# every car is obtainable from the SAME endpoint with the SAME politeness — one id-only
+# pass per colour value. Because the colours partition the catalogue, the sum of those
+# passes is about one extra full sweep (~490 requests), not one per car.
+#
+# Our slug -> the Korean facet values Encar itself uses. EVERY value below was read out of
+# real Encar data (`detail.spec.colorName` across the cars whose detail we hold), never
+# guessed: an invented facet value simply returns Count 0 and its cars stay untagged, which
+# is why `tag_colors` reports coverage. Grouped the way a buyer thinks — nobody shopping for
+# a grey car cares whether Encar filed it as 쥐색 or 은회색. Two-tone variants ride with
+# their base colour.
+COLOR_GROUPS = {
+    "white":  ["흰색", "흰색투톤"],
+    "black":  ["검정색", "검정투톤"],
+    "grey":   ["쥐색", "은회색"],
+    "silver": ["은색", "은색투톤", "명은색", "은하색"],
+    "blue":   ["청색", "하늘색", "청옥색"],
+    "red":    ["빨간색"],
+    "green":  ["녹색", "담녹색", "연두색"],
+    "brown":  ["갈색", "갈대색"],
+    "yellow": ["노란색"],
+    "orange": ["주황색"],
+    "purple": ["보라색", "자주색"],
+    "pearl":  ["진주색"],
+    "gold":   ["금색", "금색투톤", "연금색"],
+}
+COLOR_OF_RAW = {raw: slug for slug, raws in COLOR_GROUPS.items() for raw in raws}
+
 _lock = asyncio.Lock()
 
 
@@ -59,6 +89,7 @@ async def ensure_indexes(db):
     await db.listings.create_index([("fuel_type", 1)])
     await db.listings.create_index([("region", 1)])
     await db.listings.create_index([("transmission", 1)])
+    await db.listings.create_index([("color", 1)])
     await db.listings.create_index([("diagnosed", 1)])
     await db.translations.create_index([("lang", 1)])
     await db.car_details.create_index([("fetched_at", -1)])
@@ -147,6 +178,7 @@ async def run_full_sync(db, max_pages=None, page_size=PAGE):
                     retired = r.modified_count
 
                 await tag_transmission(db)
+                await tag_colors(db)
                 dedupe = await dedupe_pass(db)
 
                 # The dropdown tree, its slugs, the year spans and the translated labels,
@@ -608,7 +640,7 @@ async def tag_transmission(db, manufacturers=None):
         for mfr in scopes:
             q = (MANUAL_Q if not mfr else
                  _q([f"Manufacturer.{mfr}", "Transmission.\uc218\ub3d9"]))
-            manual_ids += await _collect_manual(q)
+            manual_ids += await _collect_ids(q)
 
         if manual_ids:
             await db.listings.update_many({"_id": {"$in": manual_ids}},
@@ -624,7 +656,89 @@ async def tag_transmission(db, manufacturers=None):
         return 0
 
 
-async def _collect_manual(q):
+async def tag_colors(db, manufacturers=None):
+    """Exterior colour for the whole catalogue, from the same search endpoint.
+
+    One id-only pass per Encar colour value. The colours partition the catalogue, so the
+    whole job costs about one extra sweep (~490 paced requests) rather than one request per
+    car — which is what asking the per-car detail for `spec.colorName` would have meant
+    (245 000 requests, three days of pacing, and a rate limit we have no business testing).
+
+    Rows an unknown colour value would have covered stay UNTAGGED rather than being called
+    "other": coverage is reported so a missing value shows up as evidence instead of a lie.
+    """
+    started = datetime.now(timezone.utc)
+    per_color, tagged_total = {}, 0
+    # Free first, upstream second: fold in every colour we already hold from a car's own
+    # detail. It costs nothing, and if the facet passes then fail (a 407, an outage) the
+    # local work is already saved instead of being lost with the exception.
+    from_details = await _colors_from_details(db, manufacturers)
+    try:
+        scopes = list(manufacturers) if manufacturers else [None]
+        for slug, raws in COLOR_GROUPS.items():
+            ids = []
+            for raw in raws:
+                for mfr in scopes:
+                    clauses = [f"Color.{raw}"]
+                    if mfr:
+                        clauses.insert(0, f"Manufacturer.{mfr}")
+                    got = await _collect_ids(_q(clauses))
+                    if not got:
+                        continue
+                    ids += got
+            if ids:
+                r = await db.listings.update_many(
+                    {"_id": {"$in": ids}},
+                    {"$set": {"color": slug, "color_at": started}})
+                per_color[slug] = r.matched_count
+                tagged_total += r.matched_count
+            else:
+                per_color[slug] = 0
+        scope_q = {"active": True, "duplicate": {"$ne": True}}
+        if manufacturers:
+            scope_q["manufacturer"] = {"$in": list(manufacturers)}
+        total = await db.listings.count_documents(scope_q)
+        known = await db.listings.count_documents({**scope_q, "color": {"$nin": [None, ""]}})
+        result = {"per_color": per_color, "tagged": tagged_total, "known": known,
+                  "total": total, "from_details": from_details,
+                  "coverage": round(known * 100.0 / total, 1) if total else 0.0,
+                  "ran_at": started, "ok": True}
+        log.info("colours tagged: %s of %s cars (%.1f%%) %s",
+                 known, total, result["coverage"], per_color)
+    except Exception as e:                                  # noqa: BLE001
+        # A failed colour pass must never fail the sync: the catalogue is still correct,
+        # it just has no colour on the new rows.
+        log.warning("colour tagging failed: %s", str(e)[:200])
+        result = {"per_color": per_color, "tagged": tagged_total, "ok": False,
+                  "from_details": from_details, "error": str(e)[:200], "ran_at": started}
+    await db.sync_state.update_one({"_id": "colors"}, {"$set": result}, upsert=True)
+    return result
+
+
+async def _colors_from_details(db, manufacturers=None):
+    """Colour taken from the details we already hold. No upstream request at all."""
+    by_slug = {}
+    async for doc in db.car_details.find({}, {"detail.spec.colorName": 1}):
+        raw = (((doc.get("detail") or {}).get("spec")) or {}).get("colorName")
+        slug = COLOR_OF_RAW.get(str(raw or "").strip())
+        if slug:
+            by_slug.setdefault(slug, []).append(doc["_id"])
+    written = 0
+    for slug, ids in by_slug.items():
+        # Never overwrite: a facet pass and a detail are equally authoritative, and the
+        # facet pass is the one that just ran.
+        q = {"_id": {"$in": ids}, "color": {"$in": [None, ""]}}
+        if manufacturers:
+            q["manufacturer"] = {"$in": list(manufacturers)}
+        r = await db.listings.update_many(
+            q, {"$set": {"color": slug, "color_at": datetime.now(timezone.utc)}})
+        written += r.modified_count
+    if written:
+        log.info("colours from cached details: %s rows", written)
+    return written
+
+
+async def _collect_ids(q):
     ids = []
     total = await encar.count(q)
     if not total:                                    # None (failure) or 0 (empty)

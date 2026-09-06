@@ -152,6 +152,7 @@ def listing_out(doc):
         "region": doc.get("region"),
         "region_t": doc.get("region_t"),
         "transmission": doc.get("transmission"),
+        "color": doc.get("color") or "",
         "year_month": doc.get("year_month"),
         "form_year": doc.get("form_year"),
         "mileage": doc.get("mileage"),
@@ -223,6 +224,8 @@ def build_query(p):
         q["region"] = {"$in": p["regions"]}
     if p.get("transmissions"):
         q["transmission"] = {"$in": p["transmissions"]}
+    if p.get("colors"):
+        q["color"] = {"$in": p["colors"]}
 
     # Filter on the REGISTRATION date (year_month), not Encar's model year: a car sold as a
     # 2015 model can be registered 12/2014, and the cards show the registration date. With
@@ -276,6 +279,7 @@ HOME_MIN_EUR = float(os.environ.get("HOME_MIN_EUR") or 18000)
 
 _NARROWING = (
     "q", "makes", "models", "badges", "badge_details", "fuels", "regions", "transmissions",
+    "colors",
     "year_min", "year_max", "mileage_min", "mileage_max", "price_min", "price_max",
     "only_inspection", "only_record", "only_diagnosed",
 )
@@ -643,6 +647,7 @@ class SearchBody(BaseModel):
     fuels: list[str] = Field(default_factory=list)
     regions: list[str] = Field(default_factory=list)
     transmissions: list[str] = Field(default_factory=list)
+    colors: list[str] = Field(default_factory=list)
     year_min: int | None = None
     year_max: int | None = None
     mileage_min: int | None = None
@@ -1619,6 +1624,7 @@ async def _filters_aggregate():
     fuels = await top("fuel_type", 40)
     regions = await top("region", 40)
     transmissions = await top("transmission", 5)
+    colors = await top("color", 30)
 
     bounds_pipe = [
         {"$match": {"active": True, "duplicate": {"$ne": True}}},
@@ -1641,7 +1647,8 @@ async def _filters_aggregate():
 
     doc = {
         "_id": "filters", "computed_at": now, "makes": makes, "fuels": fuels,
-        "regions": regions, "transmissions": transmissions, "bounds": bounds,
+        "regions": regions, "transmissions": transmissions, "colors": colors,
+        "bounds": bounds,
     }
     await db.facets.update_one({"_id": "filters"}, {"$set": doc}, upsert=True)
     return doc
@@ -1702,6 +1709,7 @@ async def meta_filters(lang: str = "bg", refresh: bool = False):
         "fuels": decorate(cached.get("fuels", []), fuel_slugs),
         "regions": decorate(cached.get("regions", []), region_slugs),
         "transmissions": cached.get("transmissions", []),
+        "colors": cached.get("colors", []),
         "bounds": cached.get("bounds", {}),
         "computed_at": jsonable(cached.get("computed_at")),
         "lang": lang,
@@ -1746,7 +1754,8 @@ async def meta_facet_counts(body: SearchBody):
     lang = norm_lang(body.lang)
     fuels = await counts_for("fuel_type", "fuels", translate_lang=lang)
     transmissions = await counts_for("transmission", "transmissions")
-    return {"fuels": fuels, "transmissions": transmissions, "lang": lang}
+    colors = await counts_for("color", "colors")
+    return {"fuels": fuels, "transmissions": transmissions, "colors": colors, "lang": lang}
 
 
 @api.get("/meta/models")
@@ -2626,7 +2635,101 @@ _SITEMAP_TTL = 3600
 
 def _sitemap_headers():
     return {"Content-Type": "application/xml; charset=utf-8",
-            "Cache-Control": f"public, max-age={_SITEMAP_TTL}"}
+            "Cache-Control": f"public, max-age={_SITEMAP_TTL}, s-maxage={_SITEMAP_TTL}"}
+
+
+def _stamp(value=None) -> str:
+    """A `lastmod` Google can believe: W3C datetime, to the second, in UTC.
+
+    Every entry outside the listings file used to carry TODAY, recomputed on each fetch —
+    which tells a crawler the entire site changed this morning, every morning, and is the
+    fastest way to make the freshness signal worthless. Each sitemap now states the moment
+    its own content last actually moved.
+    """
+    if isinstance(value, str) and value:
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            value = None
+    if not isinstance(value, datetime):
+        value = datetime.now(timezone.utc)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat()
+
+
+async def _newest(coll, query: dict, field: str):
+    """The most recent value of `field` in a collection, or None."""
+    async for doc in coll.find(query, {field: 1}).sort(field, -1).limit(1):
+        return doc.get(field)
+    return None
+
+
+async def _lastmod_pages() -> str:
+    """When the evergreen pages last changed: the newest CMS edit anywhere."""
+    stamps = [await _newest(db.site_pages, {}, "updated_at"),
+              (await db.site_settings.find_one({"_id": "company"}) or {}).get("updated_at")]
+    best = None
+    for raw in stamps:
+        got = _stamp(raw) if raw else None
+        if got and (best is None or got > best):
+            best = got
+    # No CMS edit at all: the pages are whatever shipped with the build, so claim the
+    # policy stamp rather than inventing a change today.
+    return best or _stamp(datetime(2026, 6, 8, tzinfo=timezone.utc))
+
+
+async def _lastmod_taxonomy() -> str:
+    """Make and model landings change when the tree is rebuilt — counts, models, slugs."""
+    doc = await db.sync_state.find_one({"_id": "taxonomy"}) or {}
+    return _stamp(doc.get("built_at"))
+
+
+async def _lastmod_listings() -> str:
+    """The catalogue's own freshness: the newest confirmation from the sync."""
+    return _stamp(await _newest(
+        db.listings, {"active": True, "duplicate": {"$ne": True}}, "last_seen"))
+
+
+def _learn_color(listing_id, listing, raw_name):
+    """Write the exterior colour onto a listing row from the car's own detail.
+
+    The search feed we crawl carries no colour, so the catalogue is coloured in by
+    `sync.tag_colors` (one upstream facet pass per colour). This is the free half: a car
+    whose detail we have just read tells us its own colour, so a row that the last facet
+    pass missed — a brand-new ad, or a colour value not in the map — is corrected the
+    moment anybody opens it. Detached: a filter field must never delay the page.
+    """
+    slug = sync_mod.COLOR_OF_RAW.get(str(raw_name or "").strip())
+    if not slug or (listing or {}).get("color") == slug:
+        return
+    async def write():
+        try:
+            await db.listings.update_one(
+                {"_id": listing_id},
+                {"$set": {"color": slug, "color_at": datetime.now(timezone.utc)}})
+        except Exception as e:                              # noqa: BLE001
+            log.warning("could not store colour for %s: %s", listing_id, str(e)[:120])
+    asyncio.get_running_loop().create_task(write())
+
+
+def _photo_caption(title: str, row: dict) -> str:
+    """One short Bulgarian line for the lead photo of a car.
+
+    Kept to facts already in the row — registration month/year and mileage — plus the one
+    promise the business actually makes. No fuel or gearbox: those values are raw Korean on
+    a quarter of the catalogue and a sitemap must never trigger translation work.
+    """
+    bits = []
+    ym = int(row.get("year_month") or 0)
+    if ym > 190000:
+        bits.append(f"{ym % 100:02d}/{ym // 100}")
+    km = int(row.get("mileage") or 0)
+    if km > 0:
+        bits.append(f"{km:,} км".replace(",", " "))
+    head = f"{title} — " if title else ""
+    detail = ", ".join(bits)
+    return f"{head}{detail + ', ' if detail else ''}крайна цена до България"
 
 
 def _sitemap_url(base: str, path_for: dict, lastmod: str,
@@ -2640,31 +2743,46 @@ def _sitemap_url(base: str, path_for: dict, lastmod: str,
     business actually lands people on. x-default stays English: it is the version for a
     visitor whose language we cannot match.
 
-    `images` is a list of absolute image URLs. When present, an `<image:image>` block
-    is emitted for each (capped at 6 - the Google Image sitemap protocol allows more
-    but past ~6 the extra bytes stop helping and just inflate the sitemap size).
+    `images` is a list of absolute image URLs, or of `{url, title, caption}` dicts. When
+    present, an `<image:image>` block is emitted for each (capped at 6 - the Google Image
+    sitemap protocol allows more but past ~6 the extra bytes stop helping and just inflate
+    the sitemap size). The title and caption are in BULGARIAN, because the primary <loc> is
+    the bg variant; a caption is emitted for the LEAD photo only, since five captions per
+    car buy nothing and cost megabytes across a 10 000-URL file.
     """
     primary = path_for.get("bg") or path_for["en"]
-    parts = [f"<loc>{_attr(base + primary)}</loc>"]
+    parts = [f"  <loc>{_attr(base + primary)}</loc>"]
     for code, path in path_for.items():
-        parts.append(f'<xhtml:link rel="alternate" hreflang="{code}" '
+        parts.append(f'  <xhtml:link rel="alternate" hreflang="{code}" '
                      f'href="{_attr(base + path)}"/>')
-    parts.append(f'<xhtml:link rel="alternate" hreflang="x-default" '
+    parts.append(f'  <xhtml:link rel="alternate" hreflang="x-default" '
                  f'href="{_attr(base + path_for["en"])}"/>')
-    for img in (images or [])[:6]:
-        parts.append(f"<image:image><image:loc>{_attr(img)}</image:loc></image:image>")
-    parts.append(f"<lastmod>{lastmod}</lastmod>")
-    parts.append(f"<changefreq>{changefreq}</changefreq>")
-    parts.append(f"<priority>{priority}</priority>")
-    return "<url>" + "".join(parts) + "</url>"
+    for n, img in enumerate((images or [])[:6]):
+        url, title, caption = (img, "", "") if isinstance(img, str) else (
+            img.get("url"), img.get("title") or "", img.get("caption") or "")
+        if not url:
+            continue
+        block = [f"    <image:loc>{_attr(url)}</image:loc>"]
+        if title:
+            block.append(f"    <image:title>{_attr(title)}</image:title>")
+        if caption and n == 0:
+            block.append(f"    <image:caption>{_attr(caption)}</image:caption>")
+        parts.append("  <image:image>\n" + "\n".join(block) + "\n  </image:image>")
+    parts.append(f"  <lastmod>{lastmod}</lastmod>")
+    parts.append(f"  <changefreq>{changefreq}</changefreq>")
+    parts.append(f"  <priority>{priority}</priority>")
+    return "<url>\n" + "\n".join(parts) + "\n</url>"
 
 
 def _sitemap_wrap(urls: list) -> str:
-    return ('<?xml version="1.0" encoding="UTF-8"?>'
-            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
-            'xmlns:xhtml="http://www.w3.org/1999/xhtml" '
-            'xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">'
-            + "".join(urls) + "</urlset>")
+    """Pretty-printed on purpose: these files are read by people as often as by crawlers
+    (Search Console, validators, the owner), and one line 60 MB long is unreadable."""
+    body = "\n".join("  " + u.replace("\n", "\n  ") for u in urls)
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"\n'
+            '        xmlns:xhtml="http://www.w3.org/1999/xhtml"\n'
+            '        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n'
+            + body + "\n</urlset>\n")
 
 
 async def _active_listings_count() -> int:
@@ -2703,20 +2821,20 @@ async def sitemap_index(request: Request):
     base = _share_base(request)
     total = await _active_listings_count()
     chunks = max(1, -(-total // _SITEMAP_CHUNK))  # ceil
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    entries = [
-        f"<sitemap><loc>{_attr(base)}/sitemap-static.xml</loc>"
-        f"<lastmod>{today}</lastmod></sitemap>",
-        f"<sitemap><loc>{_attr(base)}/sitemap-models.xml</loc>"
-        f"<lastmod>{today}</lastmod></sitemap>",
-    ]
-    for i in range(1, chunks + 1):
-        entries.append(
-            f"<sitemap><loc>{_attr(base)}/sitemap-listings-{i}.xml</loc>"
-            f"<lastmod>{today}</lastmod></sitemap>")
-    body = ('<?xml version="1.0" encoding="UTF-8"?>'
-            '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
-            + "".join(entries) + "</sitemapindex>")
+    # Each child states ITS OWN last change: an edit to a CMS page must not make Google
+    # re-crawl 25 listing files, and a nightly catalogue sync must not claim the terms
+    # page moved.
+    children = [("sitemap-static.xml", await _lastmod_pages()),
+                ("sitemap-models.xml", await _lastmod_taxonomy())]
+    listings_lastmod = await _lastmod_listings()
+    children += [(f"sitemap-listings-{i}.xml", listings_lastmod)
+                 for i in range(1, chunks + 1)]
+    entries = [f"  <sitemap>\n    <loc>{_attr(base)}/{name}</loc>\n"
+               f"    <lastmod>{lastmod}</lastmod>\n  </sitemap>"
+               for name, lastmod in children]
+    body = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            + "\n".join(entries) + "\n</sitemapindex>\n")
     return Response(body, headers=_sitemap_headers())
 
 
@@ -2725,7 +2843,10 @@ async def sitemap_static(request: Request):
     """Landings and evergreen pages: /, /how-it-works, /faq, /terms, /track, ..."""
     base = _share_base(request)
     langs = list(LANGS)
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # The evergreen pages change when the CMS changes, not when a crawler calls.
+    pages_lastmod = await _lastmod_pages()
+    # The home page is the one exception: it lists cars, so it moves with the catalogue.
+    home_lastmod = await _lastmod_listings()
     # (path_suffix, changefreq, priority). "" means the landing itself.
     routes = [
         ("", "hourly", "1.0"),
@@ -2740,11 +2861,14 @@ async def sitemap_static(request: Request):
     urls = []
     for suffix, freq, prio in routes:
         path_for = {code: f"/{code}{suffix}" for code in langs}
-        urls.append(_sitemap_url(base, path_for, today, freq, prio))
+        urls.append(_sitemap_url(base, path_for,
+                                 home_lastmod if suffix == "" else pages_lastmod,
+                                 freq, prio))
 
-    # HTML sitemap: one entry per language with hreflang alternates.
+    # HTML sitemap: one entry per language with hreflang alternates. It lists every make and
+    # model, so it moves when the taxonomy is rebuilt.
     path_for = {code: f"/{code}/sitemap" for code in langs}
-    urls.append(_sitemap_url(base, path_for, today, "weekly", "0.6"))
+    urls.append(_sitemap_url(base, path_for, await _lastmod_taxonomy(), "weekly", "0.6"))
     return Response(_sitemap_wrap(urls), headers=_sitemap_headers())
 
 
@@ -2753,7 +2877,7 @@ async def sitemap_models(request: Request):
     """Every make landing (/bg/bmw) and every make/model landing (/bg/bmw/m2-g87)."""
     base = _share_base(request)
     langs = list(LANGS)
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    built = await _lastmod_taxonomy()
     urls = []
     # The same taxonomy entity can appear twice (an interrupted or overlapping build left
     # two documents for it, which is fixed in sync.build_taxonomy), and two upstream values
@@ -2766,7 +2890,7 @@ async def sitemap_models(request: Request):
         if key in seen:
             return
         seen.add(key)
-        urls.append(_sitemap_url(base, path_for, today, freq, prio))
+        urls.append(_sitemap_url(base, path_for, built, freq, prio))
 
     # Make landings (level 1)
     async for row in db.taxonomy.find(
@@ -2896,7 +3020,7 @@ async def sitemap_listings(n: int, request: Request):
     cursor = db.listings.find(
         {"active": True, "duplicate": {"$ne": True}, "under_contract": {"$ne": True}},
         {"_id": 1, "last_seen": 1, "photos": 1, "manufacturer": 1, "model": 1,
-         "badge": 1, "badge_detail": 1}
+         "badge": 1, "badge_detail": 1, "year_month": 1, "mileage": 1}
     ).sort([("_id", 1)]).skip(skip).limit(_SITEMAP_CHUNK)
     rows = await cursor.to_list(_SITEMAP_CHUNK)
 
@@ -2916,23 +3040,24 @@ async def sitemap_listings(n: int, request: Request):
         lid = row["_id"]
         # last_seen is when the sync last confirmed the ad is live; that is the
         # freshness signal Google wants, not the day the row was inserted.
-        lm = row.get("last_seen")
-        if isinstance(lm, datetime):
-            lastmod = lm.astimezone(timezone.utc).strftime("%Y-%m-%d")
-        else:
-            lastmod = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        # First few photos are the ones the card + detail page show; enough for
-        # Google Images to index the car without the sitemap ballooning to 100 URLs.
-        # 900x506 matches the mobile detail crop so the URL is one the frontend
-        # already fetches, and Google's cache stays warm across surfaces.
-        photos = row.get("photos") or []
-        images = [image_url(p, 900, 506) for p in photos[:5] if p]
+        lastmod = _stamp(row.get("last_seen"))
         titled = dict(row)
         for f in ("manufacturer", "model", "badge", "badge_detail"):
             hit = latin.get((row.get(f) or "").strip())
             if hit:
                 titled[f"{f}_t"] = hit
-        slug = _car_slug(_share_title(titled))
+        title = _share_title(titled)
+        # First few photos are the ones the card + detail page show; enough for
+        # Google Images to index the car without the sitemap ballooning to 100 URLs.
+        # 900x506 matches the mobile detail crop so the URL is one the frontend
+        # already fetches, and Google's cache stays warm across surfaces.
+        # The title and the lead photo's caption are in Bulgarian, matching the primary
+        # <loc>; every domain used to repeat one language's wording for every locale.
+        photos = row.get("photos") or []
+        images = [{"url": image_url(p, 900, 506), "title": title,
+                   "caption": _photo_caption(title, row)}
+                  for p in photos[:5] if p]
+        slug = _car_slug(title)
         suffix = f"/car/{lid}/{slug}" if slug else f"/car/{lid}"
         path_for = {code: f"/{code}{suffix}" for code in langs}
         urls.append(_sitemap_url(base, path_for, lastmod, "daily", "0.6", images=images))
@@ -3172,6 +3297,10 @@ async def car_detail(listing_id: str, request: Request, lang: str = "bg",
     spec = detail.get("spec") or {}
     adv = detail.get("advertisement") or {}
     opts = detail.get("options") or {}
+    # Free colour coverage: this car's detail names its exterior colour, so the row learns
+    # it at no upstream cost. The nightly facet pass (sync.tag_colors) covers the catalogue;
+    # this fills in between runs for every car anybody actually opens.
+    _learn_color(listing_id, listing, spec.get("colorName"))
 
     # ── photos: every one, at gallery and thumbnail size ─────────────────────────
     photos = []
@@ -3947,6 +4076,43 @@ async def admin_encar_route_test(request: Request, x_admin_token: str = Header(d
     return {"ok": True, "route": encar_mod.route(), "mode": encar_mod.route_mode(),
             "latency_ms": int((time.monotonic() - t0) * 1000),
             "count": (got or {}).get("Count", 0)}
+
+
+@api.get("/admin/colors")
+async def admin_colors(request: Request, x_admin_token: str = Header(default="")):
+    """Colour coverage: what the facet pass tagged, and what is still unknown.
+
+    This is the screen that says whether the upstream colour facet actually works. In
+    preview it cannot: api.encar.com answers 407 to datacentre addresses, so coverage stays
+    at whatever the car pages have learned.
+    """
+    await _require_admin(request, x_admin_token)
+    state = await db.sync_state.find_one({"_id": "colors"}) or {}
+    scope = {"active": True, "duplicate": {"$ne": True}}
+    total = await db.listings.count_documents(scope)
+    rows = [{"color": d["_id"], "count": d["count"]}
+            async for d in db.listings.aggregate([
+                {"$match": {**scope, "color": {"$nin": [None, ""]}}},
+                {"$group": {"_id": "$color", "count": {"$sum": 1}}},
+                {"$sort": {"count": -1}}])]
+    known = sum(r["count"] for r in rows)
+    return {"colors": rows, "known": known, "total": total,
+            "unknown": max(0, total - known),
+            "coverage": round(known * 100.0 / total, 1) if total else 0.0,
+            "groups": {slug: raws for slug, raws in sync_mod.COLOR_GROUPS.items()},
+            "last_run": {"ok": state.get("ok"), "ran_at": jsonable(state.get("ran_at")),
+                         "per_color": state.get("per_color") or {},
+                         "error": state.get("error") or ""}}
+
+
+@api.post("/admin/colors/tag")
+async def admin_colors_tag(request: Request, x_admin_token: str = Header(default="")):
+    """Run the colour facet pass now — the way to verify it against live Encar."""
+    admin = await _require_admin(request, x_admin_token)
+    result = await sync_mod.tag_colors(db)
+    await _audit(request, _actor(admin), "colors.tag", "colors",
+                 f"{result.get('known', 0)} of {result.get('total', 0)} tagged")
+    return jsonable(result)
 
 
 class AiBudgetBody(BaseModel):

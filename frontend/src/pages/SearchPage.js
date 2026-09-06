@@ -84,7 +84,7 @@ const PAGE_SIZE = 16;
 // of these is `noindex, follow` with its canonical pointing at the clean landing page; the
 // server-rendered HTML says exactly the same thing (backend/prerender.py).
 const FILTER_PARAMS = ["make", "model", "badge", "badgeDetail", "fuels", "regions",
-                       "transmissions", "year_min", "year_max", "mileage_min",
+                       "transmissions", "colors", "year_min", "year_max", "mileage_min",
                        "mileage_max", "price_min", "price_max", "only_inspection",
                        "only_record", "only_diagnosed", "q"];
 
@@ -526,6 +526,7 @@ export default function SearchPage() {
     const byValue = (list) => Object.fromEntries((list || []).map((r) => [r.value, r.count]));
     const fuelCount = byValue(dynamicCounts.fuels);
     const transCount = byValue(dynamicCounts.transmissions);
+    const colourCount = byValue(dynamicCounts.colors);
     return {
       ...facets,
       fuels: (facets.fuels || [])
@@ -533,6 +534,9 @@ export default function SearchPage() {
         .filter((f) => f.count > 0),
       transmissions: (facets.transmissions || [])
         .map((tr) => ({ ...tr, count: transCount[tr.value] ?? 0 })),
+      colors: (facets.colors || [])
+        .map((c) => ({ ...c, count: colourCount[c.value] ?? 0 }))
+        .filter((c) => c.count > 0),
     };
   }, [facets, dynamicCounts]);
 

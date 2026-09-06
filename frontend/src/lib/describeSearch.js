@@ -18,6 +18,7 @@ export function describeSearch({ filters, tax, taxLabels, facets, t, lang, curre
 
   (filters.fuels || []).forEach((f) => parts.push(label(facets?.fuels, f)));
   (filters.transmissions || []).forEach((tr) => parts.push(t(tr === "manual" ? "manual" : "auto")));
+  (filters.colors || []).forEach((c) => parts.push(t(`colour_${c}`) || c));
   (filters.regions || []).forEach((r) => parts.push(label(facets?.regions, r)));
 
   // The filter inputs hand us STRINGS, and Number.isFinite("40000") is false, so the

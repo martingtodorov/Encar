@@ -16,6 +16,18 @@ import { TaxonomySelects } from "@/components/TaxonomySelects";
 import { useApp } from "@/context/AppContext";
 import { formatNumber, convert } from "@/lib/format";
 
+// Exterior colour. The order is fixed (commonest first, then the rest) so the grid never
+// reshuffles as counts move, and the swatch is a plain sample of the paint rather than the
+// exact factory shade - Encar files "은회색" and "쥐색" as one grey to a shopper's eye.
+const COLOUR_ORDER = ["white", "black", "grey", "silver", "blue", "red", "green", "brown",
+                      "yellow", "orange", "purple", "pearl", "gold"];
+const COLOUR_SWATCH = {
+  white: "#f4f4f2", black: "#1b1b1d", grey: "#7d8083", silver: "#c7cacd",
+  blue: "#2b5ea8", red: "#b52a2a", green: "#2f6b45", brown: "#6b4a30",
+  yellow: "#e5c445", orange: "#d8762a", purple: "#6b4a8f",
+  pearl: "linear-gradient(135deg,#f7f5ef,#e2e6ea)", gold: "#c2a24c",
+};
+
 const CheckRow = ({ id, label, count, checked, onChange, testId }) => {
   const { lang } = useApp();
   return (
@@ -152,6 +164,12 @@ export const FilterSidebar = ({
     { value: "auto", label: t("auto") },
     { value: "manual", label: t("manual") },
   ];
+
+  // Only colours the catalogue actually has, in a fixed order so the grid does not
+  // reshuffle under the finger as counts change.
+  const colourItems = COLOUR_ORDER
+    .map((slug) => (facets?.colors || []).find((c) => c.value === slug))
+    .filter(Boolean);
 
   const sliderLabel = (eur) => {
     const v = convert(eur, currency, rates);
@@ -326,6 +344,52 @@ export const FilterSidebar = ({
               })}
             </AccordionContent>
           </AccordionItem>
+
+          {colourItems.length > 0 && (
+          <AccordionItem value="colour" className="border-border">
+            <AccordionTrigger
+              data-testid="filter-section-colour"
+              className="py-3 hover:no-underline"
+            >
+              <SectionTitle>{t("colour")}</SectionTitle>
+            </AccordionTrigger>
+            <AccordionContent className="pb-3">
+              <div className="grid grid-cols-2 gap-1.5">
+                  {colourItems.map((c) => {
+                    const on = (filters.colors || []).includes(c.value);
+                    return (
+                      <button
+                        key={c.value}
+                        type="button"
+                        data-testid="filter-colour-option"
+                        data-colour={c.value}
+                        data-active={on}
+                        aria-pressed={on}
+                        onClick={() => toggleInArray("colors", c.value)}
+                        className={`flex items-center gap-2 rounded-[9px] border px-2 py-1.5 text-left transition-colors ${
+                          on
+                            ? "border-primary bg-primary/10"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="h-3.5 w-3.5 shrink-0 rounded-full border border-black/15 shadow-inner"
+                          style={{ background: COLOUR_SWATCH[c.value] || "#999" }}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                          {t(`colour_${c.value}`) || c.value}
+                        </span>
+                        <span className="tnum shrink-0 text-[11px] text-muted-foreground">
+                          {formatNumber(c.count, lang)}
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+          )}
 
           {/* The Korean region filter is gone on purpose: where in Korea a car sits tells a
               buyer in Europe nothing, and it was one more section to scroll past. The

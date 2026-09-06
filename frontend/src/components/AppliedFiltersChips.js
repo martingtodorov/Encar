@@ -35,6 +35,9 @@ export const AppliedFiltersChips = ({ filters, tax, taxLabels, facets, onRemove,
   (filters.transmissions || []).forEach((tr) =>
     chips.push({ key: `transmissions:${tr}`, label: t(tr === "manual" ? "manual" : "auto") })
   );
+  (filters.colors || []).forEach((c) =>
+    chips.push({ key: `colors:${c}`, label: t(`colour_${c}`) || c })
+  );
 
   // One-sided ranges: "≤ 60 000 km", not "–60 000 km". And the inputs hand us STRINGS, so
   // every bound is coerced before formatting — Number.isFinite("60000") is false, which is

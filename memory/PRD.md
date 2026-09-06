@@ -338,6 +338,70 @@ up.
   a guest choosing statistics-only whose brand-new account came out with exactly that record,
   same timestamp, `source: pre_account_cookie`, carry cookie dropped.
 
+## 2026-09-06 — Exterior colour filter + the three real sitemap gaps (DONE)
+Owner: "add an exterior and interior colors as filters while keeping the same scraping" and
+"why did you not do the new sitemaps, at least they have better formatting".
+
+### Sitemaps — what was actually missing
+The owner's list came from the other project (Shopify/PurePeptide). Checked item by item:
+type-split index, dead URLs excluded, HEAD 200, cache headers and real `lastmod` on the
+LISTINGS file were already here; the chunk is 10 000 rather than 5 000 on purpose (each
+`<url>` weighs ~2.3 KB with four hreflang alternates and five images). Three gaps were real
+and are now closed:
+* **`lastmod` was TODAY, recomputed per fetch**, on the index, the static file and the model
+  file — a claim that the whole site changed this morning, every morning. Each child now
+  states its own clock: `_lastmod_pages()` (newest CMS edit), `_lastmod_taxonomy()`
+  (`sync_state.taxonomy.built_at`), `_lastmod_listings()` (newest `last_seen`). Full W3C
+  datetime to the second.
+* **`image:title` on every photo and ONE `image:caption` on the lead photo**, in Bulgarian to
+  match the primary `<loc>` (`_photo_caption`: registration + mileage + the delivered-price
+  promise, from fields already in the row — no fuel/gearbox, which are raw Korean on a
+  quarter of the catalogue and a sitemap must never trigger translation).
+* **Pretty-printed** with real newlines and indentation; `s-maxage` added.
+* Tests: `tests/test_sitemap_limits.py` now 12 — well-formed XML for all four files, the
+  pretty-print shape, per-child `lastmod` (static ≠ listings), title/caption counts, and a
+  BYTES-PER-URL projection onto a full chunk (preview holds few cars, so file size alone
+  cannot guard the 50 MB ceiling).
+
+### Colour — what the data actually allows
+* **Exterior colour: yes, and without changing how we scrape.** The search feed we crawl
+  carries no colour at all; only the per-car detail does (`spec.colorName`), and we hold a
+  detail for <1% of the catalogue. But colour IS an upstream facet, exactly like transmission
+  (`sync.MANUAL_Q`, which has worked for a year), so `sync.tag_colors` runs ONE id-only pass
+  per colour on the same endpoint with the same pacing. The colours partition the catalogue,
+  so the whole job is ~490 requests — about one extra sweep, not one request per car
+  (245 000 requests / three days, which is what per-car detail enrichment would have cost).
+  Runs nightly after `tag_transmission`.
+* `COLOR_GROUPS` maps our 13 slugs to the Korean values Encar itself uses. **Every value was
+  read out of real Encar data** in our own `car_details`, never guessed; a value Encar does
+  not know returns Count 0 and its cars stay UNTAGGED rather than being filed under "other",
+  which would turn a missing facet value into a false statement about the car. Coverage is
+  reported so a gap shows up as evidence.
+* Free half, no upstream cost: `_colors_from_details` folds in colours from details we
+  already hold (it runs FIRST, so an upstream failure cannot lose it), and `_learn_color`
+  writes the colour of any car a visitor opens. In preview that alone coloured 1 050 rows.
+* Filter plumbing: `colors` in `SearchBody`/`build_query`/`_NARROWING`, `color` on every
+  card, colour facets in `/meta/filters` and scoped counts in `/meta/facet-counts`,
+  `GET /api/admin/colors` (coverage, per-colour counts, last run) and
+  `POST /api/admin/colors/tag` (run it now — this is how the facet gets verified against
+  live Encar). Index on `listings.color`.
+* Frontend: swatch grid in `FilterSidebar` (fixed order, only colours the catalogue has,
+  live counts), `?colors=black~white` in the URL, applied-filter chips, and labels in
+  bg/ro/pl/en.
+* **Interior colour: NOT possible — researched, not assumed.** Encar's data holds no interior
+  colour anywhere we can reach: `detail.spec` has `colorName` + an always-null `customColor`;
+  `inspection.master.detail.colorType` is a two-value PAINT-TYPE taxonomy (무채색) and null on
+  80% of cars; `inspection.inners` is the mechanical self-diagnosis (engine, gearbox, leaks).
+  Nothing was invented to fill the gap.
+* **STILL TO VERIFY ON PRODUCTION**: preview cannot reach api.encar.com (CloudFront 407 to
+  datacentre IPs), so the facet passes cannot run here — `POST /api/admin/colors/tag` honestly
+  reports `ok:false` with the 407. On production: run that endpoint once, then read
+  `GET /api/admin/colors`. If coverage is low, the Korean value list needs extending from what
+  the response shows, not from guesswork.
+* Tests: `tests/test_colors.py` (7). Testing agent iteration_47: 100% backend and frontend —
+  colour narrowing, unknown colour = 0, union of two colours, scoped counts, reload from URL,
+  deselect, chips, mobile panel and all four locales.
+
 ## Encar upstream (2026-06)
 * PRIMARY route now: sticky residential proxy (IPRoyal) via protected `encar_proxy_url` →
   `ENCAR_PROXY_URL`. Only api.encar.com; CDN/Stripe/Claude/Resend/GitHub direct. Owner must put

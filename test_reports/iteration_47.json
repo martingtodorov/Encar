@@ -1,0 +1,46 @@
+{
+  "summary": "Verified new colour filter + sitemap-formatting/freshness work end-to-end. Backend: pytest tests/test_colors.py 7/7 and tests/test_sitemap_limits.py 12/12 all green (run from /app/backend); live API on preview returns correct colour facets, narrows /api/search per colour, unknown colour = 0, multi-colour union works (black+white=3), facet-counts scope re-computes per query, admin coverage 5/6=83.3% with no 'other' bucket, tag endpoint returns ok:false with the 407 reason but preserves cached colours. Sitemaps: /sitemap.xml, /sitemap-static.xml, /sitemap-models.xml, /sitemap-listings-1.xml are well-formed, pretty-printed, W3C-datetime lastmods that differ between static (2026-08-06) and listings (2026-08-10), listing sitemap carries 24 <image:title> tags and exactly 6 <image:caption> (one per listing), all resolve to 200 (HEAD 301 -> 200 via ingress redirect to /api/*, an ingress-level behaviour). Frontend: colour section renders 4 swatches on /bg with correct BG labels (бял/черен/сребърен/оранжев) and counts; clicking 'черен' sets ?colors=black, data-active=true, adds applied-filter chip 'applied-filter-colors:black'; reload of /bg?colors=black restores the selection; deselect clears URL; multi-select builds ?colors=black~white (URL union). Locale titles + black labels translated on ro (Culoare/negru), en (Colour/black), pl (Kolor/czarny); no Korean text. Mobile 390x844 via [data-testid=open-filters-button] shows the same colour section, clicking sets URL and marks button active. Backend health-check red for Encar upstream (HTTP 407) is expected in preview per review context and NOT reported as a bug.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_results": {
+    "pytest_test_colors": "7/7 passed",
+    "pytest_test_sitemap_limits": "12/12 passed",
+    "api_meta_filters_bg_colors": "[black:2, white:1, silver:1, orange:1]",
+    "api_search_black": "total=2, all items color=black",
+    "api_search_unknown_mauve": "total=0",
+    "api_search_black_white_union": "total=3",
+    "api_facet_counts_unscoped": "colors match filters",
+    "api_facet_counts_year_min_2010": "still returns 4 colours (scoped)",
+    "api_admin_colors": "known=5, total=6, coverage=83.3, no 'other' bucket",
+    "api_admin_colors_tag": "ok:false with 407 upstream reason, cached colours preserved",
+    "sitemap_index": "well-formed, pretty-printed, W3C lastmod",
+    "sitemap_static_lastmod": "2026-08-06T12:50:29+00:00",
+    "sitemap_listings_lastmod": "2026-08-10T01:14:27+00:00 (differs from static)",
+    "sitemap_listings_images": "24 <image:title>, 6 <image:caption>",
+    "sitemap_head_status": "200 (via 301 redirect to /api/* — ingress-level)",
+    "frontend_bg_options": "4 (белый/черен/сребърен/оранжев with counts 1/2/1/1)",
+    "frontend_bg_click_black": "URL=?colors=black, data-active=true, chip applied-filter-colors:black",
+    "frontend_bg_reload_url": "colour restored active",
+    "frontend_bg_deselect": "URL cleaned, data-active=false",
+    "frontend_bg_multi": "URL=?colors=black~white",
+    "frontend_locale_ro": "Culoare / negru",
+    "frontend_locale_en": "Colour / black",
+    "frontend_locale_pl": "Kolor / czarny",
+    "frontend_mobile_390x844": "open-filters-button reveals colour section; click sets ?colors=black"
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_colors.py",
+    "/app/backend/tests/test_sitemap_limits.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Preview /sitemap*.xml responds 301 -> /api/sitemap*.xml at ingress; production nginx must expose the /sitemap*.xml paths directly (already the case per prior iteration reports) so search engines don't chase a redirect."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (19/19 pytest + 7 live-API checks)", "frontend": "100% (bg desktop + bg mobile + ro/en/pl labels)"},
+  "test_credentials": "admin token used only for /api/admin/colors and /api/admin/colors/tag (from review request)",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Multi-colour URL syntax is ~-separated: ?colors=black~white (buildPayload in searchQuery.js). CSRF is required for POST /api/search and /api/meta/facet-counts — GET /api/csrf first, then send x-csrf-token + the encar_pre cookie. Preview always shows the install-banner PWA prompt on mobile; dismiss via [data-testid=install-banner-dismiss] or just click [data-testid=open-filters-button] which sits below the hero on mobile. Preview catalogue is 6 cars only and api.encar.com returns HTTP 407 — the red 'Encar upstream' health-check and empty upstream colour-facet pass are expected."
+}
