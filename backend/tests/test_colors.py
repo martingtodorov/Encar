@@ -108,3 +108,32 @@ def test_tagging_run_survives_an_unreachable_upstream():
         assert d.get("error")           # named the reason instead of failing silently
     after = requests.get(f"{BASE}/api/admin/colors", headers=ADMIN, timeout=120).json()
     assert after["known"] >= 0
+
+
+def test_the_catalogue_sync_itself_tags_colours():
+    """The pass has to hang off the job that ACTUALLY runs.
+
+    It was first wired only into the legacy full sweep (`sync.sync_all`), which nothing
+    schedules — the nightly catalogue sync is `syncjob`, and it would have crawled every
+    night while the colour filter stayed frozen. Also guards the CLI (`crawl.py --all`).
+    """
+    import inspect
+
+    import crawl
+    import syncjob
+
+    assert "tag_colors" in inspect.getsource(syncjob), "the catalogue sync skips colours"
+    assert "tag_colors" in inspect.getsource(crawl), "the crawl CLI skips colours"
+    # The progress bar has to name it, or a five-minute phase looks like a hung job.
+    assert "colour" in syncjob.PHASE_WEIGHT and "colour" in syncjob.PHASE_LABEL
+    assert syncjob.PHASE_WEIGHT["manual"] < syncjob.PHASE_WEIGHT["colour"] \
+        < syncjob.PHASE_WEIGHT["dedupe"]
+
+
+def test_colour_queries_keep_the_shared_base_filters():
+    """A colour pass that forgot the base query would tag hidden and lease cars too."""
+    import sync
+
+    q = sync._q(["Color.흰색"])
+    assert q.startswith(sync.BASE_Q[:-1]) and "Color.흰색" in q
+    assert "Hidden.N" in q and "CarType.A" in q

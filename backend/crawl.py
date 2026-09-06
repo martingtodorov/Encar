@@ -61,6 +61,7 @@ async def main():
 
         if not args.no_post:
             result["manual_tagged"] = await sync.tag_transmission(db, manufacturers=makes)
+            result["colours"] = await sync.tag_colors(db, manufacturers=makes)
             result["dedupe"] = await sync.dedupe_pass(db)
             try:
                 result["taxonomy"] = await sync.build_taxonomy(db)

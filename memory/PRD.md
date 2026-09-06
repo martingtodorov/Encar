@@ -415,6 +415,19 @@ SUCCESS: a 404 is Encar answering, and a blocked route 407s, 403s or times out i
 Tests: 4 added to `tests/test_encar_route.py` (10 total), covering the success path, a sold
 car, a blocked route, and `count() == None` (a failed request, never a zero).
 
+## 2026-09-06 — the colour pass was wired to the wrong job (FIXED)
+Owner asked whether the catalogue sync also looks for exterior colour. It did NOT.
+`tag_colors` had been hung off `sync.sync_all` — the legacy full sweep, which nothing
+schedules. The job that actually runs nightly is `syncjob` (the partitioned catalogue crawl,
+`catalogue_partition_*`), and it would have crawled every night while the colour filter stayed
+frozen at whatever the cached details had taught it.
+* `syncjob`: new `colour` phase between `manual` and `dedupe`, with its own weight and label
+  ("Tagging colours") so a multi-minute phase does not look like a hung job.
+* `crawl.py --all` / `--make`: tags colours too, scoped to the makes crawled.
+* Guard: `tests/test_colors.py` now asserts the pass is referenced by BOTH the sync job and
+  the CLI, that the phase is named in the progress bar, and that a colour query keeps the
+  shared base filters (a pass without them would tag hidden and lease cars). 9 tests green.
+
 ## Encar upstream (2026-06)
 * PRIMARY route now: sticky residential proxy (IPRoyal) via protected `encar_proxy_url` →
   `ENCAR_PROXY_URL`. Only api.encar.com; CDN/Stripe/Claude/Resend/GitHub direct. Owner must put

@@ -34,10 +34,11 @@ LIVE_ID = "catalogue_partition_live"
 
 # Rough share of the whole job each phase represents, so the bar keeps moving during the
 # post-crawl passes instead of sitting at 100% for a few minutes.
-PHASE_WEIGHT = {"crawl": 0.86, "retire": 0.88, "manual": 0.90, "dedupe": 0.93,
-                "taxonomy": 0.97, "slugs": 0.99, "coverage": 1.0}
+PHASE_WEIGHT = {"crawl": 0.86, "retire": 0.88, "manual": 0.895, "colour": 0.915,
+                "dedupe": 0.94, "taxonomy": 0.97, "slugs": 0.99, "coverage": 1.0}
 PHASE_LABEL = {"crawl": "Crawling Encar", "retire": "Retiring sold cars",
-               "manual": "Tagging gearboxes", "dedupe": "Removing duplicates",
+               "manual": "Tagging gearboxes", "colour": "Tagging colours",
+               "dedupe": "Removing duplicates",
                "taxonomy": "Rebuilding dropdowns", "slugs": "Rebuilding URL slugs",
                "coverage": "Refreshing coverage"}
 
@@ -323,6 +324,11 @@ async def _run(db, trigger, resume_run_id=None):
                 resume=bool(resume_run_id))
         await _phase(db, "manual")
         result["manual_tagged"] = await sync_mod.tag_transmission(db)
+        # Colour is the same kind of pass as the gearbox one: not in the list payload, but an
+        # upstream facet. It belongs HERE, in the catalogue sync that actually runs, and not
+        # only in the legacy full sweep.
+        await _phase(db, "colour")
+        result["colours"] = await sync_mod.tag_colors(db)
         await _phase(db, "dedupe")
         result["dedupe"] = await sync_mod.dedupe_pass(db)
         await _phase(db, "taxonomy")
