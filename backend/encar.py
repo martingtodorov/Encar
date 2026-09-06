@@ -695,28 +695,41 @@ def normalise_row(row, recency=None):
     return doc
 
 
-async def verify(listing_id="42207598"):
-    """Deploy-time proof that Encar answers through the configured route: HTTP 200 and a JSON
-    body. Prints only sanitized fields; exit 1 on anything else."""
+async def verify(listing_id=None):
+    """Deploy-time proof that Encar answers through the configured route.
+
+    It asks the CATALOGUE how many cars it holds, because that question has no expiry date.
+    It used to fetch one hardcoded car, which made every deploy depend on that car still
+    being for sale: the day it sold, the check would have printed "test vehicle is gone",
+    exited 1, and the playbook's `assert rc == 0` would have blocked a perfectly good
+    release for a reason that has nothing to do with the release.
+
+    An optional listing id is still accepted for hand debugging, and an authoritative 404
+    there counts as SUCCESS — a 404 is Encar answering us, which is the whole question. A
+    blocked or missing route does not 404; it 407s, 403s or times out.
+    """
     t0 = time.monotonic()
     client = EncarClient(min_interval=0)
     try:
-        body = await client.get_json(f"/v1/readside/vehicle/{listing_id}", interactive=True)
+        total = await client.count()
+        if total is None:
+            print(f"FAIL route={route()} the catalogue count did not come back")
+            return 1
+        extra = ""
+        if listing_id:
+            body = await client.get_json(f"/v1/readside/vehicle/{listing_id}",
+                                         allow_404=True, interactive=True)
+            extra = (f" vehicle={listing_id} status=404 (sold or withdrawn — the route is "
+                     f"still proven)" if body is None
+                     else f" vehicle={listing_id} status=200")
     except EncarUnavailable as e:
         print(f"FAIL route={route()} status={e.status or '-'} "
               f"latency_ms={int((time.monotonic() - t0) * 1000)} reason={_scrub(e)}")
         return 1
     finally:
         await client.close()
-    if body is None:
-        print(f"FAIL route={route()} status=404 (test vehicle {listing_id} is gone — pick "
-              f"another id)")
-        return 1
-    if not isinstance(body, dict):
-        print(f"FAIL route={route()} status=200 body is not a JSON object")
-        return 1
     print(f"OK route={route()} status=200 latency_ms={int((time.monotonic() - t0) * 1000)} "
-          f"vehicle_id={body.get('vehicleId', '?')}")
+          f"catalogue={total}{extra}")
     return 0
 
 

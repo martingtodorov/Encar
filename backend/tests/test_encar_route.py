@@ -111,3 +111,67 @@ def test_status_never_leaks_the_proxy():
     c._trip("ProxyError at http://user:secret@proxy.example:8080", 60)
     blob = repr(c.status())
     assert "secret" not in blob and "proxy.example" not in blob
+
+
+# ── the deploy-time check must not depend on one car staying for sale ────────
+def test_verify_asks_the_catalogue_not_a_single_car(monkeypatch, capsys):
+    """`assert encar_verify.rc == 0` in the playbook blocks the release when this fails, so
+    the check must not be able to fail for a reason unrelated to the release. It used to
+    fetch one hardcoded listing: the day that car sold, a good deploy would have stopped."""
+    asked = {}
+
+    async def fake_count(self, q=None):
+        asked["count"] = True
+        return 244996
+
+    async def fake_get_json(self, path, **kw):
+        raise AssertionError(f"verify must not need a car: {path}")
+
+    monkeypatch.setattr(EncarClient, "count", fake_count)
+    monkeypatch.setattr(EncarClient, "get_json", fake_get_json)
+    monkeypatch.setattr(EncarClient, "close", lambda self: asyncio.sleep(0))
+
+    assert asyncio.run(encar_mod.verify()) == 0
+    assert asked["count"]
+    assert "catalogue=244996" in capsys.readouterr().out
+
+
+def test_verify_passes_when_the_named_car_is_already_sold(monkeypatch, capsys):
+    """A 404 is Encar ANSWERING us, which is the whole question. A blocked route 407s."""
+    async def fake_count(self, q=None):
+        return 100
+
+    async def sold(self, path, **kw):
+        return None                      # authoritative 404
+
+    monkeypatch.setattr(EncarClient, "count", fake_count)
+    monkeypatch.setattr(EncarClient, "get_json", sold)
+    monkeypatch.setattr(EncarClient, "close", lambda self: asyncio.sleep(0))
+
+    assert asyncio.run(encar_mod.verify("42679754")) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("OK") and "route is still proven" in out
+
+
+def test_verify_fails_when_the_route_is_blocked(monkeypatch, capsys):
+    async def blocked(self, q=None):
+        raise EncarUnavailable("upstream refused the request (HTTP 407)", 407)
+
+    monkeypatch.setattr(EncarClient, "count", blocked)
+    monkeypatch.setattr(EncarClient, "close", lambda self: asyncio.sleep(0))
+
+    assert asyncio.run(encar_mod.verify()) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("FAIL") and "407" in out
+
+
+def test_verify_fails_when_the_count_comes_back_empty_handed(monkeypatch, capsys):
+    """`count()` returns None when the REQUEST failed - never treat that as a zero."""
+    async def nothing(self, q=None):
+        return None
+
+    monkeypatch.setattr(EncarClient, "count", nothing)
+    monkeypatch.setattr(EncarClient, "close", lambda self: asyncio.sleep(0))
+
+    assert asyncio.run(encar_mod.verify()) == 1
+    assert capsys.readouterr().out.startswith("FAIL")

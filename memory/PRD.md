@@ -402,6 +402,19 @@ and are now closed:
   colour narrowing, unknown colour = 0, union of two colours, scoped counts, reload from URL,
   deselect, chips, mobile panel and all four locales.
 
+## 2026-09-06 — the deploy check no longer depends on one car being for sale (DONE)
+Another session reported a hardcoded listing id in the deploy playbook. Checked: NOT in this
+repository — no such id anywhere, `git diff deploy/` clean, the playbook runs
+`python -m encar --verify` with no argument. That edit exists only on the server checkout.
+But the concern was right about the wrong file: `encar.verify()` had a hardcoded DEFAULT id
+(`42207598`), and the playbook does `assert encar_verify.rc == 0`, so the day that car sold, a
+good release would have been blocked with "test vehicle is gone".
+`verify()` now asks the CATALOGUE for its count — a question with no expiry date — and an
+optional id is still accepted for hand debugging, where an authoritative 404 counts as
+SUCCESS: a 404 is Encar answering, and a blocked route 407s, 403s or times out instead.
+Tests: 4 added to `tests/test_encar_route.py` (10 total), covering the success path, a sold
+car, a blocked route, and `count() == None` (a failed request, never a zero).
+
 ## Encar upstream (2026-06)
 * PRIMARY route now: sticky residential proxy (IPRoyal) via protected `encar_proxy_url` →
   `ENCAR_PROXY_URL`. Only api.encar.com; CDN/Stripe/Claude/Resend/GitHub direct. Owner must put
