@@ -11,6 +11,9 @@ const PINCH_START = 1.06;
 // ...and on the way back, anything under this snaps all the way to rest: half a zoom leaves
 // the column frozen for no visible reason.
 const SNAP = 1.15;
+// A finger nobody has heard from for this long is not on the glass any more, whatever the
+// browser forgot to tell us.
+const STALE_MS = 1200;
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const ZERO = { s: 1, x: 0, y: 0 };
@@ -67,6 +70,10 @@ export const ColumnPhoto = ({
     onZoom?.(index, zoomed);
   }, [zoomed, index, onZoom]);
 
+  // A photo taken off screen while it was still magnified must say so on the way out, or
+  // the column goes on believing something is zoomed forever.
+  useEffect(() => () => onZoom?.(index, false), [index, onZoom]);
+
   // The photo is only allowed to take every touch on screen once it is magnified; at rest
   // the finger belongs to the column, which has to scroll exactly as it always did.
   useEffect(() => {
@@ -79,6 +86,7 @@ export const ColumnPhoto = ({
     if (!el) return undefined;
 
     const rect = () => el.getBoundingClientRect();
+    let beat = 0;             // when a finger was last heard from
 
     const put = (v) => {
       viewRef.current = v;
@@ -114,6 +122,14 @@ export const ColumnPhoto = ({
     };
 
     const down = (e) => {
+      // A LEAKED FINGER IS A PHANTOM PINCH. If a `pointerup` never arrives — and on iOS it
+      // does not, whenever the system takes a gesture over — the old id sits in this map,
+      // and the visitor's NEXT single finger arrives as the second one: one finger, treated
+      // as a pinch, scaling the photo by a few percent for no reason. So a finger that has
+      // not been heard from since before this gesture could plausibly have started is a
+      // ghost, and goes. Real fingers in a real pinch land together and keep reporting.
+      if (!gesture.current || Date.now() - beat > STALE_MS) points.current.clear();
+      beat = Date.now();
       points.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (points.current.size === 2) {
         const [a, b] = [...points.current.values()];
@@ -139,6 +155,7 @@ export const ColumnPhoto = ({
 
     const move = (e) => {
       if (!points.current.has(e.pointerId)) return;
+      beat = Date.now();
       points.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
       const g = gesture.current;
       if (!g) return;
@@ -180,6 +197,7 @@ export const ColumnPhoto = ({
     };
 
     const up = (e) => {
+      beat = Date.now();
       points.current.delete(e.pointerId);
       try {
         el.releasePointerCapture?.(e.pointerId);
@@ -211,6 +229,7 @@ export const ColumnPhoto = ({
     };
 
     const cancel = (e) => {
+      beat = Date.now();
       points.current.delete(e.pointerId);
       try {
         el.releasePointerCapture?.(e.pointerId);
@@ -227,6 +246,7 @@ export const ColumnPhoto = ({
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerup", up);
     el.addEventListener("pointercancel", cancel);
+    window.addEventListener("pointerup", cancel);
     window.addEventListener("pointercancel", cancel);
     window.addEventListener("blur", settleGesture);
     return () => {
@@ -234,6 +254,7 @@ export const ColumnPhoto = ({
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
       el.removeEventListener("pointercancel", cancel);
+      window.removeEventListener("pointerup", cancel);
       window.removeEventListener("pointercancel", cancel);
       window.removeEventListener("blur", settleGesture);
     };

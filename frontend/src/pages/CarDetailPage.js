@@ -243,16 +243,7 @@ export default function CarDetailPage() {
   // (this route's LCP) wins the network first, and skipped outright on a metered or 2G
   // connection - warming a gallery is not worth someone's data plan.
   const [warmPhotos, setWarmPhotos] = useState(false);
-  // True while one photo in the column is zoomed in.
-  const [photoZoom, setPhotoZoom] = useState(false);
   const scrollerRef = useRef(null);
-
-  // Closing while a photo was zoomed used to leave the scroll lock behind: the sticky X sets
-  // `lightbox` straight, without going through the dialog's own `onOpenChange`. Whichever way
-  // the column goes away, it now reopens scrollable.
-  useEffect(() => {
-    if (!lightbox) setPhotoZoom(false);
-  }, [lightbox]);
 
   // Only a finger, and the momentum it left behind, may move the photo column. Everything
   // else that drags it upwards is the system — on iOS that is the status bar being tapped,
@@ -1230,10 +1221,17 @@ export default function CarDetailPage() {
             // Native zoom off entirely in the photo column: `pan-y` leaves scrolling intact
             // but forbids pinch. Zooming here dragged the sticky close button out of reach;
             // pinching a single photo is what the in-place zoom is for.
-            // Zoomed into one photo, the column freezes: every finger belongs to that photo
-            // until it is zoomed back out.
-            touchAction: photoZoom ? "none" : "pan-y",
-            overflowY: photoZoom ? "hidden" : "auto",
+            //
+            // NOTHING HERE CHANGES WHILE A PHOTO IS ZOOMED, and that is deliberate. This
+            // used to flip to `overflow: hidden` / `touch-action: none` to freeze the
+            // column — and Safari answers a mid-gesture overflow flip on a scroller by
+            // resetting its scroll position, which is the mysterious jump to the top of the
+            // column after zooming a few photos; if the zoom flag then stuck for any reason
+            // the whole dialog was left refusing every touch. The zoomed photo blocks the
+            // column by itself: its gesture layer covers the screen with
+            // `touch-action: none`, so there is no scroll to freeze.
+            touchAction: "pan-y",
+            overflowY: "auto",
           }}
         >
           <DialogTitle className="sr-only">{car?.title || t("allPhotos")}</DialogTitle>
@@ -1267,13 +1265,7 @@ export default function CarDetailPage() {
           {/* Mounted only while open: closing throws the column away, so reopening always
               starts with every photo back at its normal size and nothing zoomed. */}
           {lightbox && (
-          <PhotoColumn
-            photos={photos}
-            alt={car?.title || ""}
-            // While a photo is zoomed the column must not scroll: a drag has to move the
-            // picture, not slide the page out from under it.
-            onZoomChange={setPhotoZoom}
-          />
+          <PhotoColumn photos={photos} alt={car?.title || ""} />
           )}
         </DialogContent>
       </Dialog>

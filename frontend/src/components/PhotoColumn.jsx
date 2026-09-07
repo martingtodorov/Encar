@@ -21,7 +21,7 @@ import { ColumnPhoto } from "@/components/ColumnPhoto";
  * column is being FLICKED past nothing off screen is even asked for — the cached thumbnails
  * cover it, and the real files arrive the moment it stands still.
  */
-const RESERVE = 4 / 3;      // every slot, whatever the photo: see `ColumnPhoto`
+const RESERVE = 3 / 2;      // every slot, whatever the photo: see `ColumnPhoto`
 const AHEAD = 2;            // slots past the last visible one, once the scrolling calms
 const BEHIND = 1;           // and the one just scrolled past, in case they come back
 const IN_FLIGHT = 2;        // off-screen fetches at a time; on-screen ones ignore this
