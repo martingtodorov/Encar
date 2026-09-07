@@ -740,18 +740,25 @@ def full_image_url(path, max_side=1600):
     bottom off portrait source photos at the CDN before they ever reached the
     browser - `object-contain` in the lightbox then had nothing to work with.
 
-    This variant sends `impolicy=widthRate&rw=<N>` WITHOUT `cw`/`ch`, which is what
-    the CDN uses to scale-only (no crop): the source's native aspect is preserved,
-    so a portrait photo comes back portrait and the lightbox picks its own contain.
-    Empirically `impolicy=Resize` returns 503; `widthRate` without a crop rectangle
-    is the closest thing to a plain resize the CDN offers.
+    THE RESIZE ONLY HAPPENS IF A CROP HEIGHT COMES WITH IT. `impolicy=widthRate&rw=N`
+    on its own is silently IGNORED: the CDN hands back the untouched source, which for
+    every listing measured is 2200x1238 - 1.2 MB on the wire and about 11 MB of bitmap
+    once decoded. A column of those is what was freezing iPhones, and it looked like a
+    640px request the whole time. Adding `ch` well ABOVE the scaled height makes the
+    resize stick while leaving the aspect alone: the CDN scales to `rw` and ignores the
+    box (`rw=640&ch=2560` returns 640x360, 24 KB). A `ch` at or below the scaled height
+    is ignored again, hence the deliberately generous multiplier - four times the width
+    survives anything short of a source taller than it is wide by 4:1.
+
+    `impolicy=Resize` returns 503; this is the closest thing to a plain resize the CDN
+    offers.
     """
     if not path:
         return None
     if path.startswith("http"):
         return path
     base = path if path.startswith("/carpicture/") else f"/carpicture{path}"
-    return (f"{CDN}{base}?impolicy=widthRate&rw={max_side}"
+    return (f"{CDN}{base}?impolicy=widthRate&rw={max_side}&ch={max_side * 4}"
             f"&wtmk={CDN}/wt_mark/w_mark_04.png")
 
 

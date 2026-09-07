@@ -21,9 +21,8 @@ import { ColumnPhoto } from "@/components/ColumnPhoto";
  * column is being FLICKED past nothing off screen is even asked for — the cached thumbnails
  * cover it, and the real files arrive the moment it stands still.
  */
-const RESERVE = 3 / 2;      // every slot, whatever the photo: see `ColumnPhoto`
-const AHEAD = 2;            // slots past the last visible one, once the scrolling calms
-const BEHIND = 1;           // and the one just scrolled past, in case they come back
+const RESERVE = 16 / 9;     // every slot, whatever the photo: see `ColumnPhoto`
+const NEAR_PX = 400;        // "about to be reached": how far outside the screen counts
 const IN_FLIGHT = 2;        // off-screen fetches at a time; on-screen ones ignore this
 const FLING_PX = 60;        // a scroll step bigger than this is a flick, not reading
 const CALM_MS = 200;        // how long after the last step it counts as standing still
@@ -35,19 +34,23 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
   const [done, setDone] = useState({});           // index -> the file is decoded and shown
   const [failed, setFailed] = useState({});
   const [span, setSpan] = useState({ lo: 0, hi: 0 });   // the slots on screen right now
+  const [soon, setSoon] = useState({ lo: 0, hi: 0 });   // ...and the ones about to be
   const [zoomIdx, setZoomIdx] = useState(null);
   const [flying, setFlying] = useState(false);
   const [tick, setTick] = useState(0);
   const startedAt = useRef({});
   const hostRef = useRef(null);
   const seen = useRef(new Set());
+  const nearby = useRef(new Set());
 
   useEffect(() => {
     setStarted([]);
     setDone({});
     setFailed({});
     setSpan({ lo: 0, hi: 0 });
+    setSoon({ lo: 0, hi: 0 });
     seen.current = new Set();
+    nearby.current = new Set();
     startedAt.current = {};
   }, [photos]);
 
@@ -58,32 +61,45 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
     return () => clearInterval(id);
   }, []);
 
-  // Which slots are on screen. Twenty observed elements costs nothing and replaces a scroll
-  // handler that would fire on every frame. The set is committed immediately — this is the
-  // one thing that must never lag behind the visitor.
+  // WHICH SLOTS ARE ON SCREEN, AND WHICH ARE ABOUT TO BE. Two observers over the same
+  // twenty elements: the bare one says what the visitor is looking at, and the second,
+  // grown by NEAR_PX in both directions, says what is one flick away. Loading is decided by
+  // DISTANCE, not by counting slots — a photo is fetched when it is about to arrive on
+  // screen and not a moment before, which is the difference between a phone that keeps up
+  // and a phone that is handed twenty decodes it will never show.
+  //
+  // Root is the viewport on purpose: the column scrolls inside the dialog, and a slot
+  // clipped by that overflow is already reported as not intersecting.
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return undefined;
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => {
-          const i = Number(e.target.dataset.idx);
-          if (Number.isNaN(i)) return;
-          if (e.isIntersecting) seen.current.add(i);
-          else seen.current.delete(i);
-        });
-        if (!seen.current.size) return;
-        const list = [...seen.current];
-        const lo = Math.min(...list);
-        const hi = Math.max(...list);
-        setSpan((s) => (s.lo === lo && s.hi === hi ? s : { lo, hi }));
-      },
-      // Root is the viewport on purpose: the column scrolls inside the dialog, and a slot
-      // clipped by that overflow is already reported as not intersecting.
-      { threshold: 0 }
-    );
-    host.querySelectorAll("[data-idx]").forEach((el) => io.observe(el));
-    return () => io.disconnect();
+    const watch = (set, apply, margin) =>
+      new IntersectionObserver(
+        (entries) => {
+          entries.forEach((e) => {
+            const i = Number(e.target.dataset.idx);
+            if (Number.isNaN(i)) return;
+            if (e.isIntersecting) set.current.add(i);
+            else set.current.delete(i);
+          });
+          if (!set.current.size) return;
+          const list = [...set.current];
+          const lo = Math.min(...list);
+          const hi = Math.max(...list);
+          apply((s) => (s.lo === lo && s.hi === hi ? s : { lo, hi }));
+        },
+        { threshold: 0, rootMargin: margin }
+      );
+    const here = watch(seen, setSpan, "0px");
+    const coming = watch(nearby, setSoon, `${NEAR_PX}px 0px`);
+    host.querySelectorAll("[data-idx]").forEach((el) => {
+      here.observe(el);
+      coming.observe(el);
+    });
+    return () => {
+      here.disconnect();
+      coming.disconnect();
+    };
   }, [photos]);
 
   // Is the column being thrown past, or read?
@@ -107,8 +123,9 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
     };
   }, [photos]);
 
-  // The scheduler. Anything on screen is started at once, whatever else is in flight; off
-  // screen, one or two at a time and only while the column is standing still.
+  // The scheduler. Anything on screen is started at once, whatever else is in flight;
+  // anything about to arrive on screen, one or two at a time and only while the column is
+  // standing still. Nothing further away is touched at all.
   useEffect(() => {
     const n = photos.length;
     if (!n) return;
@@ -123,27 +140,28 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
         (i) => !done[i] && !failed[i] && now - (startedAt.current[i] || now) < STALL_MS
       ).length;
       if (busy >= IN_FLIGHT) return;
-      for (let i = span.hi + 1; i <= span.hi + AHEAD && pick < 0; i += 1) {
+      // Forwards first — that is where they are going — then back over what was passed.
+      for (let i = span.hi + 1; i <= soon.hi && pick < 0; i += 1) {
         if (waiting(i)) pick = i;
       }
-      for (let i = span.lo - 1; i >= span.lo - BEHIND && pick < 0; i -= 1) {
+      for (let i = span.lo - 1; i >= soon.lo && pick < 0; i -= 1) {
         if (waiting(i)) pick = i;
       }
     }
     if (pick < 0) return;
     startedAt.current[pick] = Date.now();
     setStarted((s) => (s.includes(pick) ? s : [...s, pick]));
-  }, [started, done, failed, span, flying, tick, photos]);
+  }, [started, done, failed, span, soon, flying, tick, photos]);
 
   // A photo scrolled away from before it arrived forgets it was ever asked for, so coming
   // back to it starts again instead of waiting on a request with no slot left to land in.
   useEffect(() => {
     setStarted((s) =>
-      s.some((i) => !done[i] && (i < span.lo - BEHIND || i > span.hi + AHEAD))
-        ? s.filter((i) => done[i] || (i >= span.lo - BEHIND && i <= span.hi + AHEAD))
+      s.some((i) => !done[i] && (i < soon.lo || i > soon.hi))
+        ? s.filter((i) => done[i] || (i >= soon.lo && i <= soon.hi))
         : s
     );
-  }, [span, done]);
+  }, [soon, done]);
 
   const settle = useCallback((i) => {
     setDone((d) => (d[i] ? d : { ...d, [i]: true }));
@@ -174,10 +192,7 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
         // Decoded while on screen or just off it — and off-screen slots are dropped
         // entirely while the column is being flicked past. The zoomed one is the
         // exception: it must never be taken from under a finger.
-        const keep =
-          onScreen ||
-          i === zoomIdx ||
-          (!flying && i >= span.lo - BEHIND && i <= span.hi + AHEAD);
+        const keep = onScreen || i === zoomIdx || (!flying && i >= soon.lo && i <= soon.hi);
         return (
           <ColumnPhoto
             key={p.full_column || p.full || i}

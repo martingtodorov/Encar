@@ -260,11 +260,13 @@ export const ColumnPhoto = ({
     };
   }, []);
 
-  // EVERY slot is the same shape, whatever the photo turns out to be. Sizing each one to
-  // its own picture meant the column's height changed as files arrived — and a slot that
-  // grows or shrinks above the visitor drags everything under it, which is the "it randomly
-  // scrolled me" you cannot fight with scroll anchoring. Portrait photos and scanned
-  // service records sit inside the same window, whole, and zoom is there to read them.
+  // EVERY slot is the same shape, and 16:9 is that shape because that is what Encar
+  // publishes: every photo measured across every listing comes back 2200x1238. So nothing
+  // is letterboxed and nothing is cropped — the picture fills its slot exactly.
+  //
+  // Sizing each slot to its own picture instead meant the column's height changed as files
+  // arrived, and a slot that grows or shrinks above the visitor drags everything under it,
+  // which is the "it randomly scrolled me" you cannot fight with scroll anchoring.
   const fit = "object-contain";
 
   const moving = {
