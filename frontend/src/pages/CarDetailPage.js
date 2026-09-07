@@ -152,6 +152,24 @@ export default function CarDetailPage() {
     else setLightbox(true);
   };
 
+  // The single-photo lightbox is a DESKTOP surface and nothing else. Checking the width
+  // when it opens is not enough — a tablet rotated into portrait, or a window dragged
+  // narrow, would leave it sitting there on a touch screen it was never built for. It is
+  // dismissed the moment the viewport stops being wide.
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const check = () => {
+      if (!mq.matches) setShot(null);
+    };
+    check();
+    if (mq.addEventListener) mq.addEventListener("change", check);
+    else mq.addListener?.(check);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", check);
+      else mq.removeListener?.(check);
+    };
+  }, []);
+
   // Opening a car from halfway down the result list must not keep that scroll offset:
   // the visitor expects to land at the top of the car they just tapped.
   useEffect(() => {
