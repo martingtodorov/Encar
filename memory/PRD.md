@@ -709,3 +709,11 @@ from 2325 to 4509 while scrolling.
 * iOS не дава orientation lock на web app (`screen.orientation.lock` е само Android/Chrome), а
   `orientation` в manifest-а би заключил и iPad — оттам този подход.
 * Проверено със спуфнат standalone + iPhone UA: sideways показва overlay, вертикално изчезва.
+
+### Follow-up 14 — PortraitLock премахнат по желание на потребителя
+* `PortraitLock.jsx`, import-ът в `LangLayout` и i18n ключът `portraitOnly` са изтрити.
+  Landscape в инсталираното приложение работи както преди (и на iPhone, и на iPad).
+* Ако темата се върне: единственият чист вариант без overlay е `"orientation": "portrait"` в
+  manifest.json, но той важи за ВСЯКА инсталация (и iPad) и иска преинсталиране, за да влезе.
+* Проверено със спуфнат standalone + iPhone UA в landscape: overlay няма, страницата се
+  рендира нормално.

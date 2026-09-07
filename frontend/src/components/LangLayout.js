@@ -10,7 +10,6 @@ import { InstallBanner } from "@/components/InstallBanner";
 import { NotificationsPrompt } from "@/components/NotificationsPrompt";
 import { NotifyConsentDialog } from "@/components/NotifyConsentDialog";
 import { PwaTabBar } from "@/components/PwaTabBar";
-import { PortraitLock } from "@/components/PortraitLock";
 import { useDisplayMode } from "@/hooks/useDisplayMode";
 import { LANGS } from "@/i18n";
 import { stripLang } from "@/lib/seo";
@@ -145,11 +144,6 @@ export const LangLayout = () => {
           footer so it stacks above every fixed layer while never appearing in a
           plain browser tab (that already has Safari/Chrome's own toolbar). */}
       <PwaTabBar />
-      {/* Installed on an iPhone the app is portrait only: sideways there is no room for a
-          photo column, and iOS gives a web app no orientation lock to call. Rendered last
-          so it covers the cookie bar and the tab bar too. The iPad is left alone —
-          landscape is genuinely useful on that screen. */}
-      <PortraitLock />
     </>
   );
 };
