@@ -761,3 +761,41 @@ from 2325 to 4509 while scrolling.
   докато колоната стои. `AHEAD`/`BEHIND` премахнати.
 * Измерено в браузър: 4 снимки в DOM, 640x360, общо 3.5 MB bitmap на върха И след силен flick
   до дъното; всички видими слотове заредени.
+
+### Follow-up 17 — снимките в колоната опират до ръбовете, в родно съотношение
+* `ColumnPhoto` пак приема `ratio`: слотът е 16:9 (това, което Encar публикува) докато файлът
+  дойде, после става ТОЧНО неговото съотношение; `object-cover` гарантира да няма и косъм
+  черно по ръба. `overflow-anchor` е ВЪРНАТ (default), защото височините вече могат да се
+  променят при зареждане и корекцията на браузъра е това, което пази позицията.
+* `PhotoColumn.settle(i, el)` мери `naturalWidth/naturalHeight` и пази съотношението в `done`
+  (число = зареденo + съотношение).
+* Измерено в браузър: слот 430x242, снимка 640x360, `sideGap = 0`, `topGap = 0` за всички
+  видими слотове.
+
+### ОТВОРЕН БЪГ — back бутонът "чупи" търсенето (НЕ репродуциран)
+* Потребител: клик на нашия back бутон изпразва makes/models/submodels и не показва коли.
+* Опитани репродукции в preview (всички РАБОТЯТ, филтри и коли се връщат):
+  1. `/en?sort=newest` → кола → back
+  2. `/en/bmw` (make филтър) → кола → back
+  3. `/en/bmw/1m-e82` (make+model pretty URL, submodel видим) → кола → back
+* Проверени и отхвърлени хипотези: `searchKey = location.pathname` remount (прави пълен
+  refetch), `visits` snapshot restore, abort/dedupe в `lib/api.js` (`prefetched` се харчи веднъж
+  и връща null при грешка).
+* Preview каталогът е само 6 коли / 1 make / 1 model — таксономията и facet-counts там не се
+  състезават както в production. Следваща стъпка: искам точни стъпки от потребителя
+  (production или preview, кои филтри, screenshot), после да се гледа `SearchPage` ефектът за
+  URL mirror (ред ~597, `navigate(replace)`) и `resolving` при POP.
+
+### Follow-up 18 — back бутонът: няма retry при изпусната заявка (най-вероятната причина)
+* Back от кола изстрелва 6 заявки наведнъж (meta/filters, meta/taxonomy x2-3, catalogue/size,
+  facet-counts, search). На телефон, който сменя клетка, изпускането на една е нормално, а
+  `getFilters` имаше само `.catch(() => setFacets(null))` — тоест празни Make/Model/Submodel
+  завинаги и без резултати, без нищо за натискане. Точно докладваният симптом.
+* `lib/api.js`: нов `insist(call, tries=3, gap=500)` — до 3 опита с 0.5/1 s пауза, САМО при
+  транспортна грешка (`!e.response`); сървърен отговор с грешка минава директно. Използван от
+  `getFilters`, `getTaxonomy` и `searchCars`.
+* Проверено с Playwright route interception: два умишлено прекъснати заявки (meta/filters и
+  search) точно при back → страницата се възстановява напълно, филтрите се пълнят
+  (BMW (6), 1M (E82) (6)) и 6 коли се показват.
+* НЕ репродуцирано директно: 4 опита (preview x3 + LIVE encareurope.com с make+fuels+sort)
+  минаха чисто, затова причината е транспортна/периодична, не логическа.

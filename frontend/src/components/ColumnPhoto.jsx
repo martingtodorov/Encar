@@ -44,6 +44,7 @@ export const ColumnPhoto = ({
   zoomSrc,
   thumb,
   alt = "",
+  ratio,
   reserve,
   loaded,
   mounted,
@@ -260,14 +261,14 @@ export const ColumnPhoto = ({
     };
   }, []);
 
-  // EVERY slot is the same shape, and 16:9 is that shape because that is what Encar
-  // publishes: every photo measured across every listing comes back 2200x1238. So nothing
-  // is letterboxed and nothing is cropped — the picture fills its slot exactly.
-  //
-  // Sizing each slot to its own picture instead meant the column's height changed as files
-  // arrived, and a slot that grows or shrinks above the visitor drags everything under it,
-  // which is the "it randomly scrolled me" you cannot fight with scroll anchoring.
-  const fit = "object-contain";
+  // EVERY photo touches both sides of the screen, in its OWN shape: the slot is 16:9 —
+  // which is what Encar publishes for practically every photo (2200x1238 measured across
+  // every listing sampled) — until the file arrives and reports its real ratio, and then
+  // the slot becomes exactly that. Nothing is letterboxed and nothing is cropped, and
+  // `object-cover` guarantees the last fractional pixel is filled rather than left as a
+  // hairline of black down the edge.
+  const shownRatio = ratio || reserve;
+  const fit = "object-cover";
 
   const moving = {
     transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.s})`,
@@ -284,13 +285,12 @@ export const ColumnPhoto = ({
       // Zoomed, the slot stops clipping and rises above its neighbours so the magnified
       // photo spills over them. The slot itself keeps its size and place, so nothing in the
       // column reflows and letting go puts everything back.
-      // `overflow-anchor: none` because scroll anchoring has nothing left to correct here —
-      // every slot keeps the same height from the first frame — and left to itself the
-      // browser still "helped" while photos came and went.
+      // Scroll anchoring is left ON here on purpose: a slot takes its real shape when the
+      // file lands, and if that happens above the visitor the browser's own correction is
+      // what keeps the column from sliding under them.
       style={{
-        aspectRatio: String(reserve),
+        aspectRatio: String(shownRatio),
         zIndex: zoomed ? 60 : undefined,
-        overflowAnchor: "none",
       }}
       className={`relative block w-full select-none bg-black ${
         zoomed ? "overflow-visible" : "overflow-hidden"

@@ -163,8 +163,15 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
     );
   }, [soon, done]);
 
-  const settle = useCallback((i) => {
-    setDone((d) => (d[i] ? d : { ...d, [i]: true }));
+  // The slot takes the photo's OWN shape as soon as the file is here: every picture touches
+  // both sides of the screen at its native ratio, with nothing letterboxed. The measurement
+  // is kept forever — it costs a number, and it is what stops a slot from ever having to be
+  // re-guessed if the visitor scrolls back to it.
+  const settle = useCallback((i, el) => {
+    const r = el && el.naturalWidth && el.naturalHeight
+      ? el.naturalWidth / el.naturalHeight
+      : null;
+    setDone((d) => (d[i] === (r || true) ? d : { ...d, [i]: r || true }));
   }, []);
 
   // Only one photo is ever zoomed, and while one is the column must not scroll: a drag has
@@ -203,11 +210,13 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
             thumb={p.thumb}
             alt={alt}
             reserve={RESERVE}
+            // The measured shape once it is known, the 16:9 Encar publishes until then.
+            ratio={typeof done[i] === "number" ? done[i] : null}
             loaded={!!done[i] && keep}
             mounted={started.includes(i) && keep}
             failed={!!failed[i]}
             priority={onScreen}
-            onSettle={() => settle(i)}
+            onSettle={(el) => settle(i, el)}
             onFail={() => setFailed((f) => ({ ...f, [i]: true }))}
             onZoom={handleZoom}
             placeholder={

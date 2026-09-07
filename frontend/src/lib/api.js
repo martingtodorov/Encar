@@ -124,13 +124,36 @@ export async function searchCars(body) {
       return data;
     }
   }
-  const { data } = await http.post("/search", body);
+  const { data } = await insist(() => http.post("/search", body));
   remember(key, data);
   return data;
 }
 
+/**
+ * Two more goes, half a second apart, for the calls the search page cannot live without.
+ *
+ * A Back from a car fires six requests in the same breath, and on a phone changing cells
+ * one of them being dropped is normal. The dropdown lists and the taxonomy have no second
+ * chance in the page — a single failed GET left the visitor staring at empty Make, Model and
+ * Submodel with no results and nothing to press. Only transport failures are retried; a real
+ * answer, including an error status, is passed straight through.
+ */
+async function insist(call, tries = 3, gap = 500) {
+  let last;
+  for (let i = 0; i < tries; i += 1) {
+    try {
+      return await call();
+    } catch (e) {
+      last = e;
+      if (e?.response) throw e;                 // the server answered; retrying is pointless
+      if (i < tries - 1) await new Promise((r) => setTimeout(r, gap * (i + 1)));
+    }
+  }
+  throw last;
+}
+
 export async function getFilters(lang) {
-  const { data } = await http.get("/meta/filters", { params: { lang } });
+  const { data } = await insist(() => http.get("/meta/filters", { params: { lang } }));
   return data;
 }
 
@@ -168,9 +191,9 @@ export async function resolveSlugs(params) {
 }
 
 export async function getTaxonomy({ level, make = "", model = "", badge = "", lang }) {
-  const { data } = await http.get("/meta/taxonomy", {
-    params: { level, make, model, badge, lang },
-  });
+  const { data } = await insist(() =>
+    http.get("/meta/taxonomy", { params: { level, make, model, badge, lang } })
+  );
   return data;
 }
 
