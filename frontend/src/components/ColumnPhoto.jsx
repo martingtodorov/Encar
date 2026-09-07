@@ -302,6 +302,7 @@ export const ColumnPhoto = ({
           src={thumb}
           alt=""
           aria-hidden="true"
+          loading="lazy"
           decoding="async"
           className={`absolute inset-0 h-full w-full object-cover ${
             mounted ? "scale-105 opacity-45 blur-[6px]" : "opacity-90 blur-[2px]"
@@ -313,10 +314,14 @@ export const ColumnPhoto = ({
         // with the same source meant a fresh decode on every zoom, and the slot went black
         // for that frame or two — the blink. Nothing is swapped now; the picture already on
         // screen simply grows.
+        // LAZY BY DEFAULT, EAGER ONLY FOR WHAT IS BEING LOOKED AT. The window above already
+        // keeps most of the column out of memory; `loading="lazy"` is the browser's own
+        // second line of defence for a slot that drifts off screen between renders, so iOS
+        // is never asked to hold a decode it cannot see.
         <img
           src={src}
           alt={alt}
-          loading="eager"
+          loading={priority ? "eager" : "lazy"}
           decoding="async"
           fetchPriority={priority ? "high" : "low"}
           draggable={false}
