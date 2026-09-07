@@ -184,6 +184,7 @@ const EXTRA = {
     underContractNote:
       "\u0422\u043e\u0437\u0438 \u0430\u0432\u0442\u043e\u043c\u043e\u0431\u0438\u043b \u0435 \u0441 \u0442\u0435\u043a\u0443\u0449 \u0434\u043e\u0433\u043e\u0432\u043e\u0440 \u0432 Encar \u0438 \u043c\u043e\u0436\u0435 \u0432\u0435\u0447\u0435 \u0434\u0430 \u043d\u0435 \u0435 \u043d\u0430\u043b\u0438\u0447\u0435\u043d.",
     allPhotos: "\u0412\u0441\u0438\u0447\u043a\u0438 \u0441\u043d\u0438\u043c\u043a\u0438",
+    portraitOnly: "\u041e\u0431\u044a\u0440\u043d\u0438 \u0442\u0435\u043b\u0435\u0444\u043e\u043d\u0430 \u0432\u0435\u0440\u0442\u0438\u043a\u0430\u043b\u043d\u043e",
     insuranceHistory: "\u0417\u0430\u0441\u0442\u0440\u0430\u0445\u043e\u0432\u0430\u0442\u0435\u043b\u043d\u0430 \u0438\u0441\u0442\u043e\u0440\u0438\u044f",
     inspectionReport: "\u041f\u0440\u043e\u0442\u043e\u043a\u043e\u043b \u043e\u0442 \u0438\u043d\u0441\u043f\u0435\u043a\u0446\u0438\u044f",
     diagnosisReport: "\u0414\u0438\u0430\u0433\u043d\u043e\u0441\u0442\u0438\u043a\u0430 Encar",
@@ -498,6 +499,7 @@ const EXTRA = {
     underContractNote:
       "Acest automobil are un contract \u00een curs pe Encar \u0219i poate s\u0103 nu mai fie disponibil.",
     allPhotos: "Toate fotografiile",
+    portraitOnly: "Rotește telefonul în poziție verticală",
     insuranceHistory: "Istoric de asigurare",
     inspectionReport: "Raport de inspec\u021bie",
     diagnosisReport: "Diagnostic Encar",
@@ -810,6 +812,7 @@ const EXTRA = {
     underContractNote:
       "This car has a contract in progress on Encar and may no longer be available.",
     allPhotos: "All photos",
+    portraitOnly: "Turn your phone upright",
     insuranceHistory: "Insurance history",
     inspectionReport: "Inspection report",
     diagnosisReport: "Encar diagnosis",
@@ -1120,6 +1123,7 @@ const EXTRA = {
     underContractNote:
       "Ten samochód ma umowę w trakcie na Encar i może już nie być dostępny.",
     allPhotos: "Wszystkie zdjęcia",
+    portraitOnly: "Obróć telefon pionowo",
     insuranceHistory: "Historia ubezpieczeniowa",
     inspectionReport: "Raport inspekcji",
     diagnosisReport: "Diagnostyka Encar",

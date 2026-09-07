@@ -700,3 +700,12 @@ from 2325 to 4509 while scrolling.
   отказва декод на слот, който се е изместил извън екрана между два рендера.
 * Проверено: на върха 6 пълни снимки в DOM (4 видими eager, 2 lazy); след силен flick до долу
   5 в DOM, всички видими `data-loaded=true`.
+
+### Follow-up 13 — портретна ориентация само за iPhone PWA
+* Нов `PortraitLock.jsx`: при standalone + iPhone UA + `(orientation: landscape)` показва
+  full-screen черен overlay с логото и "Обърни телефона вертикално" (bg/ro/en/pl ключ
+  `portraitOnly` в i18n_extra.js). z-[300] и рендиран последен в `LangLayout`, така че покрива
+  cookie bar-а (z-200) и tab bar-а. iPad не се засяга — landscape остава.
+* iOS не дава orientation lock на web app (`screen.orientation.lock` е само Android/Chrome), а
+  `orientation` в manifest-а би заключил и iPad — оттам този подход.
+* Проверено със спуфнат standalone + iPhone UA: sideways показва overlay, вертикално изчезва.
