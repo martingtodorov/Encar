@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -245,12 +245,69 @@ export default function CarDetailPage() {
   const [warmPhotos, setWarmPhotos] = useState(false);
   // True while one photo in the column is zoomed in.
   const [photoZoom, setPhotoZoom] = useState(false);
+  const scrollerRef = useRef(null);
+
   // Closing while a photo was zoomed used to leave the scroll lock behind: the sticky X sets
   // `lightbox` straight, without going through the dialog's own `onOpenChange`. Whichever way
   // the column goes away, it now reopens scrollable.
   useEffect(() => {
     if (!lightbox) setPhotoZoom(false);
   }, [lightbox]);
+
+  // iOS scrolls the nearest scroller back to the top when the status bar is tapped, and in a
+  // column of twenty photos that silently throws away the visitor's place — usually while
+  // they were only reaching for the top of the screen. Nothing but a finger is allowed to
+  // move this column: an upward jump with no touch behind it is put straight back. The grace
+  // window is generous because momentum keeps scrolling long after the finger has gone.
+  // The dialog is mounted by Radix a commit or two after `lightbox` turns true, so the ref
+  // is waited for rather than read once.
+  useEffect(() => {
+    if (!lightbox) return undefined;
+    let raf = 0;
+    let drop = null;
+    const attach = () => {
+      const el = scrollerRef.current;
+      if (!el) {
+        raf = requestAnimationFrame(attach);
+        return;
+      }
+      let touched = Date.now();
+      let keep = el.scrollTop;
+      const mark = () => {
+        touched = Date.now();
+      };
+      const onScroll = () => {
+        const top = el.scrollTop;
+        if (Date.now() - touched < 1500 || top >= keep - 24) {
+          keep = top;
+          return;
+        }
+        el.scrollTop = keep;
+      };
+      el.addEventListener("touchstart", mark, { passive: true });
+      el.addEventListener("touchmove", mark, { passive: true });
+      el.addEventListener("touchend", mark, { passive: true });
+      el.addEventListener("pointerdown", mark, { passive: true });
+      el.addEventListener("wheel", mark, { passive: true });
+      el.addEventListener("keydown", mark);
+      el.addEventListener("scroll", onScroll, { passive: true });
+      drop = () => {
+        el.removeEventListener("touchstart", mark);
+        el.removeEventListener("touchmove", mark);
+        el.removeEventListener("touchend", mark);
+        el.removeEventListener("pointerdown", mark);
+        el.removeEventListener("wheel", mark);
+        el.removeEventListener("keydown", mark);
+        el.removeEventListener("scroll", onScroll);
+      };
+    };
+    attach();
+    return () => {
+      cancelAnimationFrame(raf);
+      drop?.();
+    };
+  }, [lightbox]);
+
 
   useEffect(() => {
     setWarmPhotos(false);
@@ -1116,6 +1173,7 @@ export default function CarDetailPage() {
           place in it again afterwards. */}
       <Dialog open={lightbox} onOpenChange={setLightbox}>
         <DialogContent
+          ref={scrollerRef}
           data-testid="detail-lightbox"
           // FULL viewport, not a centred 92vh card. While this is open Radix locks the page
           // behind it (`body { pointer-events: none; overflow: hidden }`), and a centred card
