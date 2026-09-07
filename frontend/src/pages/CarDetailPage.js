@@ -254,11 +254,9 @@ export default function CarDetailPage() {
     if (!lightbox) setPhotoZoom(false);
   }, [lightbox]);
 
-  // iOS scrolls the nearest scroller back to the top when the status bar is tapped, and in a
-  // column of twenty photos that silently throws away the visitor's place — usually while
-  // they were only reaching for the top of the screen. Nothing but a finger is allowed to
-  // move this column: an upward jump with no touch behind it is put straight back. The grace
-  // window is generous because momentum keeps scrolling long after the finger has gone.
+  // Only a finger, and the momentum it left behind, may move the photo column. Everything
+  // else that drags it upwards is the system — on iOS that is the status bar being tapped,
+  // which scrolls the nearest scroller to the top and silently loses the visitor's place.
   // The dialog is mounted by Radix a commit or two after `lightbox` turns true, so the ref
   // is waited for rather than read once.
   useEffect(() => {
@@ -271,33 +269,58 @@ export default function CarDetailPage() {
         raf = requestAnimationFrame(attach);
         return;
       }
-      let touched = Date.now();
+      let held = 0;             // fingers on the glass
+      let lifted = 0;           // when the last one left
+      let dir = 0;              // which way the finger was throwing the column
       let keep = el.scrollTop;
-      const mark = () => {
-        touched = Date.now();
+      let last = el.scrollTop;
+
+      const held_down = () => {
+        held += 1;
+      };
+      const held_up = () => {
+        held = Math.max(0, held - 1);
+        if (!held) lifted = Date.now();
+      };
+      const spun = (e) => {
+        held = 0;
+        lifted = Date.now();
+        dir = Math.sign(e.deltaY) || dir;
       };
       const onScroll = () => {
         const top = el.scrollTop;
-        if (Date.now() - touched < 1500 || top >= keep - 24) {
+        const step = top - last;
+        last = top;
+        if (!step) return;
+        // A finger is on it: this is the visitor scrolling, whichever way they like.
+        if (held) {
+          dir = Math.sign(step) || dir;
+          keep = top;
+          return;
+        }
+        // No finger. Momentum carries on the way the throw went and dies out within a
+        // second or two; anything else moving the column upwards is the system, and on iOS
+        // that means the status bar was tapped. Twenty photos deep, that silently loses the
+        // visitor's place — usually when they were only reaching for the top of the screen.
+        const momentum = Date.now() - lifted < 2000 && Math.sign(step) === dir;
+        if (momentum || step > 0) {
           keep = top;
           return;
         }
         el.scrollTop = keep;
+        last = keep;
       };
-      el.addEventListener("touchstart", mark, { passive: true });
-      el.addEventListener("touchmove", mark, { passive: true });
-      el.addEventListener("touchend", mark, { passive: true });
-      el.addEventListener("pointerdown", mark, { passive: true });
-      el.addEventListener("wheel", mark, { passive: true });
-      el.addEventListener("keydown", mark);
+
+      el.addEventListener("touchstart", held_down, { passive: true });
+      el.addEventListener("touchend", held_up, { passive: true });
+      el.addEventListener("touchcancel", held_up, { passive: true });
+      el.addEventListener("wheel", spun, { passive: true });
       el.addEventListener("scroll", onScroll, { passive: true });
       drop = () => {
-        el.removeEventListener("touchstart", mark);
-        el.removeEventListener("touchmove", mark);
-        el.removeEventListener("touchend", mark);
-        el.removeEventListener("pointerdown", mark);
-        el.removeEventListener("wheel", mark);
-        el.removeEventListener("keydown", mark);
+        el.removeEventListener("touchstart", held_down);
+        el.removeEventListener("touchend", held_up);
+        el.removeEventListener("touchcancel", held_up);
+        el.removeEventListener("wheel", spun);
         el.removeEventListener("scroll", onScroll);
       };
     };

@@ -269,10 +269,15 @@ export const ColumnPhoto = ({
       // their aspect ratio reserves but stop being rendered at all, so twenty photos are
       // never rasterised at once. It brings paint containment with it, which would clip a
       // zoomed photo back into its slot — hence off the moment there is something to spill.
+      // `overflow-anchor: none` because scroll anchoring and this column do not get along:
+      // slots come in and out of rendering as the visitor moves, and the browser kept
+      // "correcting" the scroll position for it — which is felt as the column randomly
+      // jumping. Where the column sits is decided by the finger and nothing else.
       style={{
         aspectRatio: String(shownRatio),
         zIndex: zoomed ? 60 : undefined,
         contentVisibility: zoomed ? "visible" : "auto",
+        overflowAnchor: "none",
       }}
       className={`relative block w-full select-none bg-black ${
         zoomed ? "overflow-visible" : "overflow-hidden"
@@ -293,6 +298,10 @@ export const ColumnPhoto = ({
         />
       )}
       {mounted && !failed && (
+        // The SAME element carries the zoom. Handing the magnified view to a second `<img>`
+        // with the same source meant a fresh decode on every zoom, and the slot went black
+        // for that frame or two — the blink. Nothing is swapped now; the picture already on
+        // screen simply grows.
         <img
           src={src}
           alt={alt}
@@ -303,18 +312,18 @@ export const ColumnPhoto = ({
           ref={(el) => el?.complete && onSettle?.(el)}
           onLoad={(e) => onSettle?.(e.currentTarget)}
           onError={onFail}
+          style={zoomed ? moving : undefined}
           className={`absolute inset-0 h-full w-full ${fit} ${
-            loaded && !zoomed ? "opacity-100" : "opacity-0"
+            loaded ? "opacity-100" : "opacity-0"
           }`}
         />
       )}
       {placeholder}
-      {/* Zoomed in, the magnified photo is drawn LAST so nothing in the slot can paint over
-          it, and the FULL resolution file replaces the column's 800px copy — sharp at arm's
-          length, not under a magnifying glass. The picture itself takes no touches: the
-          gestures are read from the slot, which reaches the whole screen through the
-          transparent layer below, so a finger on the part hanging over the neighbours still
-          moves THIS photo. */}
+      {/* Zoomed in, the full resolution file is fetched and fades in over the column's own
+          800px copy — sharp at arm's length, not under a magnifying glass, and never a gap
+          in between. The picture takes no touches: gestures are read from the slot, which
+          reaches the whole screen through the transparent layer below, so a finger on the
+          part hanging over the neighbours still moves THIS photo. */}
       {zoomed && (
         <>
           <div
@@ -322,32 +331,26 @@ export const ColumnPhoto = ({
             style={{ touchAction: "none" }}
             className="fixed inset-0 z-[1]"
           />
-          <div
-            data-testid={`${testId}-stage`}
-            className="pointer-events-none absolute inset-0 z-[2] overflow-visible"
-          >
-            {!sharp && (
+          {zoomSrc && zoomSrc !== src && (
+            <div
+              data-testid={`${testId}-stage`}
+              className="pointer-events-none absolute inset-0 z-[2] overflow-visible"
+            >
               <img
-                src={src}
+                src={zoomSrc}
                 alt=""
                 aria-hidden="true"
+                decoding="async"
+                fetchPriority="high"
+                draggable={false}
+                onLoad={() => setSharp(true)}
                 style={moving}
-                className={`absolute inset-0 h-full w-full ${fit}`}
+                className={`absolute inset-0 h-full w-full ${fit} transition-opacity duration-200 ${
+                  sharp ? "opacity-100" : "opacity-0"
+                }`}
               />
-            )}
-            <img
-              src={zoomSrc || src}
-              alt={alt}
-              decoding="async"
-              fetchPriority="high"
-              draggable={false}
-              onLoad={() => setSharp(true)}
-              style={moving}
-              className={`absolute inset-0 h-full w-full ${fit} ${
-                sharp ? "opacity-100" : "opacity-0"
-              }`}
-            />
-          </div>
+            </div>
+          )}
         </>
       )}
     </div>
