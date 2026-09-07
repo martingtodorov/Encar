@@ -31,10 +31,12 @@ import { ColumnPhoto } from "@/components/ColumnPhoto";
  */
 const RESERVE = 4 / 3;      // Encar's landscape shape: the common case, so most slots keep
                             // exactly the height they reserved
-const IN_FLIGHT = 2;        // one for the eyes, one for the queue behind it
-const AHEAD = 3;            // how far past the visible photo counts as "coming next"
-const WINDOW = 2;           // photos kept decoded either side of the one being looked at
-const SETTLE_MS = 140;      // a flick is not a decision: see `look` below
+const IN_FLIGHT = 1;        // one file at a time; the phone has nothing to spare
+const AHEAD = 2;            // how far past the visible photo counts as "coming next"
+const WINDOW = 1;           // photos kept decoded either side of the one being looked at
+const SETTLE_MS = 140;      // a flick is not a decision: see the observer below
+const FLING_PX = 60;        // a scroll step bigger than this is a flick, not reading
+const CALM_MS = 200;        // how long after the last scroll step it counts as standing still
 const STALL_MS = 9000;      // a request this old stops holding a slot in the queue
 const TICK_MS = 1200;
 
@@ -44,6 +46,7 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
   const [failed, setFailed] = useState({});
   const [looking, setLooking] = useState(0);      // the slot in front of the visitor
   const [zoomIdx, setZoomIdx] = useState(null);
+  const [flying, setFlying] = useState(false);    // the column is being flicked past
   const [tick, setTick] = useState(0);
   const startedAt = useRef({});
   const hostRef = useRef(null);
@@ -55,6 +58,32 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
     setFailed({});
     setLooking(0);
     startedAt.current = {};
+  }, [photos]);
+
+  // WHAT THE FREEZE ACTUALLY IS. A flick past a dozen slots asks the phone to decode a
+  // dozen full-size photos in the couple of hundred milliseconds it takes to get to the
+  // bottom, and iOS answers by locking up — sometimes for good. So while the column is
+  // MOVING FAST nothing is decoded at all: every slot shows the thumbnail it already has
+  // from the card and the strip, and the real files come back the moment it stands still.
+  useEffect(() => {
+    const host = hostRef.current;
+    const box = host?.parentElement;
+    if (!box) return undefined;
+    let at = box.scrollTop;
+    let calm = 0;
+    const onScroll = () => {
+      const top = box.scrollTop;
+      const step = Math.abs(top - at);
+      at = top;
+      if (step > FLING_PX) setFlying(true);
+      clearTimeout(calm);
+      calm = setTimeout(() => setFlying(false), CALM_MS);
+    };
+    box.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      clearTimeout(calm);
+      box.removeEventListener("scroll", onScroll);
+    };
   }, [photos]);
 
   // A slow tick so the queue cannot wedge: a stalled request eventually stops counting, and
@@ -165,10 +194,11 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
       {photos.map((p, i) => {
         const known = !!ratio[i];
         // Decoded only near the eyes — the same window the scheduler fetches, so nothing is
-        // ever requested for a slot that is not there to receive it — plus the zoomed one,
-        // which must never be dropped from under a finger.
+        // ever requested for a slot that is not there to receive it — and nothing at all
+        // while the column is being flicked past. The zoomed one is the exception: it must
+        // never be dropped from under a finger.
         const near =
-          (i >= looking - WINDOW && i <= looking + AHEAD) || i === zoomIdx;
+          (!flying && i >= looking - WINDOW && i <= looking + AHEAD) || i === zoomIdx;
         return (
           <ColumnPhoto
             key={p.full_column || p.full || i}
@@ -178,7 +208,6 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
             zoomSrc={p.full_lightbox || p.full}
             thumb={p.thumb}
             alt={alt}
-            ratio={ratio[i]}
             reserve={RESERVE}
             loaded={known && near}
             mounted={started.includes(i) && near}

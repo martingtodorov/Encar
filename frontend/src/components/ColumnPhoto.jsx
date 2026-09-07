@@ -4,12 +4,13 @@ const MAX = 4;
 const DOUBLE_TAP_MS = 300;
 const TAP_SLOP = 12;        // a tap that moves more than this was a scroll, not a tap
 const DOUBLE_TAP_TO = 2.5;  // what a double tap zooms to
-// A pinch has to grow the fingers by this much before the photo starts to scale. Below it
-// the gesture was almost certainly a two-fingered scroll, and a photo left at 1.05x is the
-// worst possible outcome: invisible, yet the column stops scrolling.
-const PINCH_START = 1.15;
-// ...and on the way back, anything under this snaps all the way to rest for the same reason.
-const SNAP = 1.25;
+// A pinch has to grow the fingers by this much before the photo starts to scale — enough to
+// tell a real pinch from a two-fingered scroll, and small enough that the photo answers the
+// moment the fingers move.
+const PINCH_START = 1.06;
+// ...and on the way back, anything under this snaps all the way to rest: half a zoom leaves
+// the column frozen for no visible reason.
+const SNAP = 1.15;
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const ZERO = { s: 1, x: 0, y: 0 };
@@ -40,7 +41,6 @@ export const ColumnPhoto = ({
   zoomSrc,
   thumb,
   alt = "",
-  ratio,
   reserve,
   loaded,
   mounted,
@@ -239,14 +239,12 @@ export const ColumnPhoto = ({
     };
   }, []);
 
-  // Scanned service records are absurdly tall (6000px and up). Given the whole photo, the
-  // slot would be a 3000px-high layer for Safari to rasterise and the picture itself would
-  // be a postage stamp. Past 1:2 the slot stops growing and shows the top of the sheet at
-  // full width; zoom is there to read the rest.
-  const real = ratio || reserve;
-  const tall = real < 0.5;
-  const shownRatio = tall ? 0.5 : real;
-  const fit = tall ? "object-cover object-top" : "object-contain";
+  // EVERY slot is the same shape, whatever the photo turns out to be. Sizing each one to
+  // its own picture meant the column's height changed as files arrived — and a slot that
+  // grows or shrinks above the visitor drags everything under it, which is the "it randomly
+  // scrolled me" you cannot fight with scroll anchoring. Portrait photos and scanned
+  // service records sit inside the same window, whole, and zoom is there to read them.
+  const fit = "object-contain";
 
   const moving = {
     transform: `translate3d(${view.x}px, ${view.y}px, 0) scale(${view.s})`,
@@ -263,20 +261,12 @@ export const ColumnPhoto = ({
       // Zoomed, the slot stops clipping and rises above its neighbours so the magnified
       // photo spills over them. The slot itself keeps its size and place, so nothing in the
       // column reflows and letting go puts everything back.
-      //
-      // `content-visibility: auto` is the difference between a column that survives a fast
-      // flick to the bottom and a tab that dies on the way: offscreen slots keep the height
-      // their aspect ratio reserves but stop being rendered at all, so twenty photos are
-      // never rasterised at once. It brings paint containment with it, which would clip a
-      // zoomed photo back into its slot — hence off the moment there is something to spill.
-      // `overflow-anchor: none` because scroll anchoring and this column do not get along:
-      // slots come in and out of rendering as the visitor moves, and the browser kept
-      // "correcting" the scroll position for it — which is felt as the column randomly
-      // jumping. Where the column sits is decided by the finger and nothing else.
+      // `overflow-anchor: none` because scroll anchoring has nothing left to correct here —
+      // every slot keeps the same height from the first frame — and left to itself the
+      // browser still "helped" while photos came and went.
       style={{
-        aspectRatio: String(shownRatio),
+        aspectRatio: String(reserve),
         zIndex: zoomed ? 60 : undefined,
-        contentVisibility: zoomed ? "visible" : "auto",
         overflowAnchor: "none",
       }}
       className={`relative block w-full select-none bg-black ${

@@ -1254,7 +1254,11 @@ export default function CarDetailPage() {
               // `mt-14` used to push this button clear of the install banner, which showed
               // through above the old centred card. The layer is full-height now, so the
               // button belongs at the real top corner.
-              className="pointer-events-auto mr-3 mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-[0_2px_10px_rgba(0,0,0,.45)] transition-transform active:scale-95"
+              // Installed to the home screen there is no browser chrome above this, and the
+              // button sat under the status bar beside the Dynamic Island, where the system
+              // takes the taps. The safe area is what the phone says is actually reachable.
+              style={{ marginTop: "max(0.75rem, env(safe-area-inset-top))" }}
+              className="pointer-events-auto mr-3 flex h-11 w-11 items-center justify-center rounded-full bg-white text-black shadow-[0_2px_10px_rgba(0,0,0,.45)] transition-transform active:scale-95"
             >
               <X className="h-6 w-6" aria-hidden="true" />
             </button>
