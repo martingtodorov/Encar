@@ -128,9 +128,8 @@ export default function CarDetailPage() {
   const [sold, setSold] = useState(null);
   const [active, setActive] = useState(0);
   const [shot, setShot] = useState(null);
-  // Mobile: tap the hero photo → open the vertical column of all photos. Tapping any
-  // photo inside that column then hands off to the single-photo lightbox (`shot`),
-  // which owns the zoom (pinch + double tap, ours, not the browser's).
+  // Mobile: tap the hero photo → open the vertical column of all photos. Desktop keeps the
+  // single-photo lightbox with the thumbnail rail (`shot`).
   const [lightbox, setLightbox] = useState(false);
   // No zoom at all in the photo column. `touch-action: pan-y` on the panel covers
   // Chrome/Android, but Safari's pinch arrives as `gesture*` events on the document and
