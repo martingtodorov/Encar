@@ -23,12 +23,29 @@ def clean_route():
 
 
 def test_mode_decides_the_route():
+    # "auto" means DIRECT, and reaches for the proxy only when direct has failed.
+    assert encar_mod.route() == "direct"
+    assert encar_mod.proxy_url() is None
+    assert encar_mod.other_route() == "proxy"
+    encar_mod.auto_lean(True)
+    assert encar_mod.route() == "residential_proxy"
+    assert encar_mod.other_route() == "direct"      # ...and back again
+    encar_mod.set_route("proxy")
     assert encar_mod.route() == "residential_proxy"
     encar_mod.set_route("direct")
     assert encar_mod.route() == "direct"
     assert encar_mod.proxy_url() is None
     assert encar_mod.proxy_configured() is True
     assert encar_mod.other_route() == "proxy"
+
+
+def test_setting_a_mode_puts_the_crutch_down():
+    """Choosing "auto" by hand is also how an admin says "try direct again now"."""
+    encar_mod.auto_lean(True)
+    assert encar_mod.auto_on_proxy() is True
+    encar_mod.set_route("auto")
+    assert encar_mod.auto_on_proxy() is False
+    assert encar_mod.route() == "direct"
 
 
 def test_bad_mode_is_ignored():
@@ -53,7 +70,7 @@ def test_switch_rebuilds_the_client_and_clears_the_breaker():
 
 
 def test_transport_failure_fails_over_to_the_other_route(monkeypatch):
-    """Every request through the proxy dies; the client must try direct before alerting."""
+    """Every direct request dies; the client must pick the proxy up before alerting."""
     c = EncarClient(min_interval=0)
     saved = []
 
@@ -79,18 +96,110 @@ def test_transport_failure_fails_over_to_the_other_route(monkeypatch):
     async def run():
         with pytest.raises(EncarUnavailable):
             await c.get_json("/v1/readside/vehicle/1")
-        assert encar_mod.route() == "direct"
-        assert encar_mod.route_mode() == "direct"
-        assert saved and saved[0][0] == "direct"
+        assert encar_mod.route() == "residential_proxy"
+        # The MODE is a standing instruction and does not move: "auto" is still "auto",
+        # which is what lets the fifteen-minute probe hand traffic back to direct.
+        assert encar_mod.route_mode() == "auto"
+        assert encar_mod.auto_on_proxy() is True
+        assert saved and saved[0][0] == "auto"
         st = c.status()
-        assert st["last_failover"]["to"] == "direct"
+        assert st["last_failover"]["to"] == "residential_proxy"
+        assert st["auto_on_proxy"] is True
+        assert st["probe_in_s"] > 0
         assert st["breaker"]["open"] is False   # cleared so the new route gets its chance
         # and it does not flap back on the next failure
         with pytest.raises(EncarUnavailable):
             await c.get_json("/v1/readside/vehicle/2")
-        assert encar_mod.route() == "direct"
+        assert encar_mod.route() == "residential_proxy"
 
     asyncio.run(run())
+
+
+def test_the_probe_hands_traffic_back_to_direct(monkeypatch):
+    """Leaning on the proxy is temporary: every quarter of an hour, direct gets asked again."""
+    c = EncarClient(min_interval=0)
+    saved = []
+
+    async def persist(mode, reason=""):
+        saved.append((mode, reason))
+
+    encar_mod.set_persist(persist)
+    encar_mod.auto_lean(True)
+    assert encar_mod.route() == "residential_proxy"
+
+    class Alive:
+        async def get(self, url):
+            assert url.endswith(encar_mod.PROBE_PATH)
+            return encar_mod.httpx.Response(200, json={"ok": 1})
+
+        async def aclose(self):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(encar_mod.httpx, "AsyncClient", lambda **kw: Alive())
+
+    async def run():
+        assert await c._probe_direct() is True
+        assert encar_mod.route() == "direct"
+        assert encar_mod.auto_on_proxy() is False
+        assert saved and saved[0][0] == "auto"
+        assert c.status()["last_probe"]["ok"] is True
+
+    asyncio.run(run())
+
+
+def test_the_probe_leaves_the_crutch_alone_while_direct_is_still_down(monkeypatch):
+    c = EncarClient(min_interval=0)
+    encar_mod.auto_lean(True)
+
+    class Dead:
+        async def get(self, url):
+            raise encar_mod.httpx.ConnectError("")
+
+        async def aclose(self):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(encar_mod.httpx, "AsyncClient", lambda **kw: Dead())
+
+    async def run():
+        assert await c._probe_direct() is False
+        assert encar_mod.route() == "residential_proxy"
+        assert c.status()["last_probe"]["ok"] is False
+        # and it does not ask again immediately
+        assert c.status()["probe_in_s"] > encar_mod.AUTO_PROBE_GAP - 5
+
+    asyncio.run(run())
+
+
+def test_the_probe_is_not_due_before_its_time(monkeypatch):
+    """Nothing is probed on a route that is working, or twice inside the window."""
+    c = EncarClient(min_interval=0)
+    started = []
+    monkeypatch.setattr(encar_mod.asyncio, "create_task", lambda coro: (coro.close(), started.append(1)))
+
+    c._maybe_probe_direct()
+    assert not started                      # on direct: nothing to probe
+
+    encar_mod.auto_lean(True)
+    c._maybe_probe_direct()
+    assert not started                      # fifteen minutes have not passed
+
+    encar_mod._auto["probe_at"] = encar_mod.time.monotonic() - 1
+    c._maybe_probe_direct()
+    assert started == [1]
+    c._maybe_probe_direct()
+    assert started == [1]                   # and probes do not stack
 
 
 def test_no_alternate_route_means_no_failover(monkeypatch):
@@ -203,7 +312,8 @@ def test_a_block_does_not_fail_over(monkeypatch):
         with pytest.raises(EncarUnavailable) as e:
             await c.get_json("/v1/readside/vehicle/1")
         assert e.value.status == 407
-        assert encar_mod.route() == "residential_proxy"    # unmoved
+        assert encar_mod.route() == "direct"               # unmoved
+        assert encar_mod.auto_on_proxy() is False          # a refusal is not a broken hop
         assert c.breaker()["open"] is True                 # and asked politely to stop
         assert c.status()["last_failover"] is None
 

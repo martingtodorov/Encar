@@ -5,7 +5,7 @@ import { getEncarRoute, setEncarRoute, testEncarRoute } from "@/lib/api";
 import { stampSofia } from "@/components/admin/AdminBits";
 
 const MODES = [
-  { id: "auto", label: "Автоматично", hint: "прокси, ако е налично" },
+  { id: "auto", label: "Автоматично", hint: "директно, прокси при отказ" },
   { id: "proxy", label: "През прокси", hint: "резидентен изход" },
   { id: "direct", label: "Директно", hint: "от сървъра" },
 ];
@@ -127,6 +127,23 @@ export const AdminEncarRoute = () => {
           );
         })}
       </div>
+
+      {state.auto_on_proxy ? (
+        <p
+          data-testid="admin-encar-route-lean"
+          className="flex items-start gap-1.5 text-[12px] text-amber-700"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span>
+            Директният маршрут е отпаднал — временно през прокси. Проверка дали директното
+            работи отново{" "}
+            {state.probe_in_s != null ? `след ${Math.ceil(state.probe_in_s / 60)} мин` : "скоро"}
+            {state.last_probe
+              ? ` · последна проверка: ${state.last_probe.ok ? "успешна" : state.last_probe.detail}`
+              : ""}
+          </span>
+        </p>
+      ) : null}
 
       {failover ? (
         <p

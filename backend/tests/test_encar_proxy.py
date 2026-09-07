@@ -49,10 +49,13 @@ def test_proxy_200_returns_full_body(monkeypatch):
         return httpx.Response(200, json={"vehicleId": 42207598, "photos": [{"path": "/a.jpg"}]})
 
     c = _client(handler, monkeypatch=monkeypatch)
+    # "auto" leaves from the server now; the proxy is what this test is about, so ask for it.
+    encar.set_route("proxy")
     body = _run(c.detail("42207598"))
     assert body["vehicleId"] == 42207598 and body["photos"]
     assert calls == ["https://api.encar.com/v1/readside/vehicle/42207598"]
     assert encar.route() == "residential_proxy"
+    encar.set_route("auto")
 
 
 def test_404_is_the_only_none_and_is_not_retried(monkeypatch):
@@ -153,6 +156,7 @@ def test_without_proxy_url_route_is_direct(monkeypatch):
 
 def test_verify_cli_reports_without_secrets(monkeypatch, capsys):
     monkeypatch.setenv(encar.PROXY_ENV, PROXY)
+    encar.set_route("proxy")
 
     def fake_client(min_interval=0):
         return _client(_resp(407), monkeypatch=None)
@@ -161,6 +165,7 @@ def test_verify_cli_reports_without_secrets(monkeypatch, capsys):
     assert _run(encar.verify()) == 1
     out = capsys.readouterr().out
     assert out.startswith("FAIL route=residential_proxy status=407") and "s3cr" not in out
+    encar.set_route("auto")
 
 
 # ── live: an upstream failure must never retire an advert ────────────────────

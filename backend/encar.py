@@ -46,11 +46,27 @@ RETRY_AFTER_MAX_WAIT = 5    # longer than this and the circuit opens for that lo
 # back1 answered in 0.4s. So the route is a SETTING: an admin can flip it, the watchdog flips
 # it automatically before it wakes anybody up, and it survives a restart because server.py
 # loads it from the database on startup.
-#   "auto"   - use the proxy when one is configured (the previous behaviour)
+#   "auto"   - DIRECT from the server, and only lean on the proxy while direct is broken
 #   "proxy"  - insist on the proxy
-#   "direct" - ignore the proxy entirely
+#   "direct" - ignore the proxy entirely, whatever happens
 _mode = {"route": "auto"}
 ROUTE_MODES = ("auto", "proxy", "direct")
+
+# The "auto" mode's own state. Direct is the route it wants: it costs nothing, it is the
+# fastest hop, and the residential proxy is metered. The proxy is a CRUTCH — taken up when a
+# transport fault knocks direct over, and put down again as soon as direct answers. So `auto`
+# is not "proxy if there is one" any more; it is "direct, unless direct is down right now".
+#
+# `probe_at` is when direct may be tried again while the crutch is in use: a background
+# request every quarter of an hour, never on a visitor's page load, so a recovered direct
+# route is picked back up on its own without anybody logging in to flip a switch.
+AUTO_PROBE_GAP = 900
+# The cheapest thing on api.encar.com that proves a route works: the standard options
+# dictionary. No search parameters to get wrong, a small body, and it is already fetched
+# (and cached) in normal operation.
+PROBE_PATH = "/v1/readside/vehicles/car/options/standard"
+_auto = {"on_proxy": False, "since": 0.0, "probe_at": 0.0, "probing": False,
+         "last_probe": None}
 
 # How a route change is written down, so it survives a restart. server.py registers a
 # coroutine that stores it in `site_settings.encar_routing`; without one, a change is
@@ -70,7 +86,22 @@ def set_route(mode):
     """Choose the route. Returns the mode actually in force."""
     if mode in ROUTE_MODES:
         _mode["route"] = mode
+        # Choosing a mode by hand clears the crutch: "auto" starts where it belongs, on the
+        # direct route, and asking for it is also how an admin says "try direct again now".
+        auto_lean(False)
     return _mode["route"]
+
+
+def auto_lean(on_proxy):
+    """In "auto": pick the proxy crutch up, or put it down. Returns the route now in force."""
+    _auto["on_proxy"] = bool(on_proxy) and proxy_configured()
+    _auto["since"] = time.time() if _auto["on_proxy"] else 0.0
+    _auto["probe_at"] = (time.monotonic() + AUTO_PROBE_GAP) if _auto["on_proxy"] else 0.0
+    return route()
+
+
+def auto_on_proxy():
+    return _mode["route"] == "auto" and _auto["on_proxy"]
 
 
 def route_mode():
@@ -79,6 +110,10 @@ def route_mode():
 
 def proxy_url():
     if _mode["route"] == "direct":
+        return None
+    if _mode["route"] == "auto" and not _auto["on_proxy"]:
+        # "auto" leaves from the server by default. The proxy is only picked up after direct
+        # has actually failed — see `auto_lean`.
         return None
     return os.environ.get(PROXY_ENV, "").strip() or None
 
@@ -98,11 +133,14 @@ def other_route(mode=None):
     current = mode or _mode["route"]
     if current == "direct":
         return "proxy" if proxy_configured() else None
+    if current == "proxy":
+        return "direct"
+    # "auto": the crutch, or putting the crutch down again. With no proxy configured there
+    # is nowhere else to go, and offering "direct" would be a failover to the route that
+    # just failed.
     if not proxy_configured():
-        # "auto" with no proxy configured is already a direct route: there is nowhere else
-        # to go, and offering "direct" would be a failover to the route that just failed.
         return None
-    return "direct"
+    return "direct" if _auto["on_proxy"] else "proxy"
 
 
 def _why(e):
@@ -122,9 +160,13 @@ def _why(e):
 
 def _scrub(text):
     """Strip the proxy URL (and any user:pass@ in a URL) out of a message before it is logged
-    or raised. httpx repeats the proxy URL in some transport errors."""
+    or raised. httpx repeats the proxy URL in some transport errors.
+
+    Reads the CONFIGURED proxy, not the active one: in "auto" the proxy is only in use while
+    direct is broken, and credentials must be scrubbed whether or not traffic happens to be
+    going through them at this second."""
     text = str(text)
-    p = proxy_url()
+    p = os.environ.get(PROXY_ENV, "").strip()
     if p:
         text = text.replace(p, "<proxy>")
         host = urlsplit(p).hostname
@@ -297,6 +339,10 @@ class EncarClient:
         Logs carry route, status, latency and circuit state — never the proxy.
         """
         now = time.monotonic()
+        # Leaning on the proxy? Then this is also the moment to wonder, at most once every
+        # quarter of an hour, whether direct has come back. It happens in the background —
+        # this request is not made to wait for the answer.
+        self._maybe_probe_direct()
         if now < self._open_until:
             # Circuit open: fail immediately rather than queue behind a door we know is shut.
             raise EncarUnavailable(
@@ -435,7 +481,13 @@ class EncarClient:
             return None
         self._last_failover = now
         was, reason = route(), self._open_reason
-        await self.switch_route(alt)
+        if route_mode() == "auto":
+            # In "auto" the MODE never changes — it is the standing instruction "direct
+            # unless direct is down". Only the crutch moves, and `_probe_direct` puts it
+            # back down on its own a quarter of an hour later.
+            await self.lean(alt == "proxy")
+        else:
+            await self.switch_route(alt)
         self._failover = {"at": time.time(), "from": was, "to": route(),
                           "mode": route_mode(), "reason": reason, "auto": True}
         log.error("encar auto-failover %s -> %s after: %s", was, route(), reason)
@@ -447,12 +499,76 @@ class EncarClient:
                 log.warning("could not store the new encar route: %s", _scrub(e)[:160])
         return self._failover
 
+    async def lean(self, on_proxy):
+        """In "auto": pick the proxy crutch up or put it down, and make it take effect.
+
+        Same three moves as `switch_route` — the setting, the cached client (it holds the old
+        proxy) and the circuit breaker — but the MODE stays "auto", so the standing
+        instruction is untouched and `_probe_direct` can hand traffic back to direct later.
+        """
+        auto_lean(on_proxy)
+        await self.close()
+        self.reset_breaker()
+        log.warning("encar auto lean=%s route=%s", "proxy" if on_proxy else "direct", route())
+        return route()
+
+    async def _probe_direct(self):
+        """Is the direct route back? Asked in the background, every AUTO_PROBE_GAP seconds.
+
+        A visitor never pays for this: their request keeps going through the proxy while one
+        cheap call goes out from the server's own address, and only a clean answer hands
+        traffic back. The alternative — trying direct on a real page load — costs the
+        connect timeout every quarter of an hour, on somebody's phone.
+        """
+        _auto["probing"] = True
+        ok, why = False, ""
+        try:
+            async with httpx.AsyncClient(
+                    headers=HEADERS, follow_redirects=True, proxy=None,
+                    timeout=httpx.Timeout(10, connect=5)) as c:
+                r = await c.get(f"{API}{PROBE_PATH}")
+            ok = r.status_code == 200
+            why = f"HTTP {r.status_code}"
+        except Exception as e:                                  # noqa: BLE001
+            why = _why(e)
+        finally:
+            _auto["probing"] = False
+            _auto["probe_at"] = time.monotonic() + AUTO_PROBE_GAP
+            _auto["last_probe"] = {"at": time.time(), "ok": ok, "detail": why[:160]}
+        if not ok:
+            log.info("encar direct still down, staying on the proxy: %s", why[:160])
+            return False
+        log.warning("encar direct is back (%s) — leaving the proxy", why)
+        await self.lean(False)
+        fn = _persist["fn"]
+        if fn:
+            try:
+                await fn(route_mode(), "директният маршрут отговаря отново")
+            except Exception as e:                              # noqa: BLE001
+                log.warning("could not store the new encar route: %s", _scrub(e)[:160])
+        return True
+
+    def _maybe_probe_direct(self):
+        """Start the fifteen-minute probe if one is due. Never blocks the caller."""
+        if not auto_on_proxy() or _auto["probing"]:
+            return
+        if not _auto["probe_at"] or time.monotonic() < _auto["probe_at"]:
+            return
+        _auto["probe_at"] = time.monotonic() + AUTO_PROBE_GAP   # do not stack probes
+        asyncio.create_task(self._probe_direct())
+
     def status(self):
         """Everything the admin screen and the watchdog need — and no credentials."""
+        left = _auto["probe_at"] - time.monotonic() if auto_on_proxy() else 0
         return {"mode": route_mode(), "route": route(), "alternate": other_route(),
                 "proxy_configured": proxy_configured(), "modes": list(ROUTE_MODES),
                 "breaker": self.breaker(), "trips": self._trips,
-                "last_failover": self._failover, "stats": dict(self.stats)}
+                "last_failover": self._failover, "stats": dict(self.stats),
+                # "auto" leaning on the proxy: since when, and when direct is asked again.
+                "auto_on_proxy": auto_on_proxy(),
+                "auto_since": _auto["since"] or None,
+                "probe_in_s": max(0, round(left)) if auto_on_proxy() else None,
+                "last_probe": _auto["last_probe"]}
 
     def breaker(self):
         """For the admin screen and the watchdog: is upstream currently shut out?"""
