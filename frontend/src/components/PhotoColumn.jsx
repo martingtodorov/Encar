@@ -6,68 +6,89 @@ import { ColumnPhoto } from "@/components/ColumnPhoto";
  * The mobile "all photos" column: every photo, one under the other, each zoomable where it
  * sits (double tap, then pinch and drag — see `ColumnPhoto`).
  *
- * WHY IT IS WRITTEN THIS WAY. Four separate failures, each measured or reported from a real
- * phone, shaped this file:
+ * WHAT DECIDES WHAT LOADS. Two rules, in this order:
  *
- *   1. The first version handed every photo's FULL-resolution source to the browser at once
- *      and a preload chain fetched the same set again: twenty parallel requests, ~8 MB of
- *      decoded bitmap each. It locked up on the way to the bottom.
- *   2. Loading strictly one-after-another fixed the memory but left a visitor who scrolls
- *      ahead of the loader staring at black boxes.
- *   3. Letting the visible photo jump the queue fixed that, but "the visible one finished"
- *      dragged the sequential cursor to the end of the list, which opened every slot in
- *      between at once — the storm was back, and fast scrolling looked like loading had
- *      stopped dead.
- *   4. Even one request at a time, KEEPING every photo decoded is too much for iOS Safari:
- *      these listings include scanned service records that are enormously tall (600x6000 is
- *      ~14 MB decoded on its own). Safari throws the decoded data away under pressure and
- *      cannot get it back — every photo goes pitch black, and touch stops being delivered.
+ *   1. Everything ON SCREEN is loaded. No queue, no waiting its turn: a photo the visitor
+ *      is looking at jumps every other request, because a blurred thumbnail under their
+ *      nose while the loader works through the list is the one thing they will notice.
+ *   2. What is off screen is filled in afterwards — a couple of slots ahead first, since
+ *      that is where they are going, then the one they just passed.
  *
- * So: a QUEUE with two requests in flight decides the ORDER (visible first, then filled in
- * from the top, nothing skipped, nothing fetched twice), and a WINDOW decides what stays
- * decoded. Outside the window a slot keeps its blurred thumbnail, which costs almost
- * nothing; the full file stays in the HTTP cache, so coming back to it is instant and does
- * not touch the network.
+ * AND WHAT KEEPS THE PHONE ALIVE. These listings carry twenty photos including scanned
+ * service records; handing them all to iOS at once locks the tab up, and Safari then throws
+ * decoded images away and cannot get them back (every photo goes black, touch stops being
+ * delivered). So a photo is only decoded while it is on screen or just off it, and while the
+ * column is being FLICKED past nothing off screen is even asked for — the cached thumbnails
+ * cover it, and the real files arrive the moment it stands still.
  */
-const RESERVE = 4 / 3;      // Encar's landscape shape: the common case, so most slots keep
-                            // exactly the height they reserved
-const IN_FLIGHT = 1;        // one file at a time; the phone has nothing to spare
-const AHEAD = 2;            // how far past the visible photo counts as "coming next"
-const WINDOW = 1;           // photos kept decoded either side of the one being looked at
-const SETTLE_MS = 140;      // a flick is not a decision: see the observer below
+const RESERVE = 4 / 3;      // every slot, whatever the photo: see `ColumnPhoto`
+const AHEAD = 2;            // slots past the last visible one, once the scrolling calms
+const BEHIND = 1;           // and the one just scrolled past, in case they come back
+const IN_FLIGHT = 2;        // off-screen fetches at a time; on-screen ones ignore this
 const FLING_PX = 60;        // a scroll step bigger than this is a flick, not reading
-const CALM_MS = 200;        // how long after the last scroll step it counts as standing still
+const CALM_MS = 200;        // how long after the last step it counts as standing still
 const STALL_MS = 9000;      // a request this old stops holding a slot in the queue
 const TICK_MS = 1200;
 
 export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-lightbox" }) => {
   const [started, setStarted] = useState([]);     // indices whose file has been requested
-  const [ratio, setRatio] = useState({});         // index -> real aspect ratio once known
+  const [done, setDone] = useState({});           // index -> the file is decoded and shown
   const [failed, setFailed] = useState({});
-  const [looking, setLooking] = useState(0);      // the slot in front of the visitor
+  const [span, setSpan] = useState({ lo: 0, hi: 0 });   // the slots on screen right now
   const [zoomIdx, setZoomIdx] = useState(null);
-  const [flying, setFlying] = useState(false);    // the column is being flicked past
+  const [flying, setFlying] = useState(false);
   const [tick, setTick] = useState(0);
   const startedAt = useRef({});
   const hostRef = useRef(null);
-  const settleTimer = useRef(null);
+  const seen = useRef(new Set());
 
   useEffect(() => {
     setStarted([]);
-    setRatio({});
+    setDone({});
     setFailed({});
-    setLooking(0);
+    setSpan({ lo: 0, hi: 0 });
+    seen.current = new Set();
     startedAt.current = {};
   }, [photos]);
 
-  // WHAT THE FREEZE ACTUALLY IS. A flick past a dozen slots asks the phone to decode a
-  // dozen full-size photos in the couple of hundred milliseconds it takes to get to the
-  // bottom, and iOS answers by locking up — sometimes for good. So while the column is
-  // MOVING FAST nothing is decoded at all: every slot shows the thumbnail it already has
-  // from the card and the strip, and the real files come back the moment it stands still.
+  // A slow tick so the queue cannot wedge: a stalled request eventually stops counting, and
+  // an image the browser served from cache without firing an event is noticed here.
+  useEffect(() => {
+    const id = setInterval(() => setTick((n) => n + 1), TICK_MS);
+    return () => clearInterval(id);
+  }, []);
+
+  // Which slots are on screen. Twenty observed elements costs nothing and replaces a scroll
+  // handler that would fire on every frame. The set is committed immediately — this is the
+  // one thing that must never lag behind the visitor.
   useEffect(() => {
     const host = hostRef.current;
-    const box = host?.parentElement;
+    if (!host) return undefined;
+    const io = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((e) => {
+          const i = Number(e.target.dataset.idx);
+          if (Number.isNaN(i)) return;
+          if (e.isIntersecting) seen.current.add(i);
+          else seen.current.delete(i);
+        });
+        if (!seen.current.size) return;
+        const list = [...seen.current];
+        const lo = Math.min(...list);
+        const hi = Math.max(...list);
+        setSpan((s) => (s.lo === lo && s.hi === hi ? s : { lo, hi }));
+      },
+      // Root is the viewport on purpose: the column scrolls inside the dialog, and a slot
+      // clipped by that overflow is already reported as not intersecting.
+      { threshold: 0 }
+    );
+    host.querySelectorAll("[data-idx]").forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [photos]);
+
+  // Is the column being thrown past, or read?
+  useEffect(() => {
+    const box = hostRef.current?.parentElement;
     if (!box) return undefined;
     let at = box.scrollTop;
     let calm = 0;
@@ -86,89 +107,46 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
     };
   }, [photos]);
 
-  // A slow tick so the queue cannot wedge: a stalled request eventually stops counting, and
-  // an image the browser served from cache without firing an event is noticed here.
-  useEffect(() => {
-    const id = setInterval(() => setTick((n) => n + 1), TICK_MS);
-    return () => clearInterval(id);
-  }, []);
-
-  // The scheduler: start at most one more photo per pass, never more than IN_FLIGHT at once,
-  // and ONLY inside the window that is actually rendered. Starting photos further away used
-  // to wedge the queue — a photo whose slot is not mounted never fires a load event, so it
-  // sat in the "in flight" count for nine seconds each and loading appeared to stop dead
-  // after a fast scroll. What is fetched and what is rendered are now the same set.
+  // The scheduler. Anything on screen is started at once, whatever else is in flight; off
+  // screen, one or two at a time and only while the column is standing still.
   useEffect(() => {
     const n = photos.length;
     if (!n) return;
-    const now = Date.now();
-    const busy = started.filter(
-      (i) => !ratio[i] && !failed[i] && now - (startedAt.current[i] || now) < STALL_MS
-    ).length;
-    if (busy >= IN_FLIGHT) return;
-
     const waiting = (i) => i >= 0 && i < n && !started.includes(i);
     let pick = -1;
-    // The one being looked at and what is coming next, then back up over what was passed.
-    for (let i = looking; i <= looking + AHEAD && pick < 0; i += 1) {
+    for (let i = span.lo; i <= span.hi && pick < 0; i += 1) {
       if (waiting(i)) pick = i;
     }
-    for (let i = looking - 1; i >= looking - WINDOW && pick < 0; i -= 1) {
-      if (waiting(i)) pick = i;
+    if (pick < 0 && !flying) {
+      const now = Date.now();
+      const busy = started.filter(
+        (i) => !done[i] && !failed[i] && now - (startedAt.current[i] || now) < STALL_MS
+      ).length;
+      if (busy >= IN_FLIGHT) return;
+      for (let i = span.hi + 1; i <= span.hi + AHEAD && pick < 0; i += 1) {
+        if (waiting(i)) pick = i;
+      }
+      for (let i = span.lo - 1; i >= span.lo - BEHIND && pick < 0; i -= 1) {
+        if (waiting(i)) pick = i;
+      }
     }
     if (pick < 0) return;
-    startedAt.current[pick] = now;
+    startedAt.current[pick] = Date.now();
     setStarted((s) => (s.includes(pick) ? s : [...s, pick]));
-  }, [started, ratio, failed, looking, tick, photos]);
+  }, [started, done, failed, span, flying, tick, photos]);
 
-  // A photo the visitor scrolled away from before it arrived forgets it was ever asked for,
-  // so coming back to it starts again instead of waiting on a request that no longer has a
-  // slot to land in. Anything already measured stays known — the height it reserves is what
-  // keeps the column from jumping.
+  // A photo scrolled away from before it arrived forgets it was ever asked for, so coming
+  // back to it starts again instead of waiting on a request with no slot left to land in.
   useEffect(() => {
     setStarted((s) =>
-      s.length && s.some((i) => !ratio[i] && (i < looking - WINDOW || i > looking + AHEAD))
-        ? s.filter((i) => ratio[i] || (i >= looking - WINDOW && i <= looking + AHEAD))
+      s.some((i) => !done[i] && (i < span.lo - BEHIND || i > span.hi + AHEAD))
+        ? s.filter((i) => done[i] || (i >= span.lo - BEHIND && i <= span.hi + AHEAD))
         : s
     );
-  }, [looking, ratio]);
+  }, [span, done]);
 
-  // Which slot is on screen. Twenty observed elements costs nothing and replaces a scroll
-  // handler that would fire on every frame.
-  //
-  // A FLICK IS NOT A DECISION. Reacting to every slot a fast scroll flies past started a
-  // decode for each of them and moved the decoded window a dozen times in a second, which
-  // is what killed the tab at the bottom of the column. The observer therefore only commits
-  // once the scrolling has stood still for a moment; until then nothing is fetched and
-  // nothing is thrown away.
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return undefined;
-    const io = new IntersectionObserver(
-      (entries) => {
-        const seen = entries
-          .filter((e) => e.isIntersecting)
-          .map((e) => Number(e.target.dataset.idx))
-          .filter((i) => !Number.isNaN(i));
-        if (!seen.length) return;
-        const first = Math.min(...seen);
-        clearTimeout(settleTimer.current);
-        settleTimer.current = setTimeout(() => setLooking(first), SETTLE_MS);
-      },
-      // Root is the viewport on purpose: the column scrolls inside the dialog, and a slot
-      // clipped by that overflow is already reported as not intersecting.
-      { threshold: 0.01 }
-    );
-    host.querySelectorAll("[data-idx]").forEach((el) => io.observe(el));
-    return () => {
-      clearTimeout(settleTimer.current);
-      io.disconnect();
-    };
-  }, [photos]);
-
-  const settle = useCallback((i, el) => {
-    const { naturalWidth: w, naturalHeight: h } = el;
-    if (w && h) setRatio((r) => (r[i] ? r : { ...r, [i]: w / h }));
+  const settle = useCallback((i) => {
+    setDone((d) => (d[i] ? d : { ...d, [i]: true }));
   }, []);
 
   // Only one photo is ever zoomed, and while one is the column must not scroll: a drag has
@@ -192,13 +170,14 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
       data-zoomed={zoomIdx === null ? "false" : "true"}
     >
       {photos.map((p, i) => {
-        const known = !!ratio[i];
-        // Decoded only near the eyes — the same window the scheduler fetches, so nothing is
-        // ever requested for a slot that is not there to receive it — and nothing at all
-        // while the column is being flicked past. The zoomed one is the exception: it must
-        // never be dropped from under a finger.
-        const near =
-          (!flying && i >= looking - WINDOW && i <= looking + AHEAD) || i === zoomIdx;
+        const onScreen = i >= span.lo && i <= span.hi;
+        // Decoded while on screen or just off it — and off-screen slots are dropped
+        // entirely while the column is being flicked past. The zoomed one is the
+        // exception: it must never be taken from under a finger.
+        const keep =
+          onScreen ||
+          i === zoomIdx ||
+          (!flying && i >= span.lo - BEHIND && i <= span.hi + AHEAD);
         return (
           <ColumnPhoto
             key={p.full_column || p.full || i}
@@ -209,22 +188,22 @@ export const PhotoColumn = ({ photos, alt = "", onZoomChange, testId = "detail-l
             thumb={p.thumb}
             alt={alt}
             reserve={RESERVE}
-            loaded={known && near}
-            mounted={started.includes(i) && near}
+            loaded={!!done[i] && keep}
+            mounted={started.includes(i) && keep}
             failed={!!failed[i]}
-            priority={i === looking}
-            onSettle={(el) => settle(i, el)}
+            priority={onScreen}
+            onSettle={() => settle(i)}
             onFail={() => setFailed((f) => ({ ...f, [i]: true }))}
             onZoom={handleZoom}
             placeholder={
-              !known || !near ? (
+              !done[i] || !keep ? (
                 <span
                   className="absolute inset-0 flex items-center justify-center text-white/60"
                   aria-hidden="true"
                 >
                   {failed[i] ? (
                     <ImageOff className="h-6 w-6" />
-                  ) : !known ? (
+                  ) : !done[i] ? (
                     <Loader2
                       className={`h-5 w-5 ${
                         started.includes(i) ? "animate-spin" : "opacity-40"
