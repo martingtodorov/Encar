@@ -38,6 +38,7 @@ import { YouMightLike } from "@/components/YouMightLike";
 import { MoreFromModel } from "@/components/MoreFromModel";
 import { useLangNav } from "@/hooks/useLangNav";
 import { useDisplayMode } from "@/hooks/useDisplayMode";
+import BrandLogo from "@/components/BrandLogo";
 import { useShare } from "@/hooks/useShare";
 import { PhotoColumn } from "@/components/PhotoColumn";
 import { usePhotoPreload } from "@/hooks/usePhotoPreload";
@@ -1238,11 +1239,32 @@ export default function CarDetailPage() {
           <DialogDescription className="sr-only">
             {t("allPhotos")} — {photos.length}
           </DialogDescription>
-          {/* Sticky, zero-height rail: the close button rides along at the top of the
-              viewport however far down the photos the visitor has scrolled. */}
-          {/* Above the zoomed photo's own layers (z-60): a magnified photo spills over its
-              neighbours and takes every touch on screen, and the way out must never be
+          {/* Installed to the home screen there is no browser chrome above the photos, so the
+              column ran straight into the status bar and the Dynamic Island — which is where
+              the system, not the page, takes the taps. A real header takes that space back:
+              the wordmark on the left, the way out on the right, both inside the safe area.
+              In a browser tab the toolbar already does this job, so the floating button
+              below is kept instead. Either way it rides above the zoomed photo's own layers
+              (z-60): a magnified photo covers the screen, and the way out must never be
               underneath it. */}
+          {standalone ? (
+            <div
+              data-testid="lightbox-app-header"
+              className="sticky top-0 z-[80] flex items-center justify-between border-b border-white/10 bg-black/85 pb-2 pl-4 pr-3 backdrop-blur-md"
+              style={{ paddingTop: "max(0.5rem, env(safe-area-inset-top))" }}
+            >
+              <BrandLogo compact />
+              <button
+                type="button"
+                data-testid="lightbox-close-button"
+                onClick={() => setLightbox(false)}
+                aria-label={t("close")}
+                className="flex h-11 w-11 items-center justify-center rounded-full text-white transition-transform active:scale-95"
+              >
+                <X className="h-6 w-6" aria-hidden="true" />
+              </button>
+            </div>
+          ) : (
           <div className="pointer-events-none sticky top-0 z-[80] flex h-0 justify-end">
             <button
               type="button"
@@ -1261,6 +1283,7 @@ export default function CarDetailPage() {
               <X className="h-6 w-6" aria-hidden="true" />
             </button>
           </div>
+          )}
 
           {/* Mounted only while open: closing throws the column away, so reopening always
               starts with every photo back at its normal size and nothing zoomed. */}

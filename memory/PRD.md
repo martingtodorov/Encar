@@ -669,3 +669,11 @@ from 2325 to 4509 while scrolling.
 * Черните полета намалени: слотът е 3:2 вместо 4:3 (компромис между 4:3 и 16:9 източниците).
 * Проверено: при зуум диалогът остава `overflow: auto` / `touch-action: pan-y`, позицията на
   скрола се запазва през зуум in/out, скролът работи след това, всички слотове с еднаква височина.
+
+### Follow-up 9 — header с логото в lightbox-а за инсталираното приложение
+* CarDetailPage: при `useDisplayMode()` standalone lightbox-ът вече започва със sticky header
+  (`data-testid="lightbox-app-header"`): Encar wordmark отляво, X отдясно, `padding-top:
+  max(0.5rem, env(safe-area-inset-top))`, черен фон с blur и долен борд. В браузър остава
+  плаващият бял X (тулбарът на браузъра върши същата работа).
+* Проверено със спуфнат `navigator.standalone`: header-ът се рендира (61 px в тестова среда,
+  където env() е 0), логото е вътре, остава залепен на top: 0 при скрол 1200 px, X затваря.
