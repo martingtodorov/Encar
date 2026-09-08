@@ -2433,3 +2433,22 @@ STILL FOR THE OWNER (needs the boxes): `deploy_nat.yml` for the uidrange fix and
   `/en/car/{id}` с избор BG → `/bg/...`; нов избор EN → `/bg` → `/en`.
 * OG/iMessage: без промяна — `backend/prerender.py` рендира meta по езика В URL-а, така че
   preview-ът в чата остава на езика на споделящия, а самият човек се пренасочва по IP/избор.
+
+## 2026-06 — iMessage preview: слугът в адреса не се разпознаваше като споделен линк
+* Симптом: споделена обява в iMessage показва логото и общото заглавие вместо колата.
+* Причина: и `frontend/src/setupProxy.js` (preview хост), и
+  `deploy/hetzner/ansible/templates/nginx-encar.conf.j2` (live) разпознаваха само
+  `/{lang}/car/{id}`, БЕЗ завършващия слуг. А страницата канонизира адреса до
+  `/bg/car/42328978/mercedes-benz-c-class-w205` — точно това копира купувачът. Този адрес
+  падаше: на preview → празната CRA обвивка (логото + общото заглавие), на live → @prerender,
+  който за продадена обява връща 410, а 4xx в iMessage е preview без карта.
+* Липсваше и `pl` в двете nginx локации (`/car/` и `/track/`), затова полските линкове никога
+  не минаваха през crawler клона.
+* Слугът вече пътува до `/api/share/car/{id}?lang=&slug=`, така че `og:url` и canonical сочат
+  ТОЧНО споделения адрес (Apple сверява това, преди да нарисува голямата карта).
+* Проверено на preview с UA-то на iMessage (`…AppleWebKit… facebookexternalhit/1.1 Facebot
+  Twitterbot/1.0`): слугнат BG адрес, неслугнат BG адрес и слугнат PL адрес → `og:title` с
+  името на колата, `og:url` = споделеният адрес, `og:image` = `/api/og/{id}.jpg` (1200x630 JPEG).
+  Човек без bot UA получава непокътнато SPA-то.
+* ЗА LIVE: промяната в nginx темплейта иска деплой (`--tags config,service`). iMessage кешира
+  preview-ите локално на устройството — тествай с нов линк или добави `?v=2`.

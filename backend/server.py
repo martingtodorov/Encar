@@ -2415,7 +2415,7 @@ async def _share_price(sale_eur, lang: str) -> str:
 
 
 @api.get("/share/car/{listing_id}", response_class=HTMLResponse)
-async def share_car(listing_id: str, request: Request, lang: str = "bg"):
+async def share_car(listing_id: str, request: Request, lang: str = "bg", slug: str = ""):
     """A shareable link whose preview picture is the ad's own lead photo.
 
     Viber, Messenger, WhatsApp and Facebook never run our JavaScript, so the og:* tags the
@@ -2468,7 +2468,11 @@ async def share_car(listing_id: str, request: Request, lang: str = "bg"):
         # picture a moment later), but the URL it is told to fetch is /api/og/{id}.jpg.
         await _preview_image_url(raw_image, base)
         image = f"{base}/api/og/{listing_id}.jpg"
-    target = f"{base}/{lang}/car/{listing_id}"
+    # og:url and canonical name the address that was actually shared, slug and all: the page
+    # canonicalises to the slugged form, and a preview whose og:url disagrees with the link
+    # in the message is the case where Apple re-fetches and falls back to the site logo.
+    safe_slug = re.sub(r"[^a-z0-9-]", "", (slug or "").lower())[:80]
+    target = f"{base}/{lang}/car/{listing_id}" + (f"/{safe_slug}" if safe_slug else "")
     og_locale = {"bg": "bg_BG", "ro": "ro_RO", "pl": "pl_PL", "en": "en_GB"}[lang]
 
     # Encar's own detail head is the reference (see fem.encar.com/cars/detail/*): one og:title,

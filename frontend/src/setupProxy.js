@@ -23,10 +23,19 @@ module.exports = function setupPreviewShareLinks(app) {
     res.redirect(301, `${api}/api${req.url}`);
   });
 
-  app.get(/^\/(bg|ro|pl|en)\/car\/([^/]+)\/?$/, (req, res, next) => {
+  // The SLUG is part of the shared address: the car page canonicalises /bg/car/42328978 to
+  // /bg/car/42328978/mercedes-benz-c-class-w205, so that longer form is what a buyer copies
+  // out of the address bar or hands to the Share sheet. Without the optional segment here it
+  // fell through to the plain CRA shell and every chat preview showed the site logo and the
+  // generic homepage title instead of the car.
+  const CAR = /^\/(bg|ro|pl|en)\/car\/([^/?]+)(?:\/([^/?]+))?\/?$/;
+  app.get(CAR, (req, res, next) => {
     if (!CRAWLER.test(req.headers["user-agent"] || "")) return next();
-    const [, lang, id] = req.url.split("?")[0].match(/^\/(bg|ro|pl|en)\/car\/([^/]+)\/?$/);
-    res.redirect(302, `${api}/api/share/car/${encodeURIComponent(id)}?lang=${lang}`);
+    const [, lang, id, slug] = req.url.split("?")[0].match(CAR);
+    // The slug travels with it so og:url and canonical name the EXACT address that was
+    // shared — Apple's fetcher re-checks that they agree before it draws the rich card.
+    const tail = slug ? `&slug=${encodeURIComponent(slug)}` : "";
+    res.redirect(302, `${api}/api/share/car/${encodeURIComponent(id)}?lang=${lang}${tail}`);
   });
 
   app.get(/^\/(bg|ro|pl|en)\/track\/?$/, (req, res, next) => {
