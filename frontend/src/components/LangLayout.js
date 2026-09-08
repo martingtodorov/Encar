@@ -1,5 +1,13 @@
 import { useEffect, useRef } from "react";
-import { Navigate, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  Navigate,
+  Outlet,
+  useLocation,
+  useNavigate,
+  useNavigationType,
+  useParams,
+} from "react-router-dom";
+import { noteNav } from "@/lib/navDepth";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { CookieBar } from "@/components/CookieBar";
@@ -33,9 +41,16 @@ export const LangLayout = () => {
   const { lang: urlLang } = useParams();
   const { lang, setLang } = useApp();
   const { user } = useAuth();
-  const { pathname, search, hash } = useLocation();
+  const { pathname, search, hash, key } = useLocation();
   const navigate = useNavigate();
+  const navType = useNavigationType();
   const valid = CODES.includes(urlLang);
+
+  // Count the steps back that are OURS to spend — see `lib/navDepth`. A language redirect
+  // is a REPLACE and must not look like history the visitor can be sent back into.
+  useEffect(() => {
+    noteNav(navType);
+  }, [navType, key]);
   const timer = useRef(null);
   // Snapshot at mount whether the visitor had ever explicitly picked a language.
   // The URL-sync effect below writes `encar.lang` on the very first render, so

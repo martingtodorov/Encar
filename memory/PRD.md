@@ -799,3 +799,22 @@ from 2325 to 4509 while scrolling.
   (BMW (6), 1M (E82) (6)) и 6 коли се показват.
 * НЕ репродуцирано директно: 4 опита (preview x3 + LIVE encareurope.com с make+fuels+sort)
   минаха чисто, затова причината е транспортна/периодична, не логическа.
+
+### Follow-up 19 — НАШИЯТ back бутон: намерен и оправен
+* Причина: `location.key !== "default"` беше прокси за "дошли сме отвътре". При shared link
+  езиковият redirect (`/bg/...` → `/en/...`) е REPLACE, но получава НОВ key → бутонът правеше
+  `navigate(-1)` и излизаше ИЗВЪН сайта (в Playwright: about:blank). Възпроизведено на live.
+* Ново `lib/navDepth.js`: PUSH +1, POP -1, REPLACE нищо; `LangLayout` подава `useNavigationType()`,
+  а `CarDetailPage.goBack` пита `canPop()`.
+* Cold-open fallback: моделът трябва да е RAW (`model_raw`) — преведеният label дава 0 коли,
+  макар dropdown-ът да го показва. Проверено: back от cold link → `/en/bmw/1m-e82`, 6 коли,
+  чиповете и подмоделите пълни. Submodel НЕ се добавя (0 коли и с raw, и с label).
+* In-app back си остава истински POP → връща същия URL с ВСИЧКИ филтри + scroll позицията.
+
+### OG/iMessage (mrcars.bg, fem.encar.com)
+* И двата са SERVER-RENDERED (Next.js) — crawler-ът на iMessage не изпълнява JS, а получава
+  готов HTML с per-listing title/description и абсолютен og:image от Encar CDN
+  (`impolicy=heightRate&rh=696&cw=1160&ch=696` → фиксиран 1160x696).
+* Нашият фронт е CRA (client-rendered): iMessage вижда само статичния index.html → няма rich
+  preview. Решение: бекендът да отдава per-URL meta (og:title/description/image/url + twitter)
+  за bot User-Agent-и, og:image абсолютен 1200x630. НЕ е имплементирано.

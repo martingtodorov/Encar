@@ -45,6 +45,7 @@ import { usePhotoPreload } from "@/hooks/usePhotoPreload";
 import { getCar, warmCar, forgetCar, countView } from "@/lib/api";
 import { noteView, WEIGHT } from "@/lib/taste";
 import { setBackScroll } from "@/lib/backScroll";
+import { canPop } from "@/lib/navDepth";
 import { allows } from "@/lib/consent";
 import Lightbox from "@/components/Lightbox";
 import BodyDiagram from "@/components/BodyDiagram";
@@ -494,19 +495,29 @@ export default function CarDetailPage() {
     // behaves EXACTLY like the browser's own Back: the entry the list already occupies is
     // reused instead of a second copy being pushed on top of it (which was both slower and
     // left a Back that went nowhere). Pushing is only for a cold open of a shared link.
-    if (location.key !== "default") return navigate(-1);
+    // A real history POP only when there is an entry of OURS behind this page — see
+    // `lib/navDepth`. `location.key` used to stand in for that and got it wrong on every
+    // shared link: the language redirect replaces the entry, the key changes, and Back
+    // stepped out of the site instead of landing on the car's own make/model search.
+    if (canPop()) return navigate(-1);
     if (typeof from === "string") return navigate({ pathname: path("/"), search: from });
-    // Cold open: build the same URL the model breadcrumb points to. Prefer the
-    // English make/model so the search page's chips read "Hyundai / Santa Fe" and
-    // not raw Korean — the search resolver looks up both shapes, so either works
-    // for matching listings, but only the English form gives us readable labels
-    // without waiting for the taxonomy roundtrip.
+    // Cold open (shared link, Google, pasted URL): there are no filters to restore —
+    // nobody filtered anything to get here — so Back lands on the narrowest search that
+    // describes THIS car: its make, model and submodel. Prefer the English forms so the
+    // chips read "Mercedes-Benz / C-Class W205 / C63 S AMG Coupe" and not raw Korean; the
+    // resolver looks up both shapes, but only these give readable labels without waiting
+    // for the taxonomy roundtrip.
     const mk = car?.manufacturer || car?.manufacturer_raw;
-    const md = car?.model || car?.model_raw;
+    // The model must be the RAW value: the search matches listings on that, and the
+    // translated label ("1M (E82) (2011-2012)") comes back with 0 cars even though the
+    // dropdown happily shows it. The chip label is resolved from it a moment later anyway.
+    const md = car?.model_raw || car?.model;
     if (mk) {
       const params = new URLSearchParams();
       params.set("make", mk);
       if (md) params.set("model", md);
+      // NOT the submodel: the search matches it on the raw Korean value, and adding it here
+      // returned "0 cars found" — a worse landing than the model's own result set.
       return navigate({ pathname: path("/"), search: `?${params.toString()}` });
     }
     navigate(path("/"));
