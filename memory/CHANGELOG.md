@@ -2412,3 +2412,24 @@ STILL FOR THE OWNER (needs the boxes): `deploy_nat.yml` for the uidrange fix and
   from the CSRF middleware. `GET /api/admin/incidents` now returns per-check state + labels.
 * Admin Overview: new `AdminHealth.js` grid (critical row, warning row, "Провери сега" forces a
   round); `AdminIncidents` reads labels/severity from the API.
+
+## 2026-06 — Езиково решение: IP винаги, личният избор има памет
+* Проблем (докладван от собственика): споделена обява сменяше езика. Причина — `encar.lang` се
+  записваше от URL-префикса при ПЪРВИЯ render на всяко посещение, значи първият адрес, на който
+  човек попадне (включително чужд линк), заключваше езика завинаги и изключваше IP правилото;
+  geo проверката пък се правеше само веднъж на браузър (`sessionStorage`).
+* Нов `frontend/src/lib/langPref.js`: `encar.lang` + маркер `encar.lang.explicit` се пишат САМО
+  от езиковия превключвател (`useLangNav.switchLang`) и остават без срок; стара стойност без
+  маркер се изтрива (миграция). `encar.geolang` кешира IP отговора за 6 часа.
+* `LangLayout`: приоритет акаунт → личен избор → IP, приложен при ВСЯКО зареждане (не веднъж на
+  сесия), с `replace` и запазени път/query/hash.
+* Валутата следва пазара на езика само ако купувачът не е избирал валута ръчно
+  (`encar.currency.manual`, `AppContext.setCurrency`).
+* Скрит бъг, който правеше redirect-а невидим/трептящ: `SearchPage` (URL mirror) и
+  `CarDetailPage` (slug canonicalisation) строяха адреса от `lang` в контекста, не от URL-а, и
+  пренасочваха обратно към стария език един render по-късно. Двете вече ползват `useParams().lang`.
+* Проверено с Playwright (IP на тест машината = US → en): `/bg` → `/en`; споделен `/bg/car/{id}`
+  → `/en/car/{id}/{slug}`; избор BG от превключвателя → `/bg` и се помни; `/en/bmw` и
+  `/en/car/{id}` с избор BG → `/bg/...`; нов избор EN → `/bg` → `/en`.
+* OG/iMessage: без промяна — `backend/prerender.py` рендира meta по езика В URL-а, така че
+  preview-ът в чата остава на езика на споделящия, а самият човек се пренасочва по IP/избор.

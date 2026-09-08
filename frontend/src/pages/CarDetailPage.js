@@ -114,7 +114,7 @@ const CountRow = ({ label, count, testId }) => {
 };
 
 export default function CarDetailPage() {
-  const { id, slug: urlSlug } = useParams();
+  const { lang: urlLang, id, slug: urlSlug } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const { path } = useLangNav();
@@ -391,13 +391,18 @@ export default function CarDetailPage() {
   // /bg/car/{id} we drop them on /bg/car/{id}/{slug} so the URL reflects the
   // listing, without changing the underlying page or its data. Uses `replace`
   // so the browser back button skips this bookkeeping hop.
+  //
+  // The prefix is read from the URL, not from app state: a shared link that gets
+  // redirected to the reader's own language (see `LangLayout`) lands here one render
+  // before the context updates, and using the stale value bounced them back to the
+  // sender's language.
   useEffect(() => {
     if (!car || !seoSlug) return;
     if (urlSlug === seoSlug) return;
-    navigate(`/${lang}/car/${id}/${seoSlug}${location.search}${location.hash}`, {
+    navigate(`/${urlLang || lang}/car/${id}/${seoSlug}${location.search}${location.hash}`, {
       replace: true,
     });
-  }, [car, seoSlug, urlSlug, id, lang, location.search, location.hash, navigate]);
+  }, [car, seoSlug, urlSlug, id, urlLang, lang, location.search, location.hash, navigate]);
 
   // Title and description are built from the SAME cleaned name and the SAME facts the share
   // page uses (backend `share_car`), so a Google snippet and a Messenger preview of one car

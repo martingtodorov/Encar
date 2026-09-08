@@ -5,6 +5,7 @@ import { EMPTY_SITE, cachedSite, rememberSite } from "@/lib/cmsCache";
 import { noteFavourite } from "@/lib/taste";
 import { configureAnalytics } from "@/lib/analytics";
 import { t as translate, CURRENCIES } from "@/i18n";
+import { readLangPref } from "@/lib/langPref";
 
 /** A currency we retired (e.g. BGN) can still be sitting in a returning visitor's
  *  localStorage, which would format prices in a currency we no longer convert. */
@@ -14,15 +15,17 @@ function validCurrency(code) {
 
 const AppContext = createContext(null);
 
-const LS_LANG = "encar.lang";
 const LS_CUR = "encar.currency";
+// Set only when the visitor opens the currency menu and picks one. Until then the
+// currency follows the market the language belongs to.
+const LS_CUR_MANUAL = "encar.currency.manual";
 const LS_FAV = "encar.favourites";
 const LS_SEARCHES = "encar.searches";
 const LS_THEME = "encar.theme";
 
 function detectLang() {
-  const stored = localStorage.getItem(LS_LANG);
-  if (stored) return stored;
+  const picked = readLangPref();
+  if (picked) return picked;
   const nav = (navigator.language || "").toLowerCase();
   if (nav.startsWith("ro")) return "ro";
   if (nav.startsWith("en")) return "en";
@@ -122,10 +125,15 @@ export function AppProvider({ children }) {
   }, [theme]);
 
   // Switching language switches the market, so it switches the currency with it:
-  // Polish buyers price in PLN, Romanian buyers in RON, everyone else in EUR.
+  // Polish buyers price in PLN, Romanian buyers in RON, everyone else in EUR — unless the
+  // buyer has picked a currency by hand, which nothing may overrule.
+  //
+  // The language itself is NOT stored here: this runs on every page load to mirror the URL
+  // prefix, and storing it would turn a shared link into a permanent preference. The
+  // switcher records the pick (see `lib/langPref`).
   const setLang = useCallback((l) => {
     setLangState(l);
-    localStorage.setItem(LS_LANG, l);
+    if (localStorage.getItem(LS_CUR_MANUAL) === "1") return;
     const cur = l === "ro" ? "RON" : l === "pl" ? "PLN" : "EUR";
     setCurrencyState(cur);
     localStorage.setItem(LS_CUR, cur);
@@ -134,6 +142,7 @@ export function AppProvider({ children }) {
   const setCurrency = useCallback((c) => {
     setCurrencyState(c);
     localStorage.setItem(LS_CUR, c);
+    localStorage.setItem(LS_CUR_MANUAL, "1");
   }, []);
 
   const toggleTheme = useCallback(() => {

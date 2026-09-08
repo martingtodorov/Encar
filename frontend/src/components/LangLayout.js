@@ -25,17 +25,20 @@ import { allows, onConsentChange } from "@/lib/consent";
 import { syncAnalytics } from "@/lib/analytics";
 import { ping, labelFor } from "@/lib/traffic";
 import { getGeoLang } from "@/lib/api";
+import { cachedGeoLang, readLangPref, rememberGeoLang } from "@/lib/langPref";
 
 const CODES = LANGS.map((l) => l.code);
-const GEO_LANG_DONE = "encar.geolang.done";
 
 /**
  * Language lives in the URL, not in the browser's preference.
  *
- * Every page sits under /bg, /ro or /en so each translation has its own indexable
+ * Every page sits under /bg, /ro, /pl or /en so each translation has its own indexable
  * address. This layout is the single place that reads the prefix and pushes it into app
  * state; an unknown prefix (or none at all) is redirected to the visitor's language with
  * the rest of the path and the query string kept intact.
+ *
+ * Which language that is comes from, in order: the signed-in account, the visitor's own
+ * pick from the switcher (remembered for good), then the country behind their IP.
  */
 export const LangLayout = () => {
   const { lang: urlLang } = useParams();
@@ -52,11 +55,6 @@ export const LangLayout = () => {
     noteNav(navType);
   }, [navType, key]);
   const timer = useRef(null);
-  // Snapshot at mount whether the visitor had ever explicitly picked a language.
-  // The URL-sync effect below writes `encar.lang` on the very first render, so
-  // reading storage later would always look "explicit" and the geo hint would be
-  // silently skipped. Ref captured once so the geo effect can trust it.
-  const hadStoredLang = useRef(Boolean(localStorage.getItem("encar.lang")));
   const geoLookupFired = useRef(false);
   const accountLangApplied = useRef(false);
 
@@ -75,39 +73,46 @@ export const LangLayout = () => {
     accountLangApplied.current = true;
     if (preferred === urlLang) return;
     const rest = stripLang(pathname);
+    setLang(preferred);
     navigate(`/${preferred}${rest}${search}${hash}`, { replace: true });
-  }, [valid, user, urlLang, pathname, search, hash, navigate]);
+  }, [valid, user, urlLang, pathname, search, hash, navigate, setLang]);
 
-  // First-visit geolocation: a Romanian visitor who lands on the BG homepage (because
-  // Bulgarian is the fallback locale) should be reshown the same page in Romanian
-  // without having to hunt for a switcher. `useNavigate` returns a new function on
-  // every render, so we guard against re-entry with a ref rather than an effect dep.
+  // Language decision for anyone who is not signed in, on EVERY visit: their own pick if
+  // they have one, otherwise the country behind their IP. That is what makes a shared
+  // listing behave — a link sent as /en/car/123 opens in Bulgarian for a shopper in
+  // Bulgaria, on the same car, with the path and query string carried over.
   useEffect(() => {
     if (!valid) return;
-    if (hadStoredLang.current) return;
-    if (user?.lang) return;                          // account preference will win below
-    if (geoLookupFired.current) return;
-    if (sessionStorage.getItem(GEO_LANG_DONE)) {
-      geoLookupFired.current = true;
+    if (user?.lang) return;                          // account preference wins, see above
+    const apply = (next) => {
+      if (!next || !CODES.includes(next) || next === urlLang) return;
+      const rest = stripLang(pathname);
+      // Push the language into state IN THE SAME TICK as the redirect. The search page
+      // mirrors its filters back into the URL, so a navigate() on its own could be
+      // overwritten by that mirror one render later — the redirect looked like it never
+      // happened.
+      setLang(next);
+      navigate(`/${next}${rest}${search}${hash}`, { replace: true });
+    };
+    const picked = readLangPref();
+    if (picked) {
+      apply(picked);
       return;
     }
+    const cached = cachedGeoLang();
+    if (cached) {
+      apply(cached);
+      return;
+    }
+    if (geoLookupFired.current) return;              // one lookup per page load, at most
     geoLookupFired.current = true;
     getGeoLang()
       .then((res) => {
-        sessionStorage.setItem(GEO_LANG_DONE, "1");
-        const next = res?.lang;
-        if (!next || !CODES.includes(next) || next === urlLang) return;
-        // Rewrite the URL to the detected language, keeping the rest of the path so a
-        // deep link (e.g. /bg/bmw/3-series-g20) survives the redirect. The URL-sync
-        // effect above will pick the new prefix up and store it, so no explicit
-        // setLang is needed here (a double write would race with the redirect).
-        const rest = stripLang(pathname);
-        navigate(`/${next}${rest}${search}${hash}`, { replace: true });
+        rememberGeoLang(res?.lang || "");
+        apply(res?.lang);
       })
-      .catch(() => {
-        sessionStorage.setItem(GEO_LANG_DONE, "1");
-      });
-  }, [valid, urlLang, pathname, search, hash, navigate, setLang]);
+      .catch(() => {});
+  }, [valid, user, urlLang, pathname, search, hash, navigate, setLang]);
 
   // Third-party statistics follow the decision, in both directions: nothing loads before a
   // yes, and a withdrawal switches the consent signal back to denied.

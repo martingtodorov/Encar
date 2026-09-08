@@ -144,7 +144,7 @@ export default function SearchPage() {
   const navigate = useNavigate();
   // Pretty search paths: /bg/bmw/m2-g87. The path segments are the same English slugs the
   // query string used to carry, so they feed the same resolver.
-  const { makeSlug, modelSlug } = useParams();
+  const { lang: urlLang, makeSlug, modelSlug } = useParams();
   // Read the URL ONCE on mount; after that this component owns the state and writes
   // back. Re-reading on every param change would fight the effect below.
   const initial = useMemo(() => {
@@ -581,7 +581,11 @@ export default function SearchPage() {
     // page on screen and keeps it out of the index.
     if (notFound) return;
     const p = stateToParams({ filters, tax, sort, page }, slugFor);
-    let path = `/${lang}`;
+    // The prefix comes from the URL, never from app state: an IP or account language
+    // redirect lands here one render before the context catches up, and mirroring the
+    // stale state value made this effect rewrite the visitor straight back to the old
+    // language — a visible /en → /bg → /en flicker that sometimes settled on the wrong one.
+    let path = `/${urlLang || lang}`;
     const makeSeg = tax.make ? slugFor("make", tax.make) : "";
     if (makeSeg) {
       p.delete("make");
@@ -597,7 +601,7 @@ export default function SearchPage() {
     if (`${window.location.pathname}${window.location.search}` !== next) {
       navigate(next, { replace: true });
     }
-  }, [filters, tax, sort, page, navigate, lang, slugFor, resolving, notFound]);
+  }, [filters, tax, sort, page, navigate, urlLang, lang, slugFor, resolving, notFound]);
 
   // Snapshot the painted state against the URL it belongs to, so a Back to it hydrates
   // instantly. Declared AFTER the URL mirror above so `window.location.search` is already
