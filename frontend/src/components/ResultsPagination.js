@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -66,44 +66,55 @@ export const ResultsPagination = ({ page, pages, onChange, onPrefetch }) => {
       className="flex flex-col items-center gap-3 py-8 sm:flex-row sm:justify-between sm:gap-4"
       aria-label={t("page")}
     >
-      <div className="flex flex-nowrap items-center gap-1 sm:gap-1.5">
+      {/* On a phone the row stretches edge to edge and every cell shares the width equally:
+          thumb-sized targets instead of the small squares floating in the middle. From `sm`
+          up it collapses back to its natural width next to the "go to page" form. */}
+      <div className="flex w-full flex-nowrap items-center gap-1.5 sm:w-auto sm:gap-1.5">
         <Button
           data-testid="pagination-prev"
           variant="outline"
           disabled={page <= 1}
           {...warm(page - 1)}
           onClick={() => onChange(page - 1)}
-          className="h-9 gap-1 border-border bg-card px-2 text-sm disabled:opacity-40 sm:h-10 sm:px-3"
+          className="h-11 flex-1 gap-1 border-border bg-card px-0 text-sm disabled:opacity-40 sm:h-10 sm:flex-none sm:px-3"
           aria-label={t("page")}
         >
-          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+          <ChevronLeft className="h-5 w-5 sm:h-4 sm:w-4" aria-hidden="true" />
         </Button>
 
         {window.map((p, i) => {
           const gap = i > 0 && p - window[i - 1] > 1;
           return (
-            <span
-              key={p}
-              className={`items-center gap-1 sm:gap-1.5 ${
-                near.has(p) ? "flex" : "hidden sm:flex"
-              }`}
-            >
-              {gap && <span className="px-1 text-muted-foreground">{"\u2026"}</span>}
-              <Button
-                data-testid={`pagination-page-${p}`}
-                variant={p === page ? "default" : "outline"}
-                {...warm(p)}
-                onClick={() => onChange(p)}
-                aria-current={p === page ? "page" : undefined}
-                className={`tnum h-9 min-w-9 px-2 text-sm sm:h-10 sm:min-w-10 sm:px-3 ${
-                  p === page
-                    ? "bg-[hsl(var(--primary))] text-primary-foreground hover:brightness-110"
-                    : "border-border bg-card text-foreground hover:bg-muted"
+            <Fragment key={p}>
+              {/* The gap marker sits OUTSIDE the stretching cell, and only from `sm` up: on a
+                  phone the first and last page are hidden anyway, so an ellipsis there would
+                  just steal width from the five buttons and leave them uneven. */}
+              {gap && (
+                <span className="hidden shrink-0 px-1 text-muted-foreground sm:inline">
+                  {"\u2026"}
+                </span>
+              )}
+              <span
+                className={`items-center sm:flex-none ${
+                  near.has(p) ? "flex flex-1" : "hidden sm:flex"
                 }`}
               >
-                {formatNumber(p, lang)}
-              </Button>
-            </span>
+                <Button
+                  data-testid={`pagination-page-${p}`}
+                  variant={p === page ? "default" : "outline"}
+                  {...warm(p)}
+                  onClick={() => onChange(p)}
+                  aria-current={p === page ? "page" : undefined}
+                  className={`tnum h-11 w-full min-w-0 px-0 text-base sm:h-10 sm:w-auto sm:min-w-10 sm:px-3 sm:text-sm ${
+                    p === page
+                      ? "bg-[hsl(var(--primary))] text-primary-foreground hover:brightness-110"
+                      : "border-border bg-card text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {formatNumber(p, lang)}
+                </Button>
+              </span>
+            </Fragment>
           );
         })}
 
@@ -113,10 +124,10 @@ export const ResultsPagination = ({ page, pages, onChange, onPrefetch }) => {
           disabled={page >= pages}
           {...warm(page + 1)}
           onClick={() => onChange(page + 1)}
-          className="h-9 gap-1 border-border bg-card px-2 text-sm disabled:opacity-40 sm:h-10 sm:px-3"
+          className="h-11 flex-1 gap-1 border-border bg-card px-0 text-sm disabled:opacity-40 sm:h-10 sm:flex-none sm:px-3"
           aria-label={t("page")}
         >
-          <ChevronRight className="h-4 w-4" aria-hidden="true" />
+          <ChevronRight className="h-5 w-5 sm:h-4 sm:w-4" aria-hidden="true" />
         </Button>
       </div>
 
