@@ -26,3 +26,8 @@ nat_route_management: true
 home_exit_pubkey: ""
 home_exit_ip: 10.99.0.3
 home_exit_proxy_port: 8888
+# The guard that re-asserts the policy rules wg-quick's one-shot PostUp installs once. See the
+# header of templates/nat-guard-back.sh.j2: those rules vanished twice from a healthy host and
+# took all outbound traffic with them until someone restarted the tunnel by hand.
+nat_guard_interval: 60
+nat_guard_state: /var/lib/{{ app_name }}/nat-guard.json

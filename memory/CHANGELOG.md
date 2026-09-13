@@ -2462,3 +2462,30 @@ STILL FOR THE OWNER (needs the boxes): `deploy_nat.yml` for the uidrange fix and
 * Проверено на 390px: 7 равни клетки 45-47px, редът стига 16→374px; десктопът е непокътнат (40px).
 * Забележка: preview средата не вижда Encar (HTTP 407 от IPRoyal прокси) → само 6 активни обяви,
   затова за скрийншота временно бяха вдигнати 200 обяви на `active`, после върнати обратно (6).
+
+## 2026-06 — WireGuard: правилата се самолекуват + /api/health вече казва истината
+* Инцидент (2-ри път, 05/09 и 14/09): `ip rule` записите (1000 uidrange www-data, 1010 from all),
+  които пращат трафика на back1 в таблица 100, бяха ИЗТРИТИ от ядрото при напълно здрав тунел
+  (handshake 53s, 3.76 GiB, таблица 100 непокътната, wg-quick не пипан 10 дни). Без правило към
+  таблицата всичко минава по main → частният gateway на Hetzner → никъде. 35 842 Encar грешки,
+  мъртви Stripe/Claude/Resend, а `/api/health` връщаше `ok:true`. Заподозрян: systemd-networkd
+  чисти чужди policy rules при преконфигуриране на частния интерфейс.
+* Ново: `/usr/local/sbin/encar-nat-guard` (templates/nat-guard-back.sh.j2) + systemd timer на
+  60s + networkd-dispatcher hook (routable/configured) → правилата и таблицата се налагат
+  наново, идемпотентно; restart на тунела САМО ако след това още няма изход и handshake > 180s;
+  при поправка `try-restart encar-backend` (заклещени httpx pool-ове) и пълна снимка в journal.
+* front1: `nat-guard-front.sh.j2` пази `ip_forward=1` и MASQUERADE (ufw презаписва nat таблицата
+  при всеки reload).
+* `wg-quick@wg0` drop-in: `Restart=on-failure`, `RestartSec=10s` (unit-ът е oneshot — дотогава
+  един провален старт оставяше хоста без интернет завинаги).
+* Проверка чрез счупване: `./run.sh playbooks/deploy_nat.yml --tags selfheal` трие правилото и
+  твърди, че се връща до 2 минути без ръчен restart.
+* Истината в мониторинга: `encar.stats` вече пази `last_ok_at`/`last_error_at`; `/api/health`
+  връща `ok:false` + `problems[]`, когато няма успешна Encar заявка над 10 мин при свежа грешка
+  ИЛИ отворен breaker, или когато пазачът казва, че няма изход. Добавена е и watchdog проверка
+  `nat` (warning), която чете `NAT_GUARD_STATE` и показва в Админ → Здраве, че правилата са били
+  трити и върнати.
+* Тест: `backend/tests/test_nat_guard.py` — рендира темплейтите и ги пуска със подменени
+  `ip/wg/systemctl/runuser`: изтрити правила, изчистена таблица, мъртъв тунел, здрав хост (нищо
+  не се пипа), front1 forwarding+MASQUERADE, bash синтаксис. 6/6 минават. `ansible-playbook
+  --syntax-check` е чист; 43 съществуващи deploy/proxy теста минават.

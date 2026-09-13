@@ -1,0 +1,10 @@
+[Unit]
+Description={{ app_name }}: re-assert the tunnel's policy routing
+# Not a requirement: the guard's whole job is to run when the tunnel is NOT as it should be.
+After=network.target wg-quick@wg0.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/{{ app_name }}-nat-guard
+# A guard that hangs on a wedged `curl` must not block the next run forever.
+TimeoutStartSec=60

@@ -263,7 +263,10 @@ class EncarClient:
         # its strict single-file pacing below.
         self._sem = asyncio.Semaphore(interactive_concurrency)
         self._client = None
-        self.stats = {"requests": 0, "backoffs": 0, "errors": 0, "last_status": None}
+        # `last_ok_at` / `last_error_at` exist so /api/health can tell the truth: during the
+        # 14/09 outage it answered ok:true with 35,842 consecutive failures behind it.
+        self.stats = {"requests": 0, "backoffs": 0, "errors": 0, "last_status": None,
+                      "last_ok_at": None, "last_error_at": None}
         self._opt_cache = {"standard": None, "tuning": None, "metas": None, "at": 0}
         # Circuit breaker. A blocked or broken upstream must be asked politely and rarely,
         # not hammered by every visitor who happens to open an uncached car.
@@ -366,6 +369,7 @@ class EncarClient:
                 r = await c.get(f"{API}{path}")
             except Exception as e:
                 self.stats["errors"] += 1
+                self.stats["last_error_at"] = time.time()
                 last = f"transport error: {_why(e)}"
                 log.warning("encar route=%s status=- latency_ms=%d circuit=%s path=%s %s",
                             route(), (time.monotonic() - t0) * 1000, self._state(), path,
@@ -382,6 +386,8 @@ class EncarClient:
             latency_ms = int((time.monotonic() - t0) * 1000)
             self.stats["requests"] += 1
             self.stats["last_status"] = last_status = r.status_code
+            if r.status_code not in (200, 404):
+                self.stats["last_error_at"] = time.time()
             log.info("encar route=%s status=%s latency_ms=%d circuit=%s path=%s",
                      route(), r.status_code, latency_ms, self._state(), path)
 
@@ -440,6 +446,7 @@ class EncarClient:
 
     def _ok(self):
         self._fails = 0
+        self.stats["last_ok_at"] = time.time()
 
     def _fail(self, reason, transport=False):
         self._fails += 1
@@ -450,6 +457,7 @@ class EncarClient:
     def _trip(self, reason, cooldown, failover=False):
         self._fails = 0
         self._trips += 1
+        self.stats["last_error_at"] = time.time()
         self._open_until = time.monotonic() + cooldown
         self._open_reason = _scrub(reason)
         # Only a TRANSPORT fault asks for the other route. A 403/407/429 means the route

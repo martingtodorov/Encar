@@ -590,11 +590,54 @@ async def catalogue_size():
     }
 
 
+def _nat_guard_state():
+    """What the host guard last saw about the tunnel's policy routing, or None.
+
+    Written by /usr/local/sbin/encar-nat-guard (deploy/hetzner, templates/nat-guard-back.sh.j2).
+    """
+    path = (os.environ.get("NAT_GUARD_STATE") or "").strip()
+    if not path:
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:                                        # noqa: BLE001
+        return None
+
+
 @api.get("/health")
 async def health():
     state = await sync_mod.get_state(db)
+    stats = dict(encar.stats)
+    now = time.time()
+    last_ok = float(stats.get("last_ok_at") or 0)
+    last_err = float(stats.get("last_error_at") or 0)
+    # On 14/09 this endpoint answered ok:true through a total outage: 35,842 consecutive
+    # upstream failures, no internet on the host at all, every monitor green. The watchdog
+    # calls Encar once a minute, so no success for ten minutes while something is going
+    # wrong is an outage, not an idle window — and it must be said out loud here. The
+    # breaker counts as "going wrong" too: while it is open the calls fail without touching
+    # the network, so `last_error_at` would quietly go stale.
+    breaker = encar.breaker()
+    no_success = not last_ok or now - last_ok > 600
+    trouble = bool((last_err and now - last_err < 900) or breaker.get("open"))
+    upstream_stalled = no_success and trouble
+    guard = _nat_guard_state()
+    # The guard runs every 60s; if it says there is no way out, believe it over any counter.
+    egress_down = bool(guard and guard.get("egress_ok") is False)
+    problems = []
+    if upstream_stalled:
+        problems.append(
+            "no successful Encar call for "
+            f"{int(now - last_ok) if last_ok else 'the whole process lifetime'}"
+            f"{'s' if last_ok else ''} "
+            f"(last status {stats.get('last_status')}, "
+            f"breaker {'open' if breaker.get('open') else 'closed'})")
+    if egress_down:
+        problems.append("the host guard reports no egress through the tunnel")
     return {
-        "ok": True,
+        "ok": not problems,
+        "problems": problems,
         "listings_total": await db.listings.count_documents({}),
         "listings_active": await db.listings.count_documents({"active": True}),
         "unique_cars": await db.listings.count_documents(
@@ -604,7 +647,8 @@ async def health():
         "translations_cached": await db.translations.count_documents({}),
         "translation_breaker": breaker_status(),
         "sync": jsonable({k: v for k, v in state.items() if k != "_id"}),
-        "encar_stats": dict(encar.stats),
+        "encar_stats": stats,
+        "nat_guard": guard,
     }
 
 

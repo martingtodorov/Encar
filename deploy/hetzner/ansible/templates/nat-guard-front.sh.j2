@@ -1,0 +1,37 @@
+#!/bin/bash
+# Written by Ansible. front1's half of the same promise: forwarding on, and the tunnel's
+# MASQUERADE present.
+#
+# ufw rewrites BOTH the filter and the nat table from its own files on every reload, and a
+# reload happens without anyone asking for it (unattended-upgrades, a certbot hook, any
+# `ufw allow`). The rule lives in /etc/ufw/before.rules for that reason — but if a reload
+# ever races or before.rules is edited by hand, back1 becomes invisible to the internet with
+# a perfectly healthy tunnel. Cheap to check every {{ nat_guard_interval }}s.
+set -uo pipefail
+# systemd hands a unit a minimal PATH; the caller's comes first so the test harness
+# (backend/tests/test_nat_guard.py) can stub ip/wg/systemctl and exercise the branches.
+export PATH="${PATH:-}:/usr/sbin:/usr/bin:/sbin:/bin"
+
+IFACE={{ public_iface }}
+repairs=()
+
+log() { logger -t {{ app_name }}-nat-guard -p daemon.warning -- "$*"; }
+
+if [[ "$(sysctl -n net.ipv4.ip_forward 2>/dev/null)" != "1" ]]; then
+  sysctl -q -w net.ipv4.ip_forward=1 && repairs+=("ip_forward")
+fi
+
+if ! iptables -t nat -C POSTROUTING -s {{ wg_back_ip }}/32 -o "$IFACE" -j MASQUERADE 2>/dev/null; then
+  iptables -t nat -A POSTROUTING -s {{ wg_back_ip }}/32 -o "$IFACE" -j MASQUERADE \
+    && repairs+=("masquerade")
+fi
+
+if ! ip link show wg0 >/dev/null 2>&1; then
+  systemctl start wg-quick@wg0 && repairs+=("wg-start")
+fi
+
+if [[ -n "${repairs[*]:-}" ]]; then
+  log "repaired: ${repairs[*]}"
+  log "nat: $(iptables -t nat -S POSTROUTING | tr '\n' ';')"
+fi
+exit 0

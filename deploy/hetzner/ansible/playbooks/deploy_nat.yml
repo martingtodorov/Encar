@@ -35,7 +35,10 @@
 #
 # Run this BEFORE deploy_backend.yml on a fresh box.
 #
-# Tags: gateway, client, verify.
+# Tags: gateway, client, verify, selfheal.
+#
+# `--tags selfheal` deletes the policy rule on purpose and asserts the guard puts it back
+# without a restart — the exact failure of 2026-09-05 and 2026-09-14.
 
 - name: Tunnel keys on both hosts
   hosts: frontend:backend
@@ -251,10 +254,42 @@
         state: enabled
       tags: [gateway]
 
+    # ── the guard: forwarding and MASQUERADE re-asserted, not assumed ────────────────────
+    - name: Guard script
+      ansible.builtin.template:
+        src: ../templates/nat-guard-front.sh.j2
+        dest: /usr/local/sbin/{{ app_name }}-nat-guard
+        mode: "0755"
+      tags: [gateway]
+
+    - name: Guard unit and timer
+      ansible.builtin.template:
+        src: ../templates/{{ item }}.j2
+        dest: /etc/systemd/system/{{ app_name }}-nat-guard.{{ item | regex_replace('^nat-guard\.', '') }}
+        mode: "0644"
+      loop: [nat-guard.service, nat-guard.timer]
+      notify: Reload systemd on front1
+      tags: [gateway]
+
+    - name: Apply the unit files before enabling the timer
+      ansible.builtin.meta: flush_handlers
+      tags: [gateway]
+
+    - name: Guard runs every {{ nat_guard_interval }}s
+      ansible.builtin.systemd:
+        name: "{{ app_name }}-nat-guard.timer"
+        enabled: true
+        state: started
+      tags: [gateway]
+
   handlers:
     - name: Reload ufw
       ansible.builtin.command: ufw reload
       changed_when: true
+
+    - name: Reload systemd on front1
+      ansible.builtin.systemd:
+        daemon_reload: true
 
     - name: Restart wg0 on front1
       ansible.builtin.systemd:
@@ -395,6 +430,73 @@
     - name: Tunnel up, and up after a reboot
       ansible.builtin.systemd:
         name: wg-quick@wg0
+        enabled: true
+        state: started
+      tags: [client]
+
+    # ── self-healing ─────────────────────────────────────────────────────────────────────
+    # Twice now (2026-09-05, 2026-09-14) back1 lost ALL outbound traffic while the tunnel
+    # itself was healthy: the `ip rule` entries that point at table {{ nat_table }} were gone
+    # from the kernel, table {{ nat_table }} untouched, wg-quick not restarted for ten days.
+    # They are installed only by the one-shot PostUp above, so nothing put them back and
+    # every outbound call failed for hours. The guard below re-asserts them.
+    - name: wg-quick comes back on its own if it ever fails
+      ansible.builtin.file:
+        path: /etc/systemd/system/wg-quick@wg0.service.d
+        state: directory
+        mode: "0755"
+      tags: [client]
+
+    - name: The drop-in that does it
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/wg-quick@wg0.service.d/restart.conf
+        mode: "0644"
+        content: |
+          # Written by Ansible. wg-quick@ is Type=oneshot: without this a failed start (a
+          # transient "Address already in use", a PostUp command that returns non-zero) leaves
+          # the tunnel down for good, and on this host that means no internet at all.
+          [Unit]
+          StartLimitIntervalSec=300
+          StartLimitBurst=5
+
+          [Service]
+          Restart=on-failure
+          RestartSec=10s
+      tags: [client]
+
+    - name: Guard script
+      ansible.builtin.template:
+        src: ../templates/nat-guard-back.sh.j2
+        dest: /usr/local/sbin/{{ app_name }}-nat-guard
+        mode: "0755"
+      tags: [client]
+
+    - name: Guard unit and timer
+      ansible.builtin.template:
+        src: ../templates/{{ item }}.j2
+        dest: /etc/systemd/system/{{ app_name }}-nat-guard.{{ item | regex_replace('^nat-guard\.', '') }}
+        mode: "0644"
+      loop: [nat-guard.service, nat-guard.timer]
+      tags: [client]
+
+    - name: Run it the moment networkd reconfigures the link, not up to a minute later
+      # networkd flushing policy rules it does not own is the prime suspect for both
+      # incidents; if networkd-dispatcher is on the box we hear about it immediately.
+      ansible.builtin.copy:
+        dest: /etc/networkd-dispatcher/{{ item }}.d/50-{{ app_name }}-nat
+        mode: "0755"
+        content: |
+          #!/bin/sh
+          # Written by Ansible. See templates/nat-guard-back.sh.j2.
+          exec /usr/local/sbin/{{ app_name }}-nat-guard
+      loop: [routable, configured]
+      failed_when: false
+      tags: [client]
+
+    - name: Reload systemd and start the guard
+      ansible.builtin.systemd:
+        name: "{{ app_name }}-nat-guard.timer"
+        daemon_reload: true
         enabled: true
         state: started
       tags: [client]
@@ -618,6 +720,37 @@
         - https://api.resend.com/
         - https://api.encar.com/
       tags: [verify]
+
+    # ── the guard is proven by breaking it on purpose ────────────────────────────────────
+    - name: Delete the rule that the incident deleted
+      ansible.builtin.shell: |
+        uid=$(id -u {{ backend_service_user }})
+        ip rule del uidrange $uid-$uid lookup {{ nat_table }}
+      changed_when: true
+      tags: [selfheal]
+
+    - name: The guard must put it back without anybody restarting anything
+      ansible.builtin.shell: |
+        set -o pipefail
+        uid=$(id -u {{ backend_service_user }})
+        ip rule show | grep -F "uidrange $uid-$uid"
+      args:
+        executable: /bin/bash
+      register: healed
+      changed_when: false
+      retries: "{{ ((nat_guard_interval | int * 2) / 5) | round(0, 'ceil') | int }}"
+      delay: 5
+      until: healed.rc == 0
+      tags: [selfheal]
+
+    - name: Say so
+      ansible.builtin.debug:
+        msg: >-
+          The policy rule was deleted by hand and came back within
+          {{ nat_guard_interval | int * 2 }}s without a restart:
+          "{{ healed.stdout | trim }}". This is the failure of 2026-09-05 and 2026-09-14,
+          and it now heals itself.
+      tags: [selfheal]
 
   handlers:
     - name: Reload sysctl

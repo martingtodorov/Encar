@@ -1,0 +1,116 @@
+#!/bin/bash
+# Written by Ansible. Re-asserts the policy routing that is back1's ONLY way out.
+#
+# 2026-09-14, the second occurrence: the two `ip rule` entries that steer traffic into table
+# {{ nat_table }} were simply GONE from the kernel while everything else was healthy — tunnel
+# up, last handshake 53s old, 3.76 GiB transferred, table {{ nat_table }} intact with its
+# `default via {{ wg_front_ip }} dev wg0 src {{ wg_back_ip }}`, wg-quick untouched for ten days,
+# no reboot. With no rule pointing at the table, every packet fell through to the main table
+# and Hetzner's private gateway, which goes nowhere from a host with no public IPv4. 35,842
+# Encar errors, dead Stripe/Claude/Resend, and a human had to restart the tunnel.
+#
+# Those rules were installed ONLY by wg-quick's one-shot PostUp, so nothing re-asserted them
+# after something deleted them (systemd-networkd reconfiguring the private interface flushes
+# policy rules it does not own — it never touched table {{ nat_table }}, which is exactly the
+# fingerprint we saw). They are re-asserted from here every {{ nat_guard_interval }}s, and
+# immediately whenever networkd reports the link routable. On a healthy host this is four
+# greps and nothing else.
+set -uo pipefail
+# systemd hands a unit a minimal PATH; the caller's comes first so the test harness
+# (backend/tests/test_nat_guard.py) can stub ip/wg/systemctl and exercise the branches.
+export PATH="${PATH:-}:/usr/sbin:/usr/bin:/sbin:/bin"
+
+TABLE={{ nat_table }}
+PRIO={{ nat_rule_priority }}
+PRIO_ALL=$(( {{ nat_rule_priority }} + 10 ))
+APP_UID=$(id -u {{ backend_service_user }})
+STATE={{ nat_guard_state }}
+repairs=()
+
+log() { logger -t {{ app_name }}-nat-guard -p daemon.warning -- "$*"; }
+
+# ── the rules ────────────────────────────────────────────────────────────────────────────
+if ! ip rule show | grep -q "uidrange ${APP_UID}-${APP_UID}"; then
+  ip rule add uidrange "${APP_UID}-${APP_UID}" lookup "$TABLE" priority "$PRIO" \
+    && repairs+=("app-uid-rule")
+fi
+{% if nat_route_management | bool %}
+# Without this one root has no way out either: no apt, no git, no pip, no DNS.
+if ! ip rule show | grep -q "^${PRIO_ALL}:"; then
+  ip rule add from all lookup "$TABLE" priority "$PRIO_ALL" && repairs+=("root-rule")
+fi
+{% endif %}
+
+# ── the table those rules point at ───────────────────────────────────────────────────────
+if ! ip route show table "$TABLE" | grep -q "^default via {{ wg_front_ip }} "; then
+  ip route replace {{ wg_front_ip }}/32 dev wg0 scope link
+  ip route replace throw {{ private_cidr }} table "$TABLE"
+  ip route replace throw 169.254.0.0/16 table "$TABLE"
+  ip route replace throw 172.16.0.0/12 table "$TABLE"
+  ip route replace throw 192.168.0.0/16 table "$TABLE"
+  ip route replace default via {{ wg_front_ip }} dev wg0 src {{ wg_back_ip }} table "$TABLE" \
+    && repairs+=("table-default")
+fi
+{% if home_exit_pubkey | default('') | trim | length > 0 %}
+if ! ip route show {{ home_exit_ip }}/32 | grep -q wg0; then
+  ip route replace {{ home_exit_ip }}/32 via {{ wg_front_ip }} dev wg0 \
+    && repairs+=("home-exit-route")
+fi
+{% endif %}
+
+# ── does it actually work? ───────────────────────────────────────────────────────────────
+# By IP and as the application user: a broken resolver must not read as a broken tunnel, and
+# root's path is not the path the backend takes.
+egress_ok() {
+  runuser -u {{ backend_service_user }} -- \
+    timeout 6 bash -c 'exec 3<>/dev/tcp/1.1.1.1/443' >/dev/null 2>&1
+}
+
+handshake_age() {
+  local hs
+  hs=$(wg show wg0 latest-handshakes 2>/dev/null | awk '{print $2}' | sort -rn | head -1)
+  if [[ -z "${hs:-}" || "$hs" == "0" ]]; then echo 999999; else echo $(( $(date +%s) - hs )); fi
+}
+
+age=$(handshake_age)
+if ! egress_ok && (( age > 180 )); then
+  # Rules and routes are in place and there is still no handshake: the tunnel itself is what
+  # is broken, and only now is a restart the right answer.
+  log "no egress and the last handshake is ${age}s old — restarting the tunnel"
+  systemctl restart wg-quick@wg0 && repairs+=("wg-restart")
+  sleep 3
+  age=$(handshake_age)
+fi
+
+ok=false
+egress_ok && ok=true
+
+# ── report, so the NEXT time we know why and not just that ───────────────────────────────
+if [[ -n "${repairs[*]:-}" ]]; then
+  log "repaired: ${repairs[*]} | egress_ok=$ok handshake_age=${age}s"
+  log "ip rule: $(ip rule show | tr '\n' ';')"
+  log "table $TABLE: $(ip route show table "$TABLE" | tr '\n' ';')"
+  log "links: $(ip -br link | tr '\n' ';')"
+  if [[ "$ok" == true ]]; then
+    # A repaired route does not un-wedge the connection pools that broke while it was down:
+    # httpx keeps handing out sockets bound to a route that no longer exists, so the backend
+    # would go on failing every upstream call on a perfectly healthy host.
+    systemctl try-restart {{ app_name }}-backend >/dev/null 2>&1 || true
+  fi
+fi
+
+prev_repaired=0
+if [[ -f "$STATE" ]]; then
+  prev_repaired=$(sed -n 's/.*"repaired_at":\([0-9]*\).*/\1/p' "$STATE")
+fi
+repaired_at=${prev_repaired:-0}
+if [[ -n "${repairs[*]:-}" ]]; then repaired_at=$(date +%s); fi
+
+# The backend reads this in /api/health, so a repair is visible in the admin screen and not
+# only in the journal of a box nobody logs into.
+mkdir -p "$(dirname "$STATE")"
+printf '{"at":%s,"egress_ok":%s,"handshake_age_s":%s,"repairs":"%s","repaired_at":%s}\n' \
+  "$(date +%s)" "$ok" "$age" "${repairs[*]:-}" "$repaired_at" > "$STATE.tmp"
+mv "$STATE.tmp" "$STATE"
+chmod 644 "$STATE"
+exit 0

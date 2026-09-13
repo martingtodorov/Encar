@@ -18,6 +18,7 @@ weather, not an outage. Every incident is recorded in `db.incidents`; the admin 
 the live state of every check, and `?run=1` probes everything on the spot.
 """
 import asyncio
+import json
 import logging
 import os
 import shutil
@@ -49,6 +50,10 @@ SYNC_STUCK_H = 6
 FX_STALE_D = 3
 CERT_MIN_DAYS = 10
 BACKUP_STALE_H = 48
+# The host guard runs every 60s; anything past five minutes means its timer is not running.
+NAT_GUARD_STALE_FACTOR = 60
+# A repair stays visible this long, so the cause is chased while the evidence is fresh.
+NAT_REPAIR_WINDOW = 6 * 3600
 
 # check → (severity, seconds between probes, label, explanation for the alert)
 CHECKS = {
@@ -110,6 +115,11 @@ CHECKS = {
     "push": ("warning", 600, "Push устройства",
              "Нито един администратор няма включени push известия. Авариите ще стигат "
              "само по имейл — а имейлът също може да е паднал."),
+    "nat": ("warning", 120, "Политика на маршрутизиране (тунел)",
+            "Правилата `ip rule`, които пращат трафика на back1 през тунела, бяха "
+            "изтрити от ядрото и пазачът ги върна. Тунелът работи, но нещо (най-вероятно "
+            "systemd-networkd при преконфигуриране на частния интерфейс) чисти чужди "
+            "правила. Виж: journalctl -t encar-nat-guard"),
 }
 
 
@@ -204,6 +214,42 @@ async def _probe_route():
         raise RuntimeError(f"автоматично превключен {fo.get('from')} → {fo.get('to')}: "
                            f"{fo.get('reason') or '?'}")
     return f"{st['route']} (режим {st['mode']})"
+
+
+async def _probe_nat():
+    """The policy rules that are back1's only way out — are they still in the kernel?
+
+    Twice (05/09, 14/09) they were deleted while the tunnel itself was perfectly healthy and
+    every outbound call died until someone restarted wg-quick by hand. A guard on the host
+    re-asserts them every minute and writes what it found here; this check surfaces that, so
+    a repair shows up in Админ → Здраве instead of only in a journal nobody reads.
+    """
+    path = (os.environ.get("NAT_GUARD_STATE") or "").strip()
+    if not path:
+        raise Skip("няма пазач на маршрутизацията на този хост")
+    try:
+        with open(path, encoding="utf-8") as f:
+            state = json.load(f)
+    except FileNotFoundError:
+        raise Skip("пазачът още не е писал състояние") from None
+    except Exception as e:                                   # noqa: BLE001
+        raise RuntimeError(f"състоянието на пазача е нечетимо: {e}") from None
+
+    age = time.time() - float(state.get("at") or 0)
+    if age > 5 * NAT_GUARD_STALE_FACTOR:
+        raise RuntimeError(f"пазачът не е работил {int(age)}s — провери "
+                           f"systemctl status {os.environ.get('APP_NAME', 'encar')}"
+                           "-nat-guard.timer")
+    if not state.get("egress_ok"):
+        raise RuntimeError("бекендът няма изход навън въпреки пазача — "
+                           "journalctl -t encar-nat-guard")
+    since = time.time() - float(state.get("repaired_at") or 0)
+    if state.get("repaired_at") and since < NAT_REPAIR_WINDOW:
+        raise RuntimeError(f"правилата бяха изтрити и върнати преди {int(since / 60)} мин "
+                           f"({state.get('repairs') or '?'}) — трафикът работи, но причината "
+                           "още е там")
+    return (f"правилата са на място, handshake {state.get('handshake_age_s', '?')}s, "
+            f"проверено преди {int(age)}s")
 
 
 def _site_url():
@@ -424,7 +470,7 @@ async def _probe_prerender():
 PROBES = {
     "mongo": _probe_mongo, "egress": _probe_egress, "proxy": _probe_proxy,
     "encar": _probe_encar, "site": _probe_site, "disk": _probe_disk,
-    "route": _probe_route,
+    "route": _probe_route, "nat": _probe_nat,
     "prerender": _probe_prerender,
     "memory": _probe_memory, "errors": _probe_errors, "mail": _probe_mail,
     "stripe": _probe_stripe, "cargo": _probe_cargo, "cert": _probe_cert,
