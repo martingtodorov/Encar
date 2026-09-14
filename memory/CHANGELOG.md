@@ -3,6 +3,12 @@
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
 ## 2026-06 (fork) — Gearbox tagging bug (whole catalogue mislabelled) + "stop the sync entirely"
+- **New watchdog check `facets`** (warning, every 15 min): reads `sync_state._id` of
+  `"transmission"` and `"colors"` and alerts when the last pass reported `ok: false`, with
+  the upstream reason and when it ran. A skipped pass now writes nothing to the catalogue by
+  design, so it leaves no visible trace — this is the only thing that says it happened.
+  Verified live: `скорости: upstream refused the request (HTTP 403) (14.09 21:16 UTC);
+  цветове: upstream circuit open ...`.
 - **Found in the database: all 244,996 listings carried `transmission: "auto"` and not one
   manual car** (about 1,200 are manual). Root cause chain, in `sync.py`:
   1. `_collect_ids()` returned `[]` both when a facet is genuinely empty AND when the

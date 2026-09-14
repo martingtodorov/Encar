@@ -127,6 +127,12 @@ CHECKS = {
             "изтрити от ядрото и пазачът ги върна. Тунелът работи, но нещо (най-вероятно "
             "systemd-networkd при преконфигуриране на частния интерфейс) чисти чужди "
             "правила. Виж: journalctl -t encar-nat-guard"),
+    "facets": ("warning", 900, "Етикети от Encar (скорости, цветове)",
+               "Последният sync пропусна маркирането на скоростите или цветовете, защото "
+               "Encar отказа фасетните заявки. Колите се показват, но филтрите „ръчни "
+               "скорости“ и „цвят“ ще са непълни, докато не мине успешен пас. Това е "
+               "предупреждение, не повреда — пасът умишлено не пише нищо, когато данните "
+               "са непълни, за да не сложи грешен етикет на целия каталог."),
 }
 
 
@@ -488,6 +494,32 @@ async def _probe_prerender():
     return f"{len(html) // 1024} KB рендерирани"
 
 
+async def _probe_facets():
+    """Did the last sync manage to tag gearboxes and colours?
+
+    Both passes deliberately write NOTHING when the upstream facet walk fails — the
+    alternative, believing a partial answer, is what once stamped all 244,996 listings
+    "automatic". A skipped pass therefore leaves no trace in the catalogue at all, so it has
+    to be said out loud here or nobody learns the filters are going stale.
+    """
+    bad, ok = [], []
+    for key, label in (("transmission", "скорости"), ("colors", "цветове")):
+        doc = await _db.sync_state.find_one({"_id": key})
+        if not doc or doc.get("ok") is None:
+            continue                                    # never run: the sync check owns that
+        if doc.get("ok"):
+            ok.append(label)
+            continue
+        why = doc.get("skipped") or doc.get("error") or "неизвестна причина"
+        when = _aware(doc.get("ran_at"))
+        bad.append(f"{label}: {str(why)[:120]}" + (f" ({when:%d.%m %H:%M} UTC)" if when else ""))
+    if bad:
+        raise RuntimeError("; ".join(bad))
+    if not ok:
+        raise Skip("още няма пас за скорости или цветове")
+    return "последният пас мина: " + ", ".join(ok)
+
+
 PROBES = {
     "mongo": _probe_mongo, "egress": _probe_egress, "proxy": _probe_proxy,
     "encar": _probe_encar, "site": _probe_site, "disk": _probe_disk,
@@ -496,7 +528,7 @@ PROBES = {
     "memory": _probe_memory, "errors": _probe_errors, "mail": _probe_mail,
     "stripe": _probe_stripe, "cargo": _probe_cargo, "cert": _probe_cert,
     "sync": _probe_sync, "fx": _probe_fx, "translate": _probe_translate,
-    "backup": _probe_backup, "push": _probe_push,
+    "backup": _probe_backup, "push": _probe_push, "facets": _probe_facets,
 }
 # A failure upstream of another check is one outage, not two.
 DEPENDS_ON = {"encar": ("egress", "proxy"), "proxy": ("egress",), "site": ("egress",),

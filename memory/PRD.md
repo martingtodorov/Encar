@@ -51,8 +51,6 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
   cache) instead of a full search per card, and slug resolution memoised per session.
 
 ## Open items worth doing next
-* A watchdog check for `sync_state._id = "transmission"` / `"colors"` reporting `ok: false`,
-  so a skipped facet pass raises a warning instead of only sitting in the job result.
 * The ~1,200 manual cars stay mislabelled until the first successful gearbox pass runs on
   production (nothing to fix in code — the pass repairs them once Encar answers).
 

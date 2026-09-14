@@ -276,3 +276,48 @@ def test_a_hand_start_can_still_pick_up_the_post_crawl_passes(monkeypatch, statu
             client.close()
 
     asyncio.run(go())
+
+
+# ── and the owner gets told when a facet pass was skipped ────────────────────
+
+class _StateDB:
+    """Only what the probe reads: `sync_state.find_one({"_id": ...})`."""
+
+    def __init__(self, docs):
+        self.sync_state = self
+        self._docs = docs
+
+    async def find_one(self, q):
+        return self._docs.get(q["_id"])
+
+
+def _facets(docs):
+    import watchdog
+    watchdog._db = _StateDB(docs)
+    return watchdog
+
+
+def test_a_skipped_gearbox_pass_raises_an_alert_with_the_reason():
+    """A pass that writes nothing leaves no trace in the catalogue — so it has to be said."""
+    wd = _facets({
+        "transmission": {"ok": False, "skipped": "upstream walk failed for ALL",
+                         "ran_at": datetime.now(timezone.utc)},
+        "colors": {"ok": True},
+    })
+    with pytest.raises(RuntimeError) as e:
+        asyncio.run(wd._probe_facets())
+    assert "скорости" in str(e.value) and "upstream walk failed" in str(e.value)
+
+
+def test_both_passes_healthy_reads_as_healthy():
+    wd = _facets({"transmission": {"ok": True}, "colors": {"ok": True}})
+    detail = asyncio.run(wd._probe_facets())
+    assert "скорости" in detail and "цветове" in detail
+
+
+def test_a_catalogue_that_never_ran_a_facet_pass_is_skipped_not_alarmed():
+    import watchdog
+    wd = _facets({})
+    with pytest.raises(watchdog.Skip):
+        asyncio.run(wd._probe_facets())
+
