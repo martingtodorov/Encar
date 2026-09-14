@@ -29,6 +29,14 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
 `/api/robots.txt` in nginx so it follows `PUBLIC_SITE_URL` automatically.
 
 ## Recently completed (2026-06 fork session) — full detail in CHANGELOG.md
+* **Gearbox tagging bug fixed (was mislabelling the whole catalogue)**: a failed upstream
+  facet walk looked identical to an empty one, and `$nin: []` then stamped every listing
+  `transmission: "auto"` — 244,996 of them, zero manual. The walk can now report failure,
+  the pass writes nothing when it fails, refuses an implausible empty manual set, and the
+  blanket write is confined to the crawl scope. Result recorded in
+  `sync_state._id = "transmission"`.
+* **Stop the sync entirely**: `POST /api/admin/catalogue-sync/stop` leaves it stopped —
+  no auto-resume after a deploy, no stall self-heal — until Start (or the daily schedule).
 * **Alert messages ("съобщения за авария") are deletable**: per-message delete and a
   "clear history" purge for CLOSED incidents only, plus automatic expiry after 90 days
   (`INCIDENT_KEEP_DAYS`). Admin Overview has an expandable "Приключени (N)" list.
@@ -41,6 +49,13 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
   `encar.search()/count()` take `interactive=`.
 * **Saved searches page**: one batched `POST /api/search/totals` (counts + thumbnail, 5-minute
   cache) instead of a full search per card, and slug resolution memoised per session.
+
+## Open items worth doing next
+* A watchdog check for `sync_state._id = "transmission"` / `"colors"` reporting `ok: false`,
+  so a skipped facet pass raises a warning instead of only sitting in the job result.
+* The ~1,200 manual cars stay mislabelled until the first successful gearbox pass runs on
+  production (nothing to fix in code — the pass repairs them once Encar answers).
+
 
 ## Recently completed (2026-08-31 session) — full detail in CHANGELOG.md
 * **PWA Liquid Glass tab bar finished**: blur down to 3px, saturation 112%, see-through

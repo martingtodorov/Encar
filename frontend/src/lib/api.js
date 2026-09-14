@@ -542,6 +542,12 @@ export async function purgeIncidents(olderThanDays = null) {
   return data;
 }
 
+/** Stop the catalogue sync and leave it stopped (no auto-resume). Admin only. */
+export async function stopCatalogueSync() {
+  const { data } = await http.post("/admin/catalogue-sync/stop");
+  return data;
+}
+
 /** Let go of a wedged catalogue sync and start it again. Admin only. */
 export async function restartCatalogueSync({ fresh = false } = {}) {
   const { data } = await http.post(

@@ -2,6 +2,42 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-06 (fork) — Gearbox tagging bug (whole catalogue mislabelled) + "stop the sync entirely"
+- **Found in the database: all 244,996 listings carried `transmission: "auto"` and not one
+  manual car** (about 1,200 are manual). Root cause chain, in `sync.py`:
+  1. `_collect_ids()` returned `[]` both when a facet is genuinely empty AND when the
+     upstream walk failed (`encar.count()` → None, a page raising, a page answering with no
+     rows). Failure was unsayable.
+  2. `tag_transmission()` then wrote `update_many({"_id": {"$nin": manual_ids}}, auto)`.
+     `$nin: []` matches EVERY document in the collection — so one soft block during that
+     phase relabelled the entire catalogue, including inactive rows and rows outside the
+     crawl scope.
+  3. The broad `except` returned `0`, so the job recorded `manual_tagged: 0` and the run
+     looked successful.
+  Same class of defect as the 2026-02 retire-everything bug, in the pass next door.
+- **Fix**: `_collect_ids()` returns `None` on failure (count failed, page raised, or upstream
+  promised rows and handed back none) and `[]` only for a genuinely empty facet.
+  `tag_transmission()` aborts WITHOUT a single write when the walk failed; refuses an empty
+  manual set when the scope is larger than `MANUAL_PLAUSIBILITY_FLOOR` (5,000); confines the
+  blanket "auto" write to `{"active": True}` (+ the manufacturer scope); and records a
+  structured result to `sync_state._id = "transmission"` (`ok`, `manual`, `auto`, `in_scope`,
+  `skipped`/`error`) instead of a silent zero.
+  Verified live: with Encar answering 403 on this pod, the pass now reports
+  `{"ok": false, "manual": 0, "auto": 0, "error": "upstream refused the request (HTTP 403)"}`
+  and writes nothing. Before the change that same 403 is what stamped the catalogue.
+- **Stop the sync entirely**: `syncjob.stop_by_hand(db)` cancels the run and sets
+  `status: "stopped"` + `stopped_by_hand: True`. `resume_if_interrupted()` stands down while
+  that flag is set, so a deploy no longer brings a misbehaving sync back, and the stall
+  self-heal has nothing to watch. `start()` clears the flag. `find_resumable()` accepts the
+  new status, so pressing Start still continues the checkpoint. Endpoint
+  `POST /api/admin/catalogue-sync/stop`; panel has "Stop it entirely" (confirm dialog) and a
+  notice explaining that nothing will restart it.
+- Tests: `backend/tests/test_gearbox_and_stop.py` (14 passing) — the four ways a walk can
+  fail, no-write-on-failure, the implausibility floor, scope confinement, a small scope still
+  allowed to have no manual car, stop/no-resume, and checkpoint pick-up from "stopped".
+  Regression: `test_colors`, `test_sync_pacing`, `test_incidents_and_stall` — 28 passing.
+
+
 ## 2026-06 (fork) — Deletable alert messages, restartable sync, and the "slow during the sweep" fix
 - **Alert messages can be deleted.** `watchdog.health()` now returns an `id` for every
   incident plus `closed_total` and `keep_days`. New `watchdog.delete_incident(id)` (CLOSED

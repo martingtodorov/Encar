@@ -4464,6 +4464,18 @@ async def catalogue_sync_run(request: Request, fresh: bool = False,
     return jsonable(await syncjob_mod.start(db, trigger="manual", fresh=fresh))
 
 
+@api.post("/admin/catalogue-sync/stop")
+async def catalogue_sync_stop(request: Request, x_admin_token: str = Header(default="")):
+    """Stop the catalogue sync and leave it stopped.
+
+    For the case where it is misbehaving rather than merely wedged: nothing brings it back
+    — not the automatic resume after a deploy, not the stall self-heal. Pressing Start (or
+    the daily schedule, which is its own switch) is what starts it again.
+    """
+    await _require_admin(request, x_admin_token)
+    return jsonable(await syncjob_mod.stop_by_hand(db))
+
+
 @api.post("/admin/catalogue-sync/restart")
 async def catalogue_sync_restart(request: Request, fresh: bool = False,
                                  x_admin_token: str = Header(default="")):

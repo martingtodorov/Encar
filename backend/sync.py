@@ -52,6 +52,9 @@ ENCAR_MIN_GAP = 1.2
 SYNC_REQUEST_OVERHEAD = 2.5
 # Transmission is not in the list payload but IS an upstream facet.
 MANUAL_Q = "(And.Hidden.N._.CarType.A._.Transmission.\uc218\ub3d9.)"
+# A catalogue bigger than this with not one manual car in it is a failed upstream walk, not
+# a fact about Korean cars. Below it (a single-make crawl, a test fixture) zero is believable.
+MANUAL_PLAUSIBILITY_FLOOR = int(os.environ.get("MANUAL_PLAUSIBILITY_FLOOR", "5000"))
 
 # Exterior colour is the same story as transmission: the search feed we crawl carries no
 # colour at all (only the per-car detail does, via `spec.colorName`, and we hold a detail
@@ -794,29 +797,70 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
 
 
 async def tag_transmission(db, manufacturers=None):
-    """Only ~1,200 of ~218,000 cars are manual, so we fetch just the manual ones
-    (3 requests) and treat everything else as automatic. Cheap and exact, with no
-    per-car enrichment."""
+    """Which cars are manual. Only ~1,200 of ~245,000 are, so the manual ones are fetched
+    (three requests) and everything else in the SAME crawl scope is automatic.
+
+    Written after finding all 244,996 listings stamped `auto` and not one manual car in the
+    catalogue. The pass used to say `update_many({"_id": {"$nin": manual_ids}}, auto)` — and
+    `manual_ids` was `[]` whenever the upstream walk failed, because a failed walk and an
+    empty facet looked identical. `$nin: []` matches EVERY document, so one soft block
+    during this phase relabelled the whole catalogue, silently, and the broad `except`
+    reported it as a successful zero.
+
+    So: a failed walk aborts the pass without a single write, an empty manual set on a large
+    catalogue is refused as implausible, and the blanket write is confined to the crawl
+    scope instead of the whole collection.
+    """
+    started = datetime.now(timezone.utc)
+
+    async def record(result):
+        await db.sync_state.update_one({"_id": "transmission"},
+                                       {"$set": {**result, "ran_at": started}}, upsert=True)
+        return result
+
     try:
         manual_ids = []
         scopes = list(manufacturers) if manufacturers else [None]
         for mfr in scopes:
             q = (MANUAL_Q if not mfr else
                  _q([f"Manufacturer.{mfr}", "Transmission.\uc218\ub3d9"]))
-            manual_ids += await _collect_ids(q)
+            got = await _collect_ids(q)
+            if got is None:
+                log.error("gearbox tagging skipped: the upstream walk for %s failed — "
+                          "nothing written (a partial list would have stamped every other "
+                          "car automatic)", mfr or "ALL")
+                return await record({"ok": False, "manual": 0, "auto": 0,
+                                     "skipped": f"upstream walk failed for {mfr or 'ALL'}"})
+            manual_ids += got
 
-        if manual_ids:
-            await db.listings.update_many({"_id": {"$in": manual_ids}},
-                                          {"$set": {"transmission": "manual"}})
-        untagged = {"_id": {"$nin": manual_ids}}
+        scope_q = {"active": True}
         if manufacturers:
-            untagged["manufacturer"] = {"$in": list(manufacturers)}
-        await db.listings.update_many(untagged, {"$set": {"transmission": "auto"}})
-        log.info("transmission tagged: %s manual", len(manual_ids))
-        return len(manual_ids)
-    except Exception as e:
-        log.warning("transmission tagging failed: %s", e)
-        return 0
+            scope_q["manufacturer"] = {"$in": list(manufacturers)}
+        in_scope = await db.listings.count_documents(scope_q)
+
+        if not manual_ids and in_scope > MANUAL_PLAUSIBILITY_FLOOR:
+            log.error("gearbox tagging skipped: upstream reported NO manual car among %s "
+                      "in scope, which it never is — nothing written", in_scope)
+            return await record({"ok": False, "manual": 0, "auto": 0, "in_scope": in_scope,
+                                 "skipped": "no manual car found in a catalogue this size"})
+
+        manual = 0
+        if manual_ids:
+            r = await db.listings.update_many({"_id": {"$in": manual_ids}},
+                                              {"$set": {"transmission": "manual"}})
+            manual = r.matched_count
+        # Confined to the scope this crawl actually covered: retired rows and cars outside
+        # the scope keep whatever the crawl that DID cover them decided.
+        auto = await db.listings.update_many(
+            {**scope_q, "_id": {"$nin": manual_ids}},
+            {"$set": {"transmission": "auto"}})
+        log.info("transmission tagged: %s manual, %s automatic of %s in scope",
+                 manual, auto.matched_count, in_scope)
+        return await record({"ok": True, "manual": manual, "auto": auto.matched_count,
+                             "in_scope": in_scope, "upstream_manual": len(manual_ids)})
+    except Exception as e:                                  # noqa: BLE001
+        log.warning("transmission tagging failed: %s", str(e)[:200])
+        return await record({"ok": False, "manual": 0, "auto": 0, "error": str(e)[:200]})
 
 
 async def tag_colors(db, manufacturers=None):
@@ -902,19 +946,40 @@ async def _colors_from_details(db, manufacturers=None):
 
 
 async def _collect_ids(q):
+    """Every upstream id matching a facet query, or None if the walk did not complete.
+
+    None is the whole point. A partial or empty list is indistinguishable from "there are
+    no such cars", and a caller that believes it then writes the opposite of the truth onto
+    the whole catalogue — which is exactly what happened to the gearbox pass (see
+    `tag_transmission`). Failure has to be sayable.
+    """
     ids = []
     total = await encar.count(q)
-    if not total:                                    # None (failure) or 0 (empty)
-        return ids
+    if total is None:                                # upstream refused to answer at all
+        log.warning("facet walk aborted: the count request failed for %s", q[:120])
+        return None
+    if not total:
+        return ids                                   # a genuinely empty facet
     pages = max((total + PAGE - 1) // PAGE, 1)
     # The facet passes page through Encar exactly like the main sweep does, and they run back
     # to back with it — same pacing, or the burst simply moves here.
     async with paced_sweep(pages):
         for p in range(pages):
-            data = await encar.search(offset=p * PAGE, limit=PAGE, q=q)
+            try:
+                data = await encar.search(offset=p * PAGE, limit=PAGE, q=q)
+            except Exception as e:                   # noqa: BLE001
+                log.warning("facet walk aborted at page %s of %s: %s", p + 1, pages,
+                            str(e)[:160])
+                return None
             rows = (data or {}).get("SearchResults") or []
             if not rows:
-                break
+                if not ids:
+                    # Upstream said there are matches and then handed back nothing: a block,
+                    # not an answer.
+                    log.warning("facet walk aborted: %s promised %s rows and returned none",
+                                q[:120], total)
+                    return None
+                break                                # short last page: upstream counts drift
             ids += [str(r.get("Id")) for r in rows if r.get("Id")]
     return ids
 

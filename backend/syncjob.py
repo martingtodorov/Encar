@@ -208,11 +208,33 @@ async def find_resumable(db):
     phase = live.get("phase")
     job = await db.sync_state.find_one({"_id": JOB_ID}) or {}
     if (live.get("run_id") and phase not in (None, "crawl")
-            and job.get("status") in ("interrupted", "cancelled", "error")
+            and job.get("status") in ("interrupted", "cancelled", "error", "stopped")
             and lupdated and (_now() - lupdated).total_seconds() <= RESUME_WINDOW_S):
         return {"run_id": live["run_id"], "slices": live.get("leaves") or 0,
                 "counts_cached": 0, "updated_at": lupdated, "crawl_done": True}
     return None
+
+
+async def stop_by_hand(db, reason="stopped by hand from the admin panel"):
+    """Stop the sync and leave it stopped.
+
+    Different from `restart`: nothing starts it again. The automatic resume on the next
+    process start and the stall self-heal both stand down until someone presses Start (or
+    the daily schedule fires, which is its own switch). Without the flag a sync stopped
+    because it was misbehaving came straight back with the next deploy.
+    """
+    global _task
+    running = is_running()
+    if running:
+        _task.cancel()
+        await asyncio.wait([_task], timeout=20)
+    await db.sync_state.update_one(
+        {"_id": JOB_ID},
+        {"$set": {"status": "stopped", "finished_at": _now(), "error": reason,
+                  "stopped_by_hand": True}},
+        upsert=True)
+    log.warning("catalogue sync stopped and left stopped: %s", reason)
+    return {"stopped": True, "was_running": running}
 
 
 async def stop(db, timeout=20, reason="the server restarted while this sync was running"):
@@ -300,6 +322,9 @@ async def resume_if_interrupted(db):
     crash loop (MAX_AUTO_RESUMES) or a stale checkpoint stops it.
     """
     doc = await db.sync_state.find_one({"_id": JOB_ID}) or {}
+    if doc.get("stopped_by_hand"):
+        log.info("not resuming the catalogue sync: it was stopped by hand")
+        return False
     if doc.get("status") not in ("interrupted", "cancelled") or is_running():
         return False
     if (doc.get("resume_attempts") or 0) >= MAX_AUTO_RESUMES:
@@ -363,7 +388,7 @@ async def _run(db, trigger, resume_run_id=None):
         {"$set": {"status": "running", "trigger": trigger, "started_at": started,
                   "finished_at": None, "error": None, "result": None,
                   "resumed": bool(resume_run_id), "resumed_run": resume_run_id,
-                  "resume_attempts": attempts}},
+                  "resume_attempts": attempts, "stopped_by_hand": False}},
         upsert=True)
     result = {}
     try:

@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { CalendarClock, Loader2, Play, Plus, RefreshCw, RotateCcw, X } from "lucide-react";
+import { CalendarClock, Loader2, Play, Plus, RefreshCw, RotateCcw, Square, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { getCatalogueSync, putSyncSchedule, restartCatalogueSync, startCatalogueSync } from "@/lib/api";
+import { getCatalogueSync, putSyncSchedule, restartCatalogueSync, startCatalogueSync,
+         stopCatalogueSync } from "@/lib/api";
 import { Spinner, Stat, ago, num, stampSofia } from "@/components/admin/AdminBits";
 
 const ZONES = ["Europe/Sofia", "Europe/Bucharest", "Europe/London", "Asia/Seoul", "UTC"];
@@ -82,6 +83,25 @@ export const AdminCatalogueSync = () => {
       await load();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Рестартът не мина");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stop = async () => {
+    if (!window.confirm(
+      "Да спра ли напълно синхронизацията? Няма да се пусне сама — нито след рестарт, "
+      + "нито от само-лечението."
+    )) return;
+    setBusy(true);
+    try {
+      const r = await stopCatalogueSync();
+      toast.success(r.was_running
+        ? "Синхронизацията беше спряна"
+        : "Синхронизацията е маркирана като спряна");
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Спирането не мина");
     } finally {
       setBusy(false);
     }
@@ -240,7 +260,26 @@ export const AdminCatalogueSync = () => {
               Restart it
             </Button>
           ) : null}
+          {job.stopped_by_hand ? null : (
+            <Button
+              data-testid="catalogue-sync-stop"
+              variant="outline"
+              onClick={stop}
+              disabled={busy}
+              className="h-11 gap-2 rounded-[10px] border-destructive/40 bg-card px-4 text-[13.5px] text-destructive"
+            >
+              <Square className="h-3.5 w-3.5" aria-hidden="true" />
+              Stop it entirely
+            </Button>
+          )}
         </div>
+        {job.stopped_by_hand && !running ? (
+          <p data-testid="sync-stopped" className="mt-3 text-[12.5px] text-destructive">
+            Stopped by hand. Nothing will start it again — not a deploy, not the stall
+            self-heal. Pressing the button above starts it; the daily schedule below is its
+            own switch.
+          </p>
+        ) : null}
         {running ? (
           <p data-testid="sync-stall" className={`mt-3 text-[12.5px] ${stalled ? "text-destructive" : "text-muted-foreground"}`}>
             {stalled
