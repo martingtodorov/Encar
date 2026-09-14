@@ -33,7 +33,13 @@ REQUIRED = [
     "JSONCARGO_SHIPPING_LINE",
     "EDI_INGEST_TOKEN",
     "ENCAREUROPE_API_TOKEN",
-    "ENCAR_PROXY_URL",
+    # The route chain: both proxy tiers, each in its own variable. The old single
+    # ENCAR_PROXY_URL slot is still READ by encar.py so a server that has not been
+    # re-templated keeps the exit it has, but it is no longer written — writing it would
+    # keep the single-slot era alive forever.
+    "ENCAR_ROUTES",
+    "ENCAR_HOME_EXIT_URL",
+    "ENCAR_RESIDENTIAL_PROXY_URL",
     "VAPID_PUBLIC_KEY",
     "VAPID_PRIVATE_KEY",
     "VAPID_SUBJECT",

@@ -818,3 +818,16 @@ from 2325 to 4509 while scrolling.
 * Нашият фронт е CRA (client-rendered): iMessage вижда само статичния index.html → няма rich
   preview. Решение: бекендът да отдава per-URL meta (og:title/description/image/url + twitter)
   за bot User-Agent-и, og:image абсолютен 1200x630. НЕ е имплементирано.
+
+## Маршрут към Encar (обновено 2026-06)
+Три изхода, опитвани В ТОЗИ РЕД: 1) `direct` от front1 (Hetzner, блокиран с 403 от CloudFront
+към момента), 2) `home_exit` — tinyproxy на Mac mini през WireGuard (`http://10.99.0.3:8888`,
+резидентен адрес, който Encar допуска), 3) `residential_proxy` — IPRoyal (платено, последна
+инстанция). Конфигурация: `ENCAR_ROUTES`, `ENCAR_HOME_EXIT_URL`, `ENCAR_RESIDENTIAL_PROXY_URL`
+(старият `ENCAR_PROXY_URL` се чете още като tier 3). Прекъсвач ПО TIER; `auto` обхожда веригата
+и се изкачва обратно към `direct` с фонова проверка на всеки 15 мин. Админ: Здраве → Маршрут
+към Encar (четири режима + състояние на всеки tier). Подробности: CHANGELOG.md, 2026-06.
+
+Остава от страна на собственика: `sudo ./setup-mac.sh ...` на Mac-а → `home_exit_pubkey` в
+`group_vars`, peer на front1, после деплой на `deploy_nat.yml --tags client,gateway` и
+`deploy_backend.yml --tags config,service`.

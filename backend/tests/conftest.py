@@ -176,3 +176,21 @@ def stripe_e2e_lock():
             yield
         finally:
             fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+@pytest.fixture(autouse=True)
+def _clean_encar_route():
+    """The Encar route and its per-tier circuit breakers are PROCESS state, not client state.
+
+    There is one upstream and one client, so `route()` has to be answerable without a client
+    in hand — which means a tier shut out in one test would still be shut out in the next one
+    that happens to land on the same xdist worker, and the failure reads as "circuit open on
+    every route" in a suite that never tripped anything.
+    """
+    import encar
+
+    encar.set_route("auto")
+    encar.reset_breakers()
+    yield
+    encar.set_route("auto")
+    encar.reset_breakers()

@@ -4118,12 +4118,15 @@ async def admin_set_encar_route(body: EncarRouteBody, request: Request,
     the circuit breaker is cleared, so it takes effect without a restart."""
     admin = await _require_admin(request, x_admin_token)
     mode = (body.mode or "").strip().lower()
+    mode = encar_mod.MODE_ALIASES.get(mode, mode)
     if mode not in encar_mod.ROUTE_MODES:
         raise HTTPException(status_code=400, detail=f"mode must be one of "
                                                     f"{', '.join(encar_mod.ROUTE_MODES)}")
-    if mode == "proxy" and not encar_mod.proxy_configured():
-        raise HTTPException(status_code=400,
-                            detail="ENCAR_PROXY_URL не е зададен на този сървър")
+    if mode != "auto" and not encar_mod.tier_configured(mode):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{mode} не е настроен на този сървър "
+                   f"({encar_mod.TIER_ENV.get(mode, '-')} е празен)")
     await encar.switch_route(mode)
     await _store_encar_route(mode, "ръчна промяна", _actor(admin))
     await _audit(request, _actor(admin), "encar.route", "encar_routing",

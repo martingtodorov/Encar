@@ -25,12 +25,27 @@ log = logging.getLogger("encar")
 API = "https://api.encar.com"
 CDN = "https://ci.encar.com"
 
-# CloudFront in front of api.encar.com answers 407 to datacenter address space (Hetzner, AWS,
-# the preview host) while a residential connection gets 200 for the same request. When set,
-# every api.encar.com call — and nothing else — goes through this ONE sticky HTTP proxy.
-# Format: http://USER:PASS@host:port (URL-encode the credentials). It is a secret: it is
-# never logged and never appears in an exception; see `_scrub`.
+# CloudFront in front of api.encar.com answers 403/407 to datacenter address space (Hetzner,
+# AWS, the preview host) while a residential connection gets 200 for the same request. So
+# there is more than one way out, and they are tried IN ORDER — cheapest first:
+#
+#   1. direct            — straight out of front1. Free and fastest when Encar allows it.
+#   2. home_exit         — tinyproxy on the Mac mini over WireGuard (http://10.99.0.3:8888).
+#                          A residential address that Encar does allow, and it costs nothing.
+#   3. residential_proxy — IPRoyal. Metered and paid for, so it is the last resort.
+#
+# Each proxy tier has its OWN environment variable, because the old single `ENCAR_PROXY_URL`
+# slot made the Mac and IPRoyal mutually exclusive: the template wrote one or the other and
+# the chain could not exist. Both URLs are secrets — never logged, never in an exception; see
+# `_scrub`. Format http://USER:PASS@host:port with the credentials URL-encoded.
+TIER_ENV = {"home_exit": "ENCAR_HOME_EXIT_URL",
+            "residential_proxy": "ENCAR_RESIDENTIAL_PROXY_URL"}
+# Read as the residential tier when the new variable is absent, so a server that has not had
+# the new backend.env yet keeps the exit it has instead of silently going direct into a 403.
 PROXY_ENV = "ENCAR_PROXY_URL"
+# The order, overridable without a code change: ENCAR_ROUTES=direct,home_exit
+ROUTES_ENV = "ENCAR_ROUTES"
+DEFAULT_CHAIN = ("direct", "home_exit", "residential_proxy")
 
 # Bounded by design: a human or the sync is waiting, and Cloudflare cuts us off at 100s.
 CONNECT_TIMEOUT = 8
@@ -40,107 +55,150 @@ RETRY_AFTER_MAX_WAIT = 5    # longer than this and the circuit opens for that lo
 
 
 # Which way Encar traffic leaves, decided at RUNTIME rather than by the presence of an env
-# var. The residential proxy is the normal route (Encar's CloudFront blocks datacentre IPs),
-# but a proxy can fail on its own — traffic exhausted, credentials rotated, the vendor down —
-# and on 06/09 every request through it timed out at exactly 15s while a direct call from
-# back1 answered in 0.4s. So the route is a SETTING: an admin can flip it, the watchdog flips
-# it automatically before it wakes anybody up, and it survives a restart because server.py
-# loads it from the database on startup.
-#   "auto"   - DIRECT from the server, and only lean on the proxy while direct is broken
-#   "proxy"  - insist on the proxy
-#   "direct" - ignore the proxy entirely, whatever happens
+# var. Every tier can fail on its own — Encar blocks the datacentre address, the Mac is
+# asleep or its tunnel is down, IPRoyal runs out of traffic — and on 06/09 every request
+# through the residential proxy timed out at exactly 15s while a direct call from back1
+# answered in 0.4s. So the route is a SETTING: an admin can pin it, it walks the chain by
+# itself, and the pin survives a restart because server.py loads it from the database.
+#   "auto"              - walk the chain: the first tier that is not shut out right now
+#   "direct"            - insist on leaving from the server, whatever happens
+#   "home_exit"         - insist on the Mac mini
+#   "residential_proxy" - insist on IPRoyal
 _mode = {"route": "auto"}
-ROUTE_MODES = ("auto", "proxy", "direct")
+ROUTE_MODES = ("auto",) + DEFAULT_CHAIN
+# "proxy" is what the single-slot era called the one proxy there was. Stored settings and old
+# bookmarks still say it, and a 400 from the admin panel is not the way to find that out.
+MODE_ALIASES = {"proxy": "residential_proxy"}
 
-# The "auto" mode's own state. Direct is the route it wants: it costs nothing, it is the
-# fastest hop, and the residential proxy is metered. The proxy is a CRUTCH — taken up when a
-# transport fault knocks direct over, and put down again as soon as direct answers. So `auto`
-# is not "proxy if there is one" any more; it is "direct, unless direct is down right now".
-#
-# `probe_at` is when direct may be tried again while the crutch is in use: a background
-# request every quarter of an hour, never on a visitor's page load, so a recovered direct
-# route is picked back up on its own without anybody logging in to flip a switch.
+# One circuit breaker PER TIER, so a tier Encar has blocked does not shut out the tier that
+# works — that was the whole failing of the single breaker: one 403 from Hetzner and nothing
+# went anywhere for three minutes, with a perfectly good Mac exit sitting next to it.
+_breakers = {}
+
+# When a tier trips and there is somewhere else to go, it is shut out for this long rather
+# than for the few seconds the failure itself earns: traffic should settle on the tier that
+# works instead of stepping back onto the blocked one every half minute. It is also how long
+# until the preferred tiers are quietly probed again, so the chain climbs back to `direct` on
+# its own once Encar stops blocking it — a background request, never on a visitor's page load.
 AUTO_PROBE_GAP = 900
 # The cheapest thing on api.encar.com that proves a route works: the standard options
 # dictionary. No search parameters to get wrong, a small body, and it is already fetched
 # (and cached) in normal operation.
 PROBE_PATH = "/v1/readside/vehicles/car/options/standard"
-_auto = {"on_proxy": False, "since": 0.0, "probe_at": 0.0, "probing": False,
-         "last_probe": None}
+_auto = {"since": 0.0, "probe_at": 0.0, "probing": False, "last_probe": None}
 
 # How a route change is written down, so it survives a restart. server.py registers a
 # coroutine that stores it in `site_settings.encar_routing`; without one, a change is
 # in-process only (that is what the tests use).
 _persist = {"fn": None}
 
-# An automatic switch is allowed at most this often. Without a floor, a genuinely dead
-# upstream would make traffic flap between proxy and direct on every fourth failure.
-FAILOVER_MIN_GAP = 600
-
 
 def set_persist(fn):
     _persist["fn"] = fn
 
 
+def _b(tier):
+    """This tier's circuit breaker."""
+    return _breakers.setdefault(tier, {"fails": 0, "open_until": 0.0, "reason": "",
+                                       "trips": 0, "blocks": []})
+
+
+def chain():
+    """The tiers to try, in order, that this server actually has.
+
+    A tier with no URL is not a tier: offering it would mean sending traffic nowhere.
+    """
+    raw = (os.environ.get(ROUTES_ENV) or "").strip()
+    order = [t.strip() for t in raw.split(",") if t.strip()] if raw else list(DEFAULT_CHAIN)
+    out = [t for t in order if t in DEFAULT_CHAIN and tier_configured(t)]
+    # Direct needs nothing to be configured and must never be the tier that does not exist:
+    # with every proxy missing it is the only way out there is.
+    return tuple(out) if out else ("direct",)
+
+
+def tier_url(tier):
+    """The proxy URL for a tier, or None for `direct`."""
+    if tier == "direct":
+        return None
+    env = TIER_ENV.get(tier)
+    url = (os.environ.get(env, "").strip() if env else "")
+    if not url and tier == "residential_proxy":
+        url = os.environ.get(PROXY_ENV, "").strip()     # the single-slot variable, still read
+    return url or None
+
+
+def tier_configured(tier):
+    return True if tier == "direct" else bool(tier_url(tier))
+
+
+def tier_blocked(tier):
+    return time.monotonic() < _b(tier)["open_until"]
+
+
 def set_route(mode):
     """Choose the route. Returns the mode actually in force."""
+    mode = MODE_ALIASES.get(mode, mode)
     if mode in ROUTE_MODES:
         _mode["route"] = mode
-        # Choosing a mode by hand clears the crutch: "auto" starts where it belongs, on the
-        # direct route, and asking for it is also how an admin says "try direct again now".
-        auto_lean(False)
+        # Choosing by hand is also how an admin says "try them all again, now".
+        reset_breakers()
     return _mode["route"]
 
 
-def auto_lean(on_proxy):
-    """In "auto": pick the proxy crutch up, or put it down. Returns the route now in force."""
-    _auto["on_proxy"] = bool(on_proxy) and proxy_configured()
-    _auto["since"] = time.time() if _auto["on_proxy"] else 0.0
-    _auto["probe_at"] = (time.monotonic() + AUTO_PROBE_GAP) if _auto["on_proxy"] else 0.0
-    return route()
-
-
-def auto_on_proxy():
-    return _mode["route"] == "auto" and _auto["on_proxy"]
+def reset_breakers():
+    _breakers.clear()
+    _auto["since"] = 0.0
+    _auto["probe_at"] = 0.0
 
 
 def route_mode():
     return _mode["route"]
 
 
+def route():
+    """Which tier traffic leaves through RIGHT NOW.
+
+    In `auto` this is the chain walk itself: the first tier that is not currently shut out.
+    No separate failover machinery, no crutch to pick up and put down — a tier that fails
+    opens its own breaker and the next request simply leaves by the next door.
+    """
+    ch = chain()
+    mode = _mode["route"]
+    if mode != "auto":
+        return mode if mode in ch else ch[0]
+    for tier in ch:
+        if not tier_blocked(tier):
+            return tier
+    # Everything is shut out. Name the tier that opens SOONEST, so traffic resumes at the
+    # first possible second — and so the logs do not claim we are back on `direct` while its
+    # fifteen-minute cooldown still has fourteen minutes to run.
+    return min(ch, key=lambda t: _b(t)["open_until"])
+
+
 def proxy_url():
-    if _mode["route"] == "direct":
-        return None
-    if _mode["route"] == "auto" and not _auto["on_proxy"]:
-        # "auto" leaves from the server by default. The proxy is only picked up after direct
-        # has actually failed — see `auto_lean`.
-        return None
-    return os.environ.get(PROXY_ENV, "").strip() or None
+    """The proxy for the tier in force — what httpx is actually handed."""
+    return tier_url(route())
 
 
 def proxy_configured():
-    """Is there a proxy to switch TO, whatever the current mode is?"""
-    return bool(os.environ.get(PROXY_ENV, "").strip())
-
-
-def route():
-    """Where Encar traffic leaves from — the only thing about the proxy that is ever logged."""
-    return "residential_proxy" if proxy_url() else "direct"
+    """Is there a proxy tier to fall through to, whatever the current mode is?"""
+    return any(tier_configured(t) for t in TIER_ENV)
 
 
 def other_route(mode=None):
-    """The route to try when the current one has stopped working."""
-    current = mode or _mode["route"]
-    if current == "direct":
-        return "proxy" if proxy_configured() else None
-    if current == "proxy":
-        return "direct"
-    # "auto": the crutch, or putting the crutch down again. With no proxy configured there
-    # is nowhere else to go, and offering "direct" would be a failover to the route that
-    # just failed.
-    if not proxy_configured():
-        return None
-    return "direct" if _auto["on_proxy"] else "proxy"
+    """The next tier the chain would use after the one in force."""
+    ch = chain()
+    current = route() if (mode is None or mode == "auto") else MODE_ALIASES.get(mode, mode)
+    if current in ch:
+        rest = ch[ch.index(current) + 1:]
+        return rest[0] if rest else None
+    return ch[0] if ch else None
+
+
+def auto_on_proxy():
+    """Is traffic anywhere other than the first choice? (The admin screen says so out loud.)"""
+    ch = chain()
+    return _mode["route"] == "auto" and len(ch) > 1 and route() != ch[0]
 
 
 def _why(e):
@@ -159,15 +217,18 @@ def _why(e):
 
 
 def _scrub(text):
-    """Strip the proxy URL (and any user:pass@ in a URL) out of a message before it is logged
-    or raised. httpx repeats the proxy URL in some transport errors.
+    """Strip EVERY tier's proxy URL (and any user:pass@ in a URL) out of a message before it
+    is logged or raised. httpx repeats the proxy URL in some transport errors.
 
-    Reads the CONFIGURED proxy, not the active one: in "auto" the proxy is only in use while
-    direct is broken, and credentials must be scrubbed whether or not traffic happens to be
-    going through them at this second."""
+    All configured tiers, not just the active one: credentials must be scrubbed whether or
+    not traffic happens to be going through them at this second, and with a chain there is
+    more than one secret in play.
+    """
     text = str(text)
-    p = os.environ.get(PROXY_ENV, "").strip()
-    if p:
+    for tier in TIER_ENV:
+        p = tier_url(tier)
+        if not p:
+            continue
         text = text.replace(p, "<proxy>")
         host = urlsplit(p).hostname
         if host:
@@ -276,20 +337,8 @@ class EncarClient:
         self.stats = {"requests": 0, "backoffs": 0, "errors": 0, "last_status": None,
                       "last_ok_at": None, "last_error_at": None}
         self._opt_cache = {"standard": None, "tuning": None, "metas": None, "at": 0}
-        # Circuit breaker. A blocked or broken upstream must be asked politely and rarely,
-        # not hammered by every visitor who happens to open an uncached car.
-        self._fails = 0
-        self._open_until = 0.0
-        self._open_reason = ""
-        self._trips = 0
-        # Timestamps of upstream blocks (403/407/511), newest last. A one-off costs a short
-        # pause; BLOCK_REPEAT_N of them inside BLOCK_REPEAT_WINDOW earns the long cooldown.
-        self._blocks = []
         self._route = None
-        # Auto-failover bookkeeping: an opened circuit asks for the other route to be
-        # tried BEFORE anybody's phone rings.
-        self._pending_failover = False
-        self._last_failover = 0.0
+        # The last automatic move between tiers, for the admin screen and the watchdog.
         self._failover = None
 
     async def client(self):
@@ -323,9 +372,7 @@ class EncarClient:
         return route()
 
     def reset_breaker(self):
-        self._fails = 0
-        self._open_until = 0.0
-        self._open_reason = ""
+        reset_breakers()
 
     async def close(self):
         if self._client:
@@ -353,15 +400,19 @@ class EncarClient:
         Logs carry route, status, latency and circuit state — never the proxy.
         """
         now = time.monotonic()
-        # Leaning on the proxy? Then this is also the moment to wonder, at most once every
-        # quarter of an hour, whether direct has come back. It happens in the background —
-        # this request is not made to wait for the answer.
-        self._maybe_probe_direct()
-        if now < self._open_until:
-            # Circuit open: fail immediately rather than queue behind a door we know is shut.
+        # Somewhere other than the first choice? Then this is also the moment to wonder, at
+        # most once every quarter of an hour, whether the tier we would rather be on is back.
+        # It happens in the background — this request is not made to wait for the answer.
+        self._maybe_probe_preferred()
+        tier = route()
+        b = _b(tier)
+        if now < b["open_until"]:
+            # Every tier in the chain is shut out (otherwise `route()` would have returned
+            # one that is not): fail immediately rather than queue behind a door we know is
+            # shut.
             raise EncarUnavailable(
-                f"upstream circuit open for another {self._open_until - now:.0f}s "
-                f"({self._open_reason})")
+                f"upstream circuit open for another {b['open_until'] - now:.0f}s "
+                f"on every route ({b['reason']})")
 
         c = await self.client()
         cap = 2.0 if interactive else RETRY_AFTER_MAX_WAIT
@@ -420,9 +471,11 @@ class EncarClient:
                 self._ok()
                 return None
             if r.status_code in BLOCK_STATUSES:
-                # Blocked. One attempt, no retries, and the circuit opens straight away —
-                # briefly for a one-off, properly for a run of them.
-                self._trip(f"HTTP {r.status_code} from upstream", self._block_cooldown())
+                # Blocked. One attempt, no retries, and this tier's circuit opens straight
+                # away — briefly for a one-off, properly for a run of them, and for the full
+                # probe gap when there is another tier to fall through to.
+                self._trip(f"HTTP {r.status_code} from upstream",
+                           self._block_cooldown(tier), tier=tier, stick=True)
                 raise EncarUnavailable(f"upstream refused the request "
                                        f"(HTTP {r.status_code})", r.status_code)
             if r.status_code in RATE_LIMIT_STATUSES:
@@ -447,164 +500,159 @@ class EncarClient:
             raise EncarUnavailable(f"unexpected HTTP {r.status_code} from upstream",
                                    r.status_code)
 
-        # No HTTP status at all means nothing came back down the route: THAT is the case
-        # worth trying the other way out for.
+        # No HTTP status at all means nothing came back down this tier: its breaker opens and
+        # the chain moves on by itself — the next request leaves by the next door.
         self._fail(last, transport=last_status is None)
-        await self._failover_if_pending()
         raise EncarUnavailable(f"upstream did not answer for {path}: {last}", last_status)
 
-    def _state(self):
-        return "open" if time.monotonic() < self._open_until else "closed"
+    def _state(self, tier=None):
+        return "open" if tier_blocked(tier or route()) else "closed"
 
-    def _ok(self):
-        self._fails = 0
+    def _ok(self, tier=None):
+        b = _b(tier or route())
+        b["fails"] = 0
         self.stats["last_ok_at"] = time.time()
 
     def _fail(self, reason, transport=False):
-        self._fails += 1
+        tier = route()
+        b = _b(tier)
+        b["fails"] += 1
         reason = _scrub(reason)
-        if self._fails >= BREAKER_FAILS:
-            self._trip(reason, BREAKER_COOLDOWN, failover=transport)
+        if b["fails"] >= BREAKER_FAILS:
+            # A tier that does not answer at all is dead, not busy: leave it alone until the
+            # probe says otherwise. On 06/09 every request through the residential proxy
+            # timed out at exactly 15s while a direct call answered in 0.4s.
+            self._trip(reason, BREAKER_COOLDOWN, tier=tier, stick=transport)
 
-    def _block_cooldown(self):
-        """How long an upstream block shuts the circuit: short for one, long for a run."""
+    def _block_cooldown(self, tier):
+        """How long an upstream block shuts THIS tier: short for one, long for a run."""
         now = time.monotonic()
-        self._blocks = [t for t in self._blocks if now - t < BLOCK_REPEAT_WINDOW]
-        self._blocks.append(now)
-        if len(self._blocks) >= BLOCK_REPEAT_N:
+        b = _b(tier)
+        b["blocks"] = [t for t in b["blocks"] if now - t < BLOCK_REPEAT_WINDOW]
+        b["blocks"].append(now)
+        if len(b["blocks"]) >= BLOCK_REPEAT_N:
             return BLOCK_COOLDOWN
         return BLOCK_COOLDOWN_FIRST
 
-    def _trip(self, reason, cooldown, failover=False):
-        self._fails = 0
-        self._trips += 1
+    def _trip(self, reason, cooldown, tier=None, stick=False):
+        """Shut one tier out. The chain does the rest: the next request leaves by the next
+        door, and nobody has to be woken up to move it.
+
+        `stick` is for a tier that is REFUSING or DEAD — a block or a transport fault. With
+        somewhere to fall through to, it is shut out for the full AUTO_PROBE_GAP instead of
+        the few seconds the failure earns, because otherwise traffic steps back onto the
+        blocked route every half minute, takes another 403, and spends the whole day
+        flapping — which is exactly what one shared breaker did on 14/09. A rate limit is
+        NOT sticky: Encar named a number of seconds and that number is honoured.
+        """
+        tier = tier or route()
+        b = _b(tier)
+        was = route()
+        if stick and other_route(tier) and route_mode() == "auto":
+            cooldown = max(cooldown, AUTO_PROBE_GAP)
+        b["fails"] = 0
+        b["trips"] += 1
+        b["open_until"] = time.monotonic() + cooldown
+        b["reason"] = _scrub(reason)
         self.stats["last_error_at"] = time.time()
-        self._open_until = time.monotonic() + cooldown
-        self._open_reason = _scrub(reason)
-        # Only a TRANSPORT fault asks for the other route. A 403/407/429 means the route
-        # works and Encar refused us — switching then would be worse than useless: if
-        # CloudFront blocks the residential address, the datacentre one is blocked harder,
-        # and going direct puts the server's own IP in front of the blocklist that started
-        # this. The proxy timing out at 15s while a direct call answers in 0.4s is the case
-        # failover is for.
-        self._pending_failover = failover and bool(other_route())
-        log.error("encar circuit=open for %ss route=%s: %s", cooldown, route(),
-                  self._open_reason)
+        log.error("encar circuit=open for %ss tier=%s: %s", cooldown, tier, b["reason"])
+        now_on = route()
+        if now_on != was:
+            # Not a "failover" any more, just the chain moving on — but the admin screen and
+            # the watchdog have always reported it, and it is still worth saying out loud.
+            self._failover = {"at": time.time(), "from": was, "to": now_on,
+                              "mode": route_mode(), "reason": b["reason"], "auto": True}
+            _auto["since"] = time.time()
+            _auto["probe_at"] = time.monotonic() + AUTO_PROBE_GAP
+            log.error("encar route moved on %s -> %s after: %s", was, now_on, b["reason"])
 
-    async def _failover_if_pending(self):
-        """Try the other way out before anybody's phone rings.
+    async def _probe_tier(self, tier):
+        """Is a tier we stepped off working again? Asked in the background.
 
-        On 06/09 every request through the residential proxy timed out at exactly 15s while
-        a direct call from back1 answered in 0.4s — a working site was taken down by one
-        broken hop with a perfectly good alternative sitting next to it. So an opened
-        circuit now moves traffic to the other route and clears the cooldown: one request
-        proves whether the outage was the route or Encar itself. The move is recorded and
-        surfaced as a WARNING by the watchdog, not an emergency, because pages still serve.
+        A visitor never pays for this: their request keeps going through the tier that works
+        while one cheap call goes out through the tier being tested, and only a clean answer
+        clears its breaker and hands traffic back. The alternative — trying the preferred
+        tier on a real page load — costs the connect timeout every quarter of an hour, on
+        somebody's phone.
         """
-        if not self._pending_failover:
-            return None
-        self._pending_failover = False
-        alt = other_route()
-        now = time.monotonic()
-        if not alt or (self._last_failover and now - self._last_failover < FAILOVER_MIN_GAP):
-            return None
-        self._last_failover = now
-        was, reason = route(), self._open_reason
-        if route_mode() == "auto":
-            # In "auto" the MODE never changes — it is the standing instruction "direct
-            # unless direct is down". Only the crutch moves, and `_probe_direct` puts it
-            # back down on its own a quarter of an hour later.
-            await self.lean(alt == "proxy")
-        else:
-            await self.switch_route(alt)
-        self._failover = {"at": time.time(), "from": was, "to": route(),
-                          "mode": route_mode(), "reason": reason, "auto": True}
-        log.error("encar auto-failover %s -> %s after: %s", was, route(), reason)
-        fn = _persist["fn"]
-        if fn:
-            try:
-                await fn(route_mode(), reason)
-            except Exception as e:                              # noqa: BLE001
-                log.warning("could not store the new encar route: %s", _scrub(e)[:160])
-        return self._failover
-
-    async def lean(self, on_proxy):
-        """In "auto": pick the proxy crutch up or put it down, and make it take effect.
-
-        Same three moves as `switch_route` — the setting, the cached client (it holds the old
-        proxy) and the circuit breaker — but the MODE stays "auto", so the standing
-        instruction is untouched and `_probe_direct` can hand traffic back to direct later.
-        """
-        auto_lean(on_proxy)
-        await self.close()
-        self.reset_breaker()
-        log.warning("encar auto lean=%s route=%s", "proxy" if on_proxy else "direct", route())
-        return route()
-
-    async def _probe_direct(self):
-        """Is the direct route back? Asked in the background, every AUTO_PROBE_GAP seconds.
-
-        A visitor never pays for this: their request keeps going through the proxy while one
-        cheap call goes out from the server's own address, and only a clean answer hands
-        traffic back. The alternative — trying direct on a real page load — costs the
-        connect timeout every quarter of an hour, on somebody's phone.
-        """
-        _auto["probing"] = True
         ok, why = False, ""
         try:
             async with httpx.AsyncClient(
-                    headers=HEADERS, follow_redirects=True, proxy=None,
+                    headers=HEADERS, follow_redirects=True, proxy=tier_url(tier),
                     timeout=httpx.Timeout(10, connect=5)) as c:
                 r = await c.get(f"{API}{PROBE_PATH}")
             ok = r.status_code == 200
             why = f"HTTP {r.status_code}"
         except Exception as e:                                  # noqa: BLE001
             why = _why(e)
-        finally:
-            _auto["probing"] = False
-            _auto["probe_at"] = time.monotonic() + AUTO_PROBE_GAP
-            _auto["last_probe"] = {"at": time.time(), "ok": ok, "detail": why[:160]}
+        _auto["last_probe"] = {"at": time.time(), "ok": ok, "tier": tier, "detail": why[:160]}
         if not ok:
-            log.info("encar direct still down, staying on the proxy: %s", why[:160])
+            log.info("encar %s is still down, staying on %s: %s", tier, route(), why[:160])
             return False
-        log.warning("encar direct is back (%s) — leaving the proxy", why)
-        await self.lean(False)
+        was = route()
+        _b(tier).update({"open_until": 0.0, "fails": 0, "reason": "", "blocks": []})
+        await self.close()                                      # it holds the old tier's proxy
+        log.warning("encar %s answers again (%s) — moving back from %s", tier, why, was)
         fn = _persist["fn"]
         if fn:
             try:
-                await fn(route_mode(), "директният маршрут отговаря отново")
+                await fn(route_mode(), f"{tier} отговаря отново")
             except Exception as e:                              # noqa: BLE001
                 log.warning("could not store the new encar route: %s", _scrub(e)[:160])
         return True
 
-    def _maybe_probe_direct(self):
+    async def _probe_preferred(self):
+        """Try the tiers we would rather be on, best first, until one answers."""
+        _auto["probing"] = True
+        try:
+            for tier in chain():
+                if tier == route():
+                    break                                       # nothing better is shut out
+                if await self._probe_tier(tier):
+                    return True
+            return False
+        finally:
+            _auto["probing"] = False
+            _auto["probe_at"] = time.monotonic() + AUTO_PROBE_GAP
+
+    def _maybe_probe_preferred(self):
         """Start the fifteen-minute probe if one is due. Never blocks the caller."""
         if not auto_on_proxy() or _auto["probing"]:
             return
         if not _auto["probe_at"] or time.monotonic() < _auto["probe_at"]:
             return
         _auto["probe_at"] = time.monotonic() + AUTO_PROBE_GAP   # do not stack probes
-        asyncio.create_task(self._probe_direct())
+        asyncio.create_task(self._probe_preferred())
 
     def status(self):
         """Everything the admin screen and the watchdog need — and no credentials."""
         left = _auto["probe_at"] - time.monotonic() if auto_on_proxy() else 0
+        ch = chain()
         return {"mode": route_mode(), "route": route(), "alternate": other_route(),
                 "proxy_configured": proxy_configured(), "modes": list(ROUTE_MODES),
-                "breaker": self.breaker(), "trips": self._trips,
+                "breaker": self.breaker(), "trips": _b(route())["trips"],
                 "last_failover": self._failover, "stats": dict(self.stats),
-                # "auto" leaning on the proxy: since when, and when direct is asked again.
+                # The chain, in order, with each tier's own state — the admin screen shows
+                # all three, so "the Mac is answering while Hetzner is blocked" is readable
+                # at a glance instead of being guessed from one shared breaker.
+                "chain": list(ch),
+                "tiers": [{"tier": t, "configured": tier_configured(t),
+                           "in_chain": t in ch, "active": t == route(),
+                           "breaker": self.breaker(t)} for t in DEFAULT_CHAIN],
+                # Traffic is somewhere other than the first choice: since when, and when the
+                # preferred tiers are asked again.
                 "auto_on_proxy": auto_on_proxy(),
                 "auto_since": _auto["since"] or None,
                 "probe_in_s": max(0, round(left)) if auto_on_proxy() else None,
                 "last_probe": _auto["last_probe"]}
 
-    def breaker(self):
-        """For the admin screen and the watchdog: is upstream currently shut out?"""
-        left = self._open_until - time.monotonic()
+    def breaker(self, tier=None):
+        """For the admin screen and the watchdog: is this tier currently shut out?"""
+        b = _b(tier or route())
+        left = b["open_until"] - time.monotonic()
         return {"open": left > 0, "retry_in_s": max(0, round(left)),
-                "reason": self._open_reason if left > 0 else "",
-                "consecutive_failures": self._fails}
+                "reason": b["reason"] if left > 0 else "",
+                "consecutive_failures": b["fails"]}
 
     # ── catalogue ────────────────────────────────────────────────────────────
     async def search(self, offset=0, limit=500, q=BASE_Q, sort="ModifiedDate"):
@@ -854,7 +902,12 @@ def normalise_row(row, recency=None):
 
 
 async def verify(listing_id=None):
-    """Deploy-time proof that Encar answers through the configured route.
+    """Deploy-time proof that Encar answers through AT LEAST ONE tier of the chain.
+
+    It walks the chain in order and stops at the first tier that answers, because that is
+    the question a deploy needs settled: can this release reach Encar at all? Insisting on
+    `direct` blocked every release on the days CloudFront was refusing Hetzner, while the
+    Mac exit sat there answering perfectly.
 
     It asks the CATALOGUE how many cars it holds, because that question has no expiry date.
     It used to fetch one hardcoded car, which made every deploy depend on that car still
@@ -866,30 +919,39 @@ async def verify(listing_id=None):
     there counts as SUCCESS — a 404 is Encar answering us, which is the whole question. A
     blocked or missing route does not 404; it 407s, 403s or times out.
     """
-    t0 = time.monotonic()
     client = EncarClient(min_interval=0)
-    tried = route()          # the route we ASKED on; a failover must not rewrite the report
+    tiers = chain()
+    failures = []
     try:
-        total = await client.count()
-        if total is None:
-            print(f"FAIL route={tried} the catalogue count did not come back")
-            return 1
-        extra = ""
-        if listing_id:
-            body = await client.get_json(f"/v1/readside/vehicle/{listing_id}",
-                                         allow_404=True, interactive=True)
-            extra = (f" vehicle={listing_id} status=404 (sold or withdrawn — the route is "
-                     f"still proven)" if body is None
-                     else f" vehicle={listing_id} status=200")
-    except EncarUnavailable as e:
-        print(f"FAIL route={tried} status={e.status or '-'} "
-              f"latency_ms={int((time.monotonic() - t0) * 1000)} reason={_scrub(e)}")
-        return 1
+        for tier in tiers:
+            set_route(tier)                 # pin, so one tier is proven at a time
+            t0 = time.monotonic()
+            try:
+                total = await client.count()
+                if total is None:
+                    failures.append(f"{tier}: the catalogue count did not come back")
+                    continue
+                extra = ""
+                if listing_id:
+                    body = await client.get_json(f"/v1/readside/vehicle/{listing_id}",
+                                                 allow_404=True, interactive=True)
+                    extra = (f" vehicle={listing_id} status=404 (sold or withdrawn — the "
+                             f"route is still proven)" if body is None
+                             else f" vehicle={listing_id} status=200")
+                skipped = (f" (skipped: {', '.join(failures)})" if failures else "")
+                print(f"OK route={tier} status=200 "
+                      f"latency_ms={int((time.monotonic() - t0) * 1000)} "
+                      f"catalogue={total}{extra}{skipped}")
+                return 0
+            except EncarUnavailable as e:
+                failures.append(f"{tier}: status={e.status or '-'} {_scrub(e)}")
+            # No explicit close between tiers: `client()` rebuilds itself when the tier
+            # changes, and closing here would throw away a transport a test injected.
     finally:
         await client.close()
-    print(f"OK route={tried} status=200 latency_ms={int((time.monotonic() - t0) * 1000)} "
-          f"catalogue={total}{extra}")
-    return 0
+        set_route("auto")
+    print(f"FAIL no route answered — {'; '.join(failures) or 'nothing configured'}")
+    return 1
 
 
 if __name__ == "__main__":

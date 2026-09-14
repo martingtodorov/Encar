@@ -176,23 +176,35 @@ async def _probe_egress():
 
 
 async def _probe_proxy():
+    """Each proxy tier in the chain, checked on its own: the Mac can be asleep while IPRoyal
+    is fine, and one shared verdict hid exactly that."""
     import httpx
-    from encar import _scrub, proxy_configured, proxy_url, route_mode
-    if route_mode() == "direct":
-        raise Skip("маршрутът е зададен на директен — проксито не се използва")
-    if not proxy_configured():
-        raise Skip("ENCAR_PROXY_URL не е зададен — директен маршрут")
-    if not proxy_url():
-        raise Skip("проксито не се използва при този маршрут")
-    try:
-        async with httpx.AsyncClient(timeout=10, proxy=proxy_url()) as c:
-            r = await c.get(EGRESS_URL)
-    except Exception as e:                                  # noqa: BLE001
-        raise RuntimeError(_scrub(e)) from None
-    if r.status_code != 200:
-        raise RuntimeError(f"през проксито 1.1.1.1 отговори {r.status_code}")
-    ip = next((ln[3:] for ln in r.text.splitlines() if ln.startswith("ip=")), "?")
-    return f"резидентен изход {ip}"
+    from encar import TIER_ENV, _scrub, chain, route_mode, tier_url
+    mode = route_mode()
+    tiers = [t for t in chain() if t in TIER_ENV]
+    if not tiers:
+        raise Skip("няма настроено прокси — само директен маршрут")
+    if mode != "auto" and mode not in tiers:
+        raise Skip(f"маршрутът е зададен на {mode} — проксито не се използва")
+    out, broken = [], []
+    for tier in tiers:
+        try:
+            async with httpx.AsyncClient(timeout=10, proxy=tier_url(tier)) as c:
+                r = await c.get(EGRESS_URL)
+            if r.status_code != 200:
+                broken.append(f"{tier}: 1.1.1.1 отговори {r.status_code}")
+                continue
+            ip = next((ln[3:] for ln in r.text.splitlines() if ln.startswith("ip=")), "?")
+            out.append(f"{tier} {ip}")
+        except Exception as e:                                  # noqa: BLE001
+            broken.append(f"{tier}: {_scrub(e)}")
+    if broken and not out:
+        raise RuntimeError("; ".join(broken))
+    if broken:
+        # One tier down while another answers is a warning, not an outage: traffic is still
+        # leaving. The chain says so out loud so a sleeping Mac gets noticed.
+        raise RuntimeError(f"работят: {', '.join(out)} · падналo: {'; '.join(broken)}")
+    return " · ".join(out)
 
 
 async def _probe_encar():
@@ -211,9 +223,9 @@ async def _probe_route():
     st = encar_mod.encar.status()
     fo = st.get("last_failover") or {}
     if fo and time.time() - float(fo.get("at") or 0) < 86400:
-        raise RuntimeError(f"автоматично превключен {fo.get('from')} → {fo.get('to')}: "
+        raise RuntimeError(f"трафикът сам мина от {fo.get('from')} на {fo.get('to')}: "
                            f"{fo.get('reason') or '?'}")
-    return f"{st['route']} (режим {st['mode']})"
+    return f"{st['route']} (режим {st['mode']}, верига: {', '.join(st.get('chain') or [])})"
 
 
 async def _probe_nat():

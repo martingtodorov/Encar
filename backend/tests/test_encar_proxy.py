@@ -78,7 +78,9 @@ def test_blocked_rate_limited_and_5xx_raise(monkeypatch, status):
         _run(c.detail("1"))
     assert e.value.status == status
     if status in encar.BLOCK_STATUSES:
-        assert c.breaker()["open"], "a block opens the circuit immediately"
+        # The breaker that opens is the one belonging to the tier that was refused — the
+        # chain has already moved traffic to the next one, whose breaker is clean.
+        assert c.breaker("direct")["open"], "a block opens that tier's circuit immediately"
 
 
 def test_timeout_and_transport_errors_raise_after_one_retry(monkeypatch):
@@ -121,7 +123,9 @@ def test_429_retry_after_is_honoured(monkeypatch):
     with pytest.raises(EncarUnavailable) as e:
         _run(c.detail("1"))
     assert e.value.status == 429
-    b = c.breaker()
+    # Honoured to the second, and not stretched to the probe gap the way a block is: Encar
+    # named a number and a rate limit says the tier is busy, not that it is refusing us.
+    b = c.breaker("direct")
     assert b["open"] and 100 <= b["retry_in_s"] <= 120
 
 
@@ -164,7 +168,9 @@ def test_verify_cli_reports_without_secrets(monkeypatch, capsys):
     monkeypatch.setattr(encar, "EncarClient", fake_client)
     assert _run(encar.verify()) == 1
     out = capsys.readouterr().out
-    assert out.startswith("FAIL route=residential_proxy status=407") and "s3cr" not in out
+    # Every tier is named with its own reason, and not one of them carries a credential.
+    assert out.startswith("FAIL no route answered") and "residential_proxy: status=407" in out
+    assert "s3cr" not in out and "alice" not in out
     encar.set_route("auto")
 
 

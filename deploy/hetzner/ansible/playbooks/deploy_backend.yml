@@ -158,34 +158,42 @@
       register: new_code
       tags: [config, service]
 
-    - name: Encar answers through the configured proxy, as the application user
-      # `python -m encar --verify` prints only route/status/latency — never the URL. The
-      # proxy value reaches the process through the task environment, not the command line,
-      # and no_log keeps it out of Ansible's own output. Skipped when no proxy is configured
-      # (direct route = rollback; on Hetzner that would 407 and is not a deploy failure).
+    - name: Encar answers through at least ONE tier of the chain, as the application user
+      # `python -m encar --verify` prints only tier/status/latency — never a URL. Both proxy
+      # values reach the process through the task environment, not the command line, and
+      # no_log keeps them out of Ansible's own output.
+      #
+      # It walks the chain, so success through the Mac or IPRoyal is success: a Hetzner 403
+      # used to fail EVERY deploy even while the proxy route was answering perfectly, which
+      # is a release blocked for a reason that has nothing to do with the release.
       ansible.builtin.command:
         cmd: >-
           runuser -u {{ backend_service_user | default('www-data') }} --
           {{ venv }}/bin/python -m encar --verify
         chdir: "{{ (release_dir if new_code.stat.exists else app_dir ~ '/current') }}/backend"
       environment:
-        ENCAR_PROXY_URL: "{{ encar_proxy_url }}"
+        ENCAR_ROUTES: "{{ encar_routes | default('direct,home_exit,residential_proxy', true) }}"
+        ENCAR_HOME_EXIT_URL: >-
+          {{ ('http://' ~ (home_exit_ip | default('10.99.0.3')) ~ ':'
+              ~ (home_exit_proxy_port | default(8888)))
+             if (home_exit_pubkey | default('') | trim | length > 0) else '' }}
+        ENCAR_RESIDENTIAL_PROXY_URL: >-
+          {{ encar_residential_proxy_url | default(encar_proxy_url | default('', true), true) }}
       register: encar_verify
       changed_when: false
       failed_when: false
       no_log: true
-      when: encar_proxy_url | default('') | trim | length > 0
       tags: [config, service]
 
-    - name: Stop here if it did not — production keeps running the previous config
+    - name: Stop here if no tier answered — production keeps running the previous config
       ansible.builtin.assert:
         that: encar_verify.rc == 0
         fail_msg: >-
-          Encar verification failed through the residential proxy, so the backend was NOT
-          restarted. Output (sanitized): {{ encar_verify.stdout | default('') }}
+          Encar did not answer through ANY route (direct, the Mac home exit or the
+          residential proxy), so the backend was NOT restarted. Output (sanitized):
+          {{ encar_verify.stdout | default('') }}
           {{ encar_verify.stderr | default('') | regex_replace('//[^/\\s@]+:[^/\\s@]+@', '//<redacted>@') }}
         success_msg: "{{ encar_verify.stdout | default('') }}"
-      when: encar_proxy_url | default('') | trim | length > 0
       tags: [config, service]
 
     # ── flip the symlink (only when a release was checked out in this run) ────

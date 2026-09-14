@@ -5,11 +5,16 @@ import { getEncarRoute, setEncarRoute, testEncarRoute } from "@/lib/api";
 import { stampSofia } from "@/components/admin/AdminBits";
 
 const MODES = [
-  { id: "auto", label: "Автоматично", hint: "директно, прокси при отказ" },
-  { id: "proxy", label: "През прокси", hint: "резидентен изход" },
+  { id: "auto", label: "Автоматично", hint: "по ред, първият който работи" },
   { id: "direct", label: "Директно", hint: "от сървъра" },
+  { id: "home_exit", label: "Mac mini", hint: "домашен изход" },
+  { id: "residential_proxy", label: "IPRoyal", hint: "платено прокси" },
 ];
-const ROUTE_WORD = { residential_proxy: "резидентно прокси", direct: "директно" };
+const ROUTE_WORD = {
+  direct: "директно",
+  home_exit: "Mac mini",
+  residential_proxy: "IPRoyal",
+};
 
 /** Which way Encar traffic leaves. Switching takes effect at once — no restart. */
 export const AdminEncarRoute = () => {
@@ -101,7 +106,8 @@ export const AdminEncarRoute = () => {
       <div className="flex flex-wrap gap-2">
         {MODES.map((m) => {
           const on = state.mode === m.id;
-          const off = m.id === "proxy" && !state.proxy_configured;
+          const tier = (state.tiers || []).find((t) => t.tier === m.id);
+          const off = m.id !== "auto" && tier && !tier.configured;
           return (
             <button
               key={m.id}
@@ -121,12 +127,46 @@ export const AdminEncarRoute = () => {
                 {m.label}
               </span>
               <span className="text-[11px] text-muted-foreground">
-                {off ? "няма зададено прокси" : m.hint}
+                {off ? "не е настроен" : m.hint}
               </span>
             </button>
           );
         })}
       </div>
+
+      {/* The chain, in order, each with its own state: "Hetzner е блокиран, Mac-ът носи
+          трафика" must be readable at a glance and not guessed from one shared прекъсвач. */}
+      <ol data-testid="admin-encar-route-chain" className="flex flex-col gap-1">
+        {(state.tiers || [])
+          .filter((t) => t.configured)
+          .map((t, i) => (
+            <li
+              key={t.tier}
+              data-testid={`admin-encar-tier-${t.tier}`}
+              data-active={t.active}
+              className="flex flex-wrap items-center gap-1.5 text-[12px]"
+            >
+              <span className="w-4 shrink-0 text-muted-foreground">{i + 1}.</span>
+              <span className={t.active ? "font-semibold" : "text-muted-foreground"}>
+                {ROUTE_WORD[t.tier] || t.tier}
+              </span>
+              {t.active && !t.breaker?.open ? (
+                <span className="rounded-full bg-emerald-500/15 px-1.5 text-[10px] text-emerald-700">
+                  носи трафика
+                </span>
+              ) : null}
+              {t.breaker?.open ? (
+                <span className="text-amber-700">
+                  {t.active ? "всички са спрени — този тръгва първи" : "спрян"} още{" "}
+                  {Math.max(1, Math.ceil((t.breaker.retry_in_s || 0) / 60))} мин ·{" "}
+                  {t.breaker.reason}
+                </span>
+              ) : (
+                <span className="text-muted-foreground/70">{t.active ? "" : "готов"}</span>
+              )}
+            </li>
+          ))}
+      </ol>
 
       {state.auto_on_proxy ? (
         <p
@@ -135,11 +175,14 @@ export const AdminEncarRoute = () => {
         >
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span>
-            Директният маршрут е отпаднал — временно през прокси. Проверка дали директното
+            {ROUTE_WORD[state.chain?.[0]] || "Първият маршрут"} е отпаднал — трафикът минава
+            през {ROUTE_WORD[state.route] || state.route}. Проверка дали по-предпочитаният
             работи отново{" "}
             {state.probe_in_s != null ? `след ${Math.ceil(state.probe_in_s / 60)} мин` : "скоро"}
             {state.last_probe
-              ? ` · последна проверка: ${state.last_probe.ok ? "успешна" : state.last_probe.detail}`
+              ? ` · последна проверка (${ROUTE_WORD[state.last_probe.tier] || state.last_probe.tier}): ${
+                  state.last_probe.ok ? "успешна" : state.last_probe.detail
+                }`
               : ""}
           </span>
         </p>
@@ -152,7 +195,7 @@ export const AdminEncarRoute = () => {
         >
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
           <span>
-            Автоматично превключен {ROUTE_WORD[failover.from] || failover.from} →{" "}
+            Трафикът сам мина от {ROUTE_WORD[failover.from] || failover.from} на{" "}
             {ROUTE_WORD[failover.to] || failover.to} · {failover.reason || "без причина в лога"}
           </span>
         </p>
