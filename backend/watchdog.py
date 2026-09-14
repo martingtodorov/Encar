@@ -379,7 +379,9 @@ async def _probe_sync():
         started = _aware(state.get("started_at"))
         if _now() - started > timedelta(hours=SYNC_STUCK_H):
             raise RuntimeError(f"sync върви от {started:%d.%m %H:%M} UTC — зациклил")
-        return f"върви, {state.get('pages_done', 0)}/{state.get('pages_total', 0)} страници"
+        return (f"върви, {state.get('pages_done', 0)}/{state.get('pages_total', 0)} страници"
+                + (f", по една на {state.get('page_gap_s')}s (умишлено бавно)"
+                   if state.get("page_gap_s") else ""))
     if not sched.get("enabled"):
         return "разписанието е изключено"
     finished = state.get("finished_at")

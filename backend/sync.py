@@ -9,9 +9,17 @@ the entire ~218k catalogue is ~436 requests, not 218k.
 
 Politeness: one worker, EncarClient enforces the min interval, exponential
 backoff on 429/5xx. No IP rotation of any kind.
+
+And it is deliberately SLOW. ~436 requests at the client's 1.2s floor is a nine-minute burst,
+and a burst is what Encar's WAF answers with 403 — the blocks arrived in runs, right after a
+sweep. So the whole sweep is now spread across SYNC_TARGET_SECONDS (two hours by default):
+one page roughly every seventeen seconds, jittered, with the database work counted INTO each
+page's slot rather than added on top. Nothing is retried harder and no address is rotated; we
+simply ask less often.
 """
 
 import asyncio
+import contextlib
 import logging
 import time
 import os
@@ -27,6 +35,16 @@ from encar import BASE_Q, encar, normalise_row
 log = logging.getLogger("sync")
 
 PAGE = 500
+# How long a FULL catalogue sweep should take, end to end. Two hours for ~420 pages is a page
+# every seventeen seconds — slow enough that it does not read as a crawl, fast enough that the
+# catalogue is never more than a couple of hours stale. Read at RUNTIME from
+# SYNC_TARGET_SECONDS, so the owner can slow it down further from the environment without a
+# code deploy (and the tests can turn the waiting off).
+SYNC_TARGET_SECONDS = 7200
+# Even a tiny catalogue must not wait forever between pages, and a big one must not be paced
+# faster than the client's own floor.
+SYNC_PAGE_GAP_MAX = 60
+ENCAR_MIN_GAP = 1.2
 # Transmission is not in the list payload but IS an upstream facet.
 MANUAL_Q = "(And.Hidden.N._.CarType.A._.Transmission.\uc218\ub3d9.)"
 
@@ -100,6 +118,41 @@ def _search_text(doc):
                                  doc.get("badge"), doc.get("fuel_type")]))
 
 
+def _sweep_gap(requests_expected):
+    """Seconds to leave between upstream calls so a whole sweep lands on the target.
+
+    Sized off the number of LIST requests the sweep will make. A bisecting crawl also spends
+    a handful of count probes, so it runs a little past the target rather than a little short
+    of it — erring on the slow side is the entire point.
+    """
+    target = int(os.environ.get("SYNC_TARGET_SECONDS") or SYNC_TARGET_SECONDS)
+    gap = target / max(requests_expected, 1)
+    return max(ENCAR_MIN_GAP, min(gap, SYNC_PAGE_GAP_MAX))
+
+
+@contextlib.asynccontextmanager
+async def paced_sweep(requests_expected):
+    """Slow down EVERY upstream call for the duration of a sweep, then put it back.
+
+    One knob instead of a sleep at each of the half-dozen places that page through Encar:
+    the client already spaces its non-interactive calls by `min_interval`, so raising that
+    for the length of the crawl paces the leaf pages AND the bisection probes, and the
+    database work between two calls counts into the gap instead of being added on top.
+
+    A visitor opening an uncached car is NOT slowed: interactive calls take the concurrency
+    semaphore and skip that throttle entirely.
+    """
+    was = encar.min_interval
+    gap = _sweep_gap(requests_expected)
+    encar.min_interval = gap
+    log.info("sweep paced: %s expected requests, one every %.1fs (~%d min)",
+             requests_expected, gap, gap * max(requests_expected, 1) / 60)
+    try:
+        yield gap
+    finally:
+        encar.min_interval = was
+
+
 async def run_full_sync(db, max_pages=None, page_size=PAGE):
     """Page the whole catalogue into MongoDB, pricing each listing as we go."""
     if _lock.locked():
@@ -120,15 +173,24 @@ async def run_full_sync(db, max_pages=None, page_size=PAGE):
                     raise RuntimeError(
                         "the upstream count request failed - aborting so the retire "
                         "pass does not wipe every active listing")
-                pages = (total + page_size - 1) // page_size
-                if max_pages:
-                    pages = min(pages, max_pages)
-                await _set(db, listings_upstream=total, pages_total=pages)
-                log.info("full sync: %s listings across %s pages", total, pages)
+                pages_full = (total + page_size - 1) // page_size
+                pages = min(pages_full, max_pages) if max_pages else pages_full
+                # Paced off the FULL page count, so a short test run is exactly as polite
+                # per page as the real sweep.
+                gap = _sweep_gap(pages_full)
+                await _set(db, listings_upstream=total, pages_total=pages,
+                           page_gap_s=round(gap, 1), eta_s=round(gap * pages))
+                log.info("full sync: %s listings across %s pages, a page every %.1fs "
+                         "(~%d min in total)", total, pages, gap, gap * pages / 60)
 
                 seen_ids = set()
                 upserted = 0
-                for p in range(pages):
+                # `paced_sweep` raises the client's own minimum gap for the length of the
+                # loop, so the request itself, the bulk_write and the state update all count
+                # into each page's slot. Visitors are untouched: their calls are interactive
+                # and skip that throttle.
+                async with paced_sweep(pages_full):
+                  for p in range(pages):
                     offset = p * page_size
                     data = await encar.search(offset=offset, limit=page_size)
                     rows = (data or {}).get("SearchResults") or []
@@ -547,7 +609,12 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
         log.info("partition crawl start: %s upstream=%s", mfr or "ALL", total)
 
         try:
-            await _crawl_node(base, _fresh_dims(), total, sink, st, ctx)
+            # The bisecting crawl asks for leaf pages AND count probes; both go through the
+            # client's throttle, so raising the gap here paces the whole partition. Sized off
+            # the leaf pages the scope needs, so a probe-heavy scope runs a little past the
+            # two hours rather than a little short of them.
+            async with paced_sweep(max((total + LEAF_MAX - 1) // LEAF_MAX, 1)):
+                await _crawl_node(base, _fresh_dims(), total, sink, st, ctx)
         finally:
             # Checkpoint whatever landed, including when the crawl is cancelled by a
             # shutdown: without this the last few seconds of slices are crawled again.
@@ -744,12 +811,15 @@ async def _collect_ids(q):
     if not total:                                    # None (failure) or 0 (empty)
         return ids
     pages = max((total + PAGE - 1) // PAGE, 1)
-    for p in range(pages):
-        data = await encar.search(offset=p * PAGE, limit=PAGE, q=q)
-        rows = (data or {}).get("SearchResults") or []
-        if not rows:
-            break
-        ids += [str(r.get("Id")) for r in rows if r.get("Id")]
+    # The facet passes page through Encar exactly like the main sweep does, and they run back
+    # to back with it — same pacing, or the burst simply moves here.
+    async with paced_sweep(pages):
+        for p in range(pages):
+            data = await encar.search(offset=p * PAGE, limit=PAGE, q=q)
+            rows = (data or {}).get("SearchResults") or []
+            if not rows:
+                break
+            ids += [str(r.get("Id")) for r in rows if r.get("Id")]
     return ids
 
 

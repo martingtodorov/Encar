@@ -24,6 +24,13 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 # The suites talk to the app through its real public URL, which only the frontend env knows.
 load_dotenv("/app/frontend/.env")
 
+# The catalogue sweep is paced so a full run takes two hours (see sync.SYNC_TARGET_SECONDS).
+# A suite that drives it must not sit through that pacing, so the waiting is turned down to
+# the client's own minimum interval here. The arithmetic itself is tested for real in
+# tests/test_sync_pacing.py.
+os.environ.setdefault("SYNC_TARGET_SECONDS", "0")
+
+
 UNSAFE = {"POST", "PUT", "PATCH", "DELETE"}
 HEADER = "X-CSRF-Token"
 
