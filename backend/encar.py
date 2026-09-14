@@ -234,6 +234,14 @@ BLOCK_STATUSES = (403, 407, 511)
 BREAKER_FAILS = 4          # consecutive upstream failures before the circuit opens
 BREAKER_COOLDOWN = 60      # seconds it stays open for a rate limit or a 5xx
 BLOCK_COOLDOWN = 180       # ... and for an outright block, which needs longer to clear
+# An ISOLATED block is not a closed door. Measured on the live server on 14/09: 14 blocks in
+# 5,130 calls (0.3%), each clearing by itself within seconds — and each one buying a full
+# three minutes during which every uncached car fell back to catalogue data. So a single
+# block costs a short pause, and only a RUN of them earns the long one. No retry is added
+# here and no address is rotated: the door is still not knocked on while it is shut.
+BLOCK_COOLDOWN_FIRST = 25
+BLOCK_REPEAT_WINDOW = 300
+BLOCK_REPEAT_N = 3
 
 
 class EncarUnavailable(RuntimeError):
@@ -274,6 +282,9 @@ class EncarClient:
         self._open_until = 0.0
         self._open_reason = ""
         self._trips = 0
+        # Timestamps of upstream blocks (403/407/511), newest last. A one-off costs a short
+        # pause; BLOCK_REPEAT_N of them inside BLOCK_REPEAT_WINDOW earns the long cooldown.
+        self._blocks = []
         self._route = None
         # Auto-failover bookkeeping: an opened circuit asks for the other route to be
         # tried BEFORE anybody's phone rings.
@@ -409,8 +420,9 @@ class EncarClient:
                 self._ok()
                 return None
             if r.status_code in BLOCK_STATUSES:
-                # Blocked. One attempt, no retries, and the circuit opens straight away.
-                self._trip(f"HTTP {r.status_code} from upstream", BLOCK_COOLDOWN)
+                # Blocked. One attempt, no retries, and the circuit opens straight away —
+                # briefly for a one-off, properly for a run of them.
+                self._trip(f"HTTP {r.status_code} from upstream", self._block_cooldown())
                 raise EncarUnavailable(f"upstream refused the request "
                                        f"(HTTP {r.status_code})", r.status_code)
             if r.status_code in RATE_LIMIT_STATUSES:
@@ -453,6 +465,15 @@ class EncarClient:
         reason = _scrub(reason)
         if self._fails >= BREAKER_FAILS:
             self._trip(reason, BREAKER_COOLDOWN, failover=transport)
+
+    def _block_cooldown(self):
+        """How long an upstream block shuts the circuit: short for one, long for a run."""
+        now = time.monotonic()
+        self._blocks = [t for t in self._blocks if now - t < BLOCK_REPEAT_WINDOW]
+        self._blocks.append(now)
+        if len(self._blocks) >= BLOCK_REPEAT_N:
+            return BLOCK_COOLDOWN
+        return BLOCK_COOLDOWN_FIRST
 
     def _trip(self, reason, cooldown, failover=False):
         self._fails = 0

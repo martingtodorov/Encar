@@ -619,9 +619,15 @@ async def health():
     # breaker counts as "going wrong" too: while it is open the calls fail without touching
     # the network, so `last_error_at` would quietly go stale.
     breaker = encar.breaker()
+    trips = encar.status().get("trips") or 0
     no_success = not last_ok or now - last_ok > 600
     trouble = bool((last_err and now - last_err < 900) or breaker.get("open"))
     upstream_stalled = no_success and trouble
+    # An open breaker that has opened more than once is not a blip: upstream is refusing us
+    # and every uncached car is being served from the catalogue. Say so on the FIRST minute
+    # instead of waiting out the ten-minute silence above — on 14/09 the ten minutes were
+    # exactly how a total outage stayed green.
+    blocked = bool(breaker.get("open") and trips >= 2)
     guard = _nat_guard_state()
     # The guard runs every 60s; if it says there is no way out, believe it over any counter.
     egress_down = bool(guard and guard.get("egress_ok") is False)
@@ -633,6 +639,10 @@ async def health():
             f"{'s' if last_ok else ''} "
             f"(last status {stats.get('last_status')}, "
             f"breaker {'open' if breaker.get('open') else 'closed'})")
+    if blocked and not upstream_stalled:
+        problems.append(
+            f"upstream is refusing us: breaker open ({breaker.get('reason') or '?'}), "
+            f"{trips} trips since start — uncached cars are served from the catalogue")
     if egress_down:
         problems.append("the host guard reports no egress through the tunnel")
     return {
