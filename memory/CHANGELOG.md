@@ -2572,3 +2572,21 @@ STILL FOR THE OWNER (needs the boxes): `deploy_nat.yml` for the uidrange fix and
   `SYNC_TARGET_SECONDS=0` в conftest, за да не чакат другите suite-и. 9/9 минават.
 * Проверено e2e с mock transport: 3 страници при `SYNC_TARGET_SECONDS=6` отнеха точно 6.0s и
   `min_interval` се върна на 1.2s.
+
+## 2026-06 — Дълготраен httpx клиент с keep-alive, по един на tier
+* Проблем: `keepalive_expiry` по подразбиране в httpx е 5s, а пейснатият sweep оставя ~17s
+  между страниците → всяка заявка плащаше TCP + CONNECT + TLS (150–180ms през тунела).
+  Освен това всяко превключване на маршрута затваряше кеширания клиент и топлият pool
+  отиваше на вятъра.
+* `encar.py`: `self._clients` — ПО ЕДИН дълготраен `httpx.AsyncClient` на tier (direct /
+  home_exit / residential_proxy), с `KEEPALIVE = httpx.Limits(max_keepalive_connections=10,
+  max_connections=20, keepalive_expiry=90)`. Не се затварят между заявките.
+* `switch_route` вече НЕ затваря клиентите (всеки tier си има свой), `_probe_tier` също не;
+  `close()` остава само за спиране на процеса и за deploy проверката и затваря всички pool-ове.
+* `self._client` остава като слот за подменен от тест transport и има приоритет над pool-а.
+* Измерено живо в pod-а срещу api.encar.com: заявка 1 = 102ms (handshake), заявки 2–4 =
+  19–20ms, един задържан keep-alive конекшън, същият pooled клиент при следващо извикване.
+* Тестове: по един клиент на tier и преизползване между заявки; pool-ът преживява превключване
+  на маршрута; `keepalive_expiry` > `SYNC_PAGE_GAP_MAX`. Старият тест „switch rebuilds the
+  client" е заменен с „switch изчиства прекъсвача" (новият инвариант е обратният).
+  44/44 в route + proxy + pacing минават.

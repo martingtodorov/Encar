@@ -11,6 +11,7 @@ the browser loads them straight from Encar's CDN.
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
@@ -49,6 +50,14 @@ DEFAULT_CHAIN = ("direct", "home_exit", "residential_proxy")
 
 # Bounded by design: a human or the sync is waiting, and Cloudflare cuts us off at 100s.
 CONNECT_TIMEOUT = 8
+# Keep-alive, and it matters more here than almost anywhere: api.encar.com is reached through
+# a tunnel and a proxy, so a fresh connection is TCP + CONNECT + TLS — 150-180ms paid BEFORE
+# the request is even sent. httpx's default keepalive_expiry is 5s, and the catalogue sweep
+# now leaves ~17s between pages, so every single page was paying that toll. Ninety seconds
+# comfortably covers the sweep's gap (and its 60s ceiling), and ten idle connections is plenty
+# for one worker with six interactive slots.
+KEEPALIVE = httpx.Limits(max_keepalive_connections=10, max_connections=20,
+                         keepalive_expiry=90.0)
 TOTAL_TIMEOUT = 15
 ATTEMPTS = 2                # one retry, never for 404
 RETRY_AFTER_MAX_WAIT = 5    # longer than this and the circuit opens for that long instead
@@ -331,7 +340,16 @@ class EncarClient:
         # the rate-limit risk lives in the 436-request catalogue sweep, which keeps
         # its strict single-file pacing below.
         self._sem = asyncio.Semaphore(interactive_concurrency)
+        # A test-injected transport. When set it wins over the pool below: discarding it
+        # silently turned unit tests into live network calls.
         self._client = None
+        # ONE long-lived client per tier, kept warm for the life of the process. Every new
+        # connection costs TCP + CONNECT + TLS, and through the Mac's tunnel that is
+        # 150-180ms on top of every single request — the difference between ~580ms and
+        # ~350ms per call. So clients are never closed between requests, and falling through
+        # to another tier does not throw away the pool of the tier it came from: when traffic
+        # climbs back, the connections are still there.
+        self._clients = {}
         # `last_ok_at` / `last_error_at` exist so /api/health can tell the truth: during the
         # 14/09 outage it answered ok:true with 35,842 consecutive failures behind it.
         self.stats = {"requests": 0, "backoffs": 0, "errors": 0, "last_status": None,
@@ -342,31 +360,31 @@ class EncarClient:
         self._failover = None
 
     async def client(self):
-        # Rebuild when the route changes. The client is cached for the process lifetime, so
-        # without this check flipping the setting would do nothing until a restart — which
-        # is exactly the trap the old env-var-only switch was. `_route is None` means the
-        # client was not built here (a test injects a mock transport): it is not ours to
-        # throw away, and discarding it silently turned unit tests into live network calls.
-        if self._client is not None and self._route is not None and self._route != route():
-            await self.close()
-        if self._client is None:
-            self._route = route()
-            self._client = httpx.AsyncClient(
-                headers=HEADERS, follow_redirects=True, proxy=proxy_url(),
+        # A transport injected by a test is not ours to replace.
+        if self._client is not None:
+            return self._client
+        tier = route()
+        c = self._clients.get(tier)
+        if c is None or c.is_closed:
+            c = httpx.AsyncClient(
+                headers=HEADERS, follow_redirects=True, proxy=tier_url(tier),
+                limits=KEEPALIVE,
                 timeout=httpx.Timeout(TOTAL_TIMEOUT, connect=CONNECT_TIMEOUT))
-            log.info("encar client ready route=%s", self._route)
-        return self._client
+            self._clients[tier] = c
+            log.info("encar client ready route=%s", tier)
+        self._route = tier
+        return c
 
     async def switch_route(self, mode):
         """Move traffic to another route, immediately.
 
-        Three things have to happen together or the switch is a no-op: the setting changes,
-        the cached client is thrown away (it holds the old proxy), and the circuit breaker is
-        cleared — otherwise the new route sits out the remaining cooldown earned by the old
-        one and looks just as broken.
+        Two things have to happen together or the switch is a no-op: the setting changes and
+        the circuit breakers are cleared — otherwise the new route sits out the cooldown
+        earned by the old one and looks just as broken. The clients are NOT thrown away:
+        there is one per tier, so the next request already picks the right one, and the pool
+        of the tier we are leaving stays warm for when traffic comes back to it.
         """
         set_route(mode)
-        await self.close()
         self.reset_breaker()
         log.warning("encar route switched mode=%s route=%s", route_mode(), route())
         return route()
@@ -375,10 +393,17 @@ class EncarClient:
         reset_breakers()
 
     async def close(self):
+        """Shut the pools down. For process shutdown and for the deploy-time check — NOT
+        something to do between requests, which is what made every call pay for a new TLS
+        handshake through the tunnel."""
         if self._client:
             await self._client.aclose()
             self._client = None
-            self._route = None
+        for c in list(self._clients.values()):
+            with contextlib.suppress(Exception):
+                await c.aclose()
+        self._clients.clear()
+        self._route = None
 
     async def _throttle(self):
         async with self._lock:
@@ -591,7 +616,6 @@ class EncarClient:
             return False
         was = route()
         _b(tier).update({"open_until": 0.0, "fails": 0, "reason": "", "blocks": []})
-        await self.close()                                      # it holds the old tier's proxy
         log.warning("encar %s answers again (%s) — moving back from %s", tier, why, was)
         fn = _persist["fn"]
         if fn:

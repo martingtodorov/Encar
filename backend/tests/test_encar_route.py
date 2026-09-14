@@ -93,17 +93,70 @@ def test_choosing_a_mode_by_hand_clears_every_breaker():
     assert c.breaker("direct")["open"] is False
 
 
-def test_switch_rebuilds_the_client_and_clears_the_breaker():
+def test_one_warm_client_per_tier_reused_across_requests(monkeypatch):
+    """A fresh connection through the tunnel is TCP + CONNECT + TLS, 150-180ms paid before
+    the request is even sent. So each tier keeps ONE client, and falling through to the next
+    tier must not throw away the pool of the tier we came from."""
     c = EncarClient(min_interval=0)
+    built = []
+    real = encar_mod.httpx.AsyncClient
+
+    def spy(**kw):
+        built.append(kw.get("proxy"))
+        return real(**kw)
+
+    monkeypatch.setattr(encar_mod.httpx, "AsyncClient", spy)
 
     async def run():
         first = await c.client()
+        assert await c.client() is first            # reused, not rebuilt
+        assert built == [None]                      # direct
+        c._trip("HTTP 403 from upstream", 60, tier="direct", stick=True)
+        mac = await c.client()
+        assert mac is not first and built == [None, MAC]
+        # ...and the direct pool is still there for when the probe hands traffic back.
+        encar_mod.reset_breakers()
+        assert await c.client() is first
+        assert built == [None, MAC]
+        await c.close()
+
+    asyncio.run(run())
+
+
+def test_the_pool_survives_a_route_switch():
+    c = EncarClient(min_interval=0)
+
+    async def run():
+        direct = await c.client()
+        await c.switch_route("home_exit")
+        mac = await c.client()
+        assert mac is not direct
+        await c.switch_route("direct")
+        assert await c.client() is direct, "switching must not cost a new TLS handshake"
+        await c.close()
+        assert c._clients == {}                    # shutdown does close them
+    asyncio.run(run())
+
+
+def test_connections_are_kept_alive_longer_than_the_sweep_waits():
+    """httpx's default keepalive_expiry is 5s while the paced catalogue sweep leaves ~17s
+    between pages — every page was paying for a new handshake."""
+    import sync
+
+    assert encar_mod.KEEPALIVE.keepalive_expiry > sync.SYNC_PAGE_GAP_MAX
+    assert encar_mod.KEEPALIVE.max_keepalive_connections == 10
+
+
+def test_switch_clears_the_breaker_of_the_route_we_move_to():
+    c = EncarClient(min_interval=0)
+
+    async def run():
         c._trip("boom", 999)
         assert c.breaker("direct")["open"] is True
         await c.switch_route("direct")
-        second = await c.client()
-        assert second is not first          # the old client held the old proxy
-        assert c.breaker()["open"] is False  # the new route does not serve the old cooldown
+        # The new route must not sit out the cooldown the old one earned, or it looks just
+        # as broken. The warm pool, on the other hand, is kept — see the tests above.
+        assert c.breaker()["open"] is False
         assert encar_mod.route() == "direct"
         await c.close()
 
