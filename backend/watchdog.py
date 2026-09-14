@@ -29,6 +29,9 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
+from bson import ObjectId
+from bson.errors import InvalidId
+
 import mailer
 import notify
 
@@ -54,6 +57,10 @@ BACKUP_STALE_H = 48
 NAT_GUARD_STALE_FACTOR = 60
 # A repair stays visible this long, so the cause is chased while the evidence is fresh.
 NAT_REPAIR_WINDOW = 6 * 3600
+# Closed incidents older than this are dropped by themselves, so the history never becomes a
+# wall of messages nobody reads. Open incidents are never touched.
+INCIDENT_KEEP_DAYS = int(os.environ.get("INCIDENT_KEEP_DAYS", "90"))
+INCIDENT_PURGE_EVERY = 6 * 3600
 
 # check → (severity, seconds between probes, label, explanation for the alert)
 CHECKS = {
@@ -663,24 +670,64 @@ async def health(run=False):
         "checks": checks,
         "labels": {c: v[2] for c, v in CHECKS.items()},
         "push_devices": await notify.admin_devices(),
-        "open": [{"check": d["check"], "severity": d.get("severity", severity(d["check"])),
+        "open": [{"id": str(d["_id"]), "check": d["check"],
+                  "severity": d.get("severity", severity(d["check"])),
                   "since": _aware(d["opened_at"]).isoformat(),
                   "reason": d.get("reason") or "",
                   "reminders": d.get("reminders", 0)} for d in open_now],
-        "recent": [{"check": d["check"], "opened_at": _aware(d["opened_at"]).isoformat(),
+        "recent": [{"id": str(d["_id"]), "check": d["check"],
+                    "opened_at": _aware(d["opened_at"]).isoformat(),
                     "closed_at": _aware(d["closed_at"]).isoformat()
                     if d.get("closed_at") else None,
                     "reason": d.get("reason") or ""} for d in recent],
+        "closed_total": await _db.incidents.count_documents(
+            {"closed_at": {"$ne": None}}),
+        "keep_days": INCIDENT_KEEP_DAYS,
     }
+
+
+async def delete_incident(incident_id):
+    """Drop one CLOSED incident message. An open outage cannot be deleted — deleting the
+    record of something still broken would only hide it until the next reminder."""
+    try:
+        oid = ObjectId(str(incident_id))
+    except (InvalidId, TypeError):
+        return {"deleted": 0, "reason": "невалиден идентификатор"}
+    doc = await _db.incidents.find_one({"_id": oid})
+    if not doc:
+        return {"deleted": 0, "reason": "съобщението вече не съществува"}
+    if not doc.get("closed_at"):
+        return {"deleted": 0, "reason": "аварията все още е отворена"}
+    r = await _db.incidents.delete_one({"_id": oid, "closed_at": {"$ne": None}})
+    return {"deleted": r.deleted_count}
+
+
+async def purge_incidents(older_than_days=None):
+    """Clear closed incident messages — everything, or only those past `older_than_days`."""
+    q = {"closed_at": {"$ne": None}}
+    if older_than_days:
+        q["closed_at"] = {"$ne": None, "$lt": _now() - timedelta(days=float(older_than_days))}
+    r = await _db.incidents.delete_many(q)
+    return {"deleted": r.deleted_count, "older_than_days": older_than_days}
 
 
 async def scheduler():
     # A minute of grace: probing while the process is still opening its connections would
     # report an outage that does not exist.
     await asyncio.sleep(45)
+    next_purge = 0.0
     while True:
         try:
             await round_once()
         except Exception as e:                              # noqa: BLE001
             log.warning("watchdog round failed: %s", str(e)[:200])
+        if INCIDENT_KEEP_DAYS and time.monotonic() >= next_purge:
+            next_purge = time.monotonic() + INCIDENT_PURGE_EVERY
+            try:
+                got = await purge_incidents(INCIDENT_KEEP_DAYS)
+                if got["deleted"]:
+                    log.info("purged %s closed incidents older than %s days",
+                             got["deleted"], INCIDENT_KEEP_DAYS)
+            except Exception as e:                          # noqa: BLE001
+                log.warning("incident purge failed: %s", str(e)[:200])
         await asyncio.sleep(PROBE_EVERY)

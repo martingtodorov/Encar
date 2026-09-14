@@ -8,9 +8,14 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { SignInPrompt } from "@/components/SignInPrompt";
 import { useLangNav } from "@/hooks/useLangNav";
-import { resolveSlugs, searchCars } from "@/lib/api";
+import { resolveSlugs, searchTotals } from "@/lib/api";
 import { buildPayload, hasResolvableTokens, paramsToState } from "@/lib/searchQuery";
 import { useSeo } from "@/lib/seo";
+
+// Resolved queries are remembered for the session: the slugs in a saved search do not
+// change while the page is open, and re-resolving each card on every visit was a round
+// trip per card for an answer we already had.
+const resolved = new Map();
 
 /** Slugs in a stored query -> the Korean values /api/search understands. */
 async function resolveState(params) {
@@ -56,23 +61,41 @@ export default function SavedSearchesPage() {
 
   useEffect(() => {
     let cancelled = false;
-    searches.forEach((s) => {
-      // Stored queries hold English slugs, and the search endpoint speaks the upstream
-      // Korean values, so they have to be translated back before counting matches.
-      resolveState(new URLSearchParams(s.query))
-        .then((state) =>
-          searchCars(buildPayload({ ...state, sort: "newest", page: 1 }, { lang, pageSize: 1 }))
-        )
-        .then((d) => {
-          if (cancelled) return;
-          const car = (d.items || [])[0];
-          setStates((p) => ({
-            ...p,
-            [s.id]: { total: d.total || 0, thumb: car?.images?.[0] || car?.image || null },
-          }));
+    if (!searches.length) return undefined;
+    // ONE request for every card: resolve the stored slugs (cached per query), then ask
+    // the server for the counts in a single batch. A full search per card meant twenty
+    // requests and twenty counts over the whole catalogue for two numbers each.
+    (async () => {
+      const states = await Promise.all(
+        searches.map(async (s) => {
+          if (!resolved.has(s.query)) {
+            resolved.set(s.query, await resolveState(new URLSearchParams(s.query)));
+          }
+          return resolved.get(s.query);
         })
-        .catch(() => !cancelled && setStates((p) => ({ ...p, [s.id]: { total: 0, thumb: null } })));
-    });
+      );
+      if (cancelled) return;
+      const payloads = states.map((state) =>
+        buildPayload({ ...state, sort: "newest", page: 1 }, { lang, pageSize: 1 })
+      );
+      try {
+        const rows = await searchTotals(payloads);
+        if (cancelled) return;
+        setStates(
+          Object.fromEntries(
+            searches.map((s, i) => [
+              s.id,
+              { total: rows[i]?.total || 0, thumb: rows[i]?.thumb || null },
+            ])
+          )
+        );
+      } catch {
+        if (!cancelled) {
+          setStates(Object.fromEntries(
+            searches.map((s) => [s.id, { total: 0, thumb: null }])));
+        }
+      }
+    })();
     return () => {
       cancelled = true;
     };

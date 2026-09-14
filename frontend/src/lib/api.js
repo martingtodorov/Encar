@@ -129,6 +129,12 @@ export async function searchCars(body) {
   return data;
 }
 
+/** Match counts (and one thumbnail) for many saved searches in a single request. */
+export async function searchTotals(queries) {
+  const { data } = await insist(() => http.post("/search/totals", { queries }));
+  return data.results || [];
+}
+
 /**
  * Two more goes, half a second apart, for the calls the search page cannot live without.
  *
@@ -519,6 +525,27 @@ export async function testIncidentPush() {
 /** Open outages and incident history from the server-side watchdog. Admin only. */
 export async function getIncidents(run = false) {
   const { data } = await http.get("/admin/incidents", { params: run ? { run: 1 } : {} });
+  return data;
+}
+
+/** Delete one closed alert message. Admin only. */
+export async function deleteIncident(id) {
+  const { data } = await http.delete(`/admin/incidents/${encodeURIComponent(id)}`);
+  return data;
+}
+
+/** Clear the closed alert history — all of it, or only entries older than N days. */
+export async function purgeIncidents(olderThanDays = null) {
+  const { data } = await http.post("/admin/incidents/purge", null, {
+    params: olderThanDays ? { older_than_days: olderThanDays } : {},
+  });
+  return data;
+}
+
+/** Let go of a wedged catalogue sync and start it again. Admin only. */
+export async function restartCatalogueSync({ fresh = false } = {}) {
+  const { data } = await http.post(
+    `/admin/catalogue-sync/restart${fresh ? "?fresh=true" : ""}`);
   return data;
 }
 

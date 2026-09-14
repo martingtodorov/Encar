@@ -8,6 +8,7 @@ would still describe yesterday's catalogue.
 
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -48,6 +49,8 @@ async def get_job(db):
     job = {k: v for k, v in doc.items() if k != "_id"} or {"status": "idle"}
     job["progress"] = await get_progress(db, job)
     job["checkpoint"] = None if is_running() else await find_resumable(db)
+    job["stalled_for_s"] = await stalled_for(db)
+    job["stall_after_s"] = STALL_AFTER_S
     return job
 
 
@@ -212,7 +215,7 @@ async def find_resumable(db):
     return None
 
 
-async def stop(db, timeout=20):
+async def stop(db, timeout=20, reason="the server restarted while this sync was running"):
     """Cancel a running sync and record it, while the database client is still open.
 
     Without this the process shutdown closes Mongo underneath the detached task, which
@@ -226,9 +229,66 @@ async def stop(db, timeout=20):
     await asyncio.wait([_task], timeout=timeout)
     await db.sync_state.update_one(
         {"_id": JOB_ID},
-        {"$set": {"status": "interrupted", "finished_at": _now(),
-                  "error": "the server restarted while this sync was running"}})
-    log.info("catalogue sync stopped for shutdown")
+        {"$set": {"status": "interrupted", "finished_at": _now(), "error": reason}})
+    log.info("catalogue sync stopped: %s", reason)
+    return True
+
+
+# The crawl publishes progress every ~3 seconds and every post-crawl pass stamps the live
+# document as it begins, so silence for this long means the task is wedged — a socket that
+# never timed out, an upstream that accepted the connection and then said nothing — rather
+# than merely paced slowly.
+STALL_AFTER_S = int(os.environ.get("SYNC_STALL_AFTER_S", "1800"))
+AUTO_RESTART = os.environ.get("SYNC_AUTO_RESTART", "1").lower() not in ("0", "false", "no")
+# A wedge that comes straight back must not turn into a restart loop.
+AUTO_RESTART_COOLDOWN_S = 1800
+_last_auto_restart = {"at": 0.0}
+
+
+async def stalled_for(db):
+    """Seconds since the running sync last moved, or None when nothing is running."""
+    if not is_running():
+        return None
+    live = await db.sync_state.find_one({"_id": LIVE_ID}) or {}
+    job = await db.sync_state.find_one({"_id": JOB_ID}) or {}
+    last = _aware(live.get("updated_at")) or _aware(job.get("started_at"))
+    if not last:
+        return None
+    return max((_now() - last).total_seconds(), 0.0)
+
+
+async def restart(db, fresh=False, trigger="restart"):
+    """Kill a wedged sync and start it again — from its checkpoint, or clean if `fresh`.
+
+    The whole point is the case the owner hits in practice: the crawl stops moving halfway
+    through and there is no way to make it let go. Cancelling settles the job document, so
+    the checkpoint is intact and the new run carries on from the last indexed slice.
+    """
+    stalled = await stalled_for(db)
+    stopped = await stop(db, reason=(
+        f"restarted by hand after {int(stalled or 0)}s without progress"
+        if trigger == "restart" else
+        f"restarted automatically after {int(stalled or 0)}s without progress"))
+    if fresh:
+        # A clean start must not continue the old checkpoint.
+        await db.sync_state.delete_one({"_id": RESUME_ID})
+    out = await start(db, trigger=trigger, fresh=fresh)
+    return {**out, "stopped": stopped, "was_stalled_for_s": stalled}
+
+
+async def restart_if_stalled(db):
+    """Self-heal a wedged sync, so a crawl that dies at 3am is running again by 3:30."""
+    if not AUTO_RESTART:
+        return False
+    stalled = await stalled_for(db)
+    if stalled is None or stalled < STALL_AFTER_S:
+        return False
+    import time as _time
+    if _time.monotonic() - _last_auto_restart["at"] < AUTO_RESTART_COOLDOWN_S:
+        return False
+    _last_auto_restart["at"] = _time.monotonic()
+    log.error("catalogue sync has not moved for %ss — restarting it", int(stalled))
+    await restart(db, trigger="auto-restart")
     return True
 
 
@@ -367,6 +427,8 @@ async def scheduler(db, period=30):
     while True:
         await asyncio.sleep(period)
         try:
+            if await restart_if_stalled(db):
+                continue
             sched = await get_schedule(db)
             if not sched.get("enabled") or is_running():
                 continue

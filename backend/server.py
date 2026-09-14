@@ -403,6 +403,22 @@ async def option_dicts_cached(ttl=86400):
 
 
 _SIZE_MEM = {"at": 0.0, "count": 0}
+_SIZE_REFRESH = {"task": None}
+
+
+async def _refresh_upstream_size():
+    """Ask Encar how many ads it lists, in the background, and remember the answer."""
+    try:
+        n = int(await encar.count(interactive=True) or 0)
+    except Exception as e:
+        log.warning("live upstream count failed: %s", str(e)[:160])
+        return 0
+    if n:
+        now = datetime.now(timezone.utc).timestamp()
+        await db.settings.update_one({"_id": "upstream_size"},
+                                     {"$set": {"count": n, "at": now}}, upsert=True)
+        _SIZE_MEM.update(at=now, count=n)
+    return n
 
 
 async def upstream_size_cached(ttl=900):
@@ -411,6 +427,13 @@ async def upstream_size_cached(ttl=900):
     One cheap upstream request (count-only search, limit=1), cached in memory and in
     Mongo, so the hero figure tracks Encar in near-real-time instead of freezing at
     whatever the last full catalogue crawl happened to see.
+
+    NOTHING a visitor waits on may hang on that request. While the catalogue sweep is
+    running, an upstream call from a request handler queues behind the sweep's pacer —
+    gaps of up to a minute — and the home page hero then took the better part of a minute
+    to answer, every fifteen minutes, for whoever refreshed it first. So a stale figure is
+    served immediately and refreshed detached; only a completely cold cache waits, and that
+    call skips the pacer.
     """
     now = datetime.now(timezone.utc).timestamp()
     if _SIZE_MEM["count"] and now - _SIZE_MEM["at"] < ttl:
@@ -421,18 +444,16 @@ async def upstream_size_cached(ttl=900):
         _SIZE_MEM.update(at=doc["at"], count=doc["count"])
         return doc["count"]
 
-    try:
-        n = int(await encar.count() or 0)
-    except Exception as e:
-        log.warning("live upstream count failed: %s", str(e)[:160])
-        n = 0
-    if n:
-        await db.settings.update_one({"_id": "upstream_size"},
-                                     {"$set": {"count": n, "at": now}}, upsert=True)
-        _SIZE_MEM.update(at=now, count=n)
-        return n
-    # upstream hiccup: prefer the last known figure over showing nothing
-    return (doc or {}).get("count") or _SIZE_MEM["count"] or 0
+    known = (doc or {}).get("count") or _SIZE_MEM["count"] or 0
+    if not known:
+        # Nothing to show at all: this one has to be waited for.
+        return await _refresh_upstream_size()
+
+    task = _SIZE_REFRESH["task"]
+    if task is None or task.done():
+        _SIZE_REFRESH["task"] = asyncio.create_task(_refresh_upstream_size())
+    # Stale by minutes is invisible on a counter of a quarter of a million; a slow page is not.
+    return known
 
 
 class ListingIdsBody(BaseModel):
@@ -962,6 +983,51 @@ async def search(body: SearchBody, request: Request):
         "items": items,
         "lang": lang,
     }
+
+
+_TOTALS = {}                  # query fingerprint -> (at, total, thumb)
+TOTALS_TTL = 300
+TOTALS_MAX = 500
+
+
+class TotalsBody(BaseModel):
+    queries: list[SearchBody] = Field(default_factory=list)
+
+
+@api.post("/search/totals")
+async def search_totals(body: TotalsBody):
+    """How many cars each saved search matches right now — every card in ONE request.
+
+    The saved-searches page used to run a FULL /api/search per card just to read two
+    numbers and a thumbnail: ten saved searches meant ten searches, each counting over a
+    quarter of a million listings, translating rows, reading FX and writing the buyer's
+    last search — all firing at once at a single worker. This does the counting only, and
+    briefly caches each count: the catalogue moves when the sync runs, not between two
+    clicks.
+    """
+    await curate.refresh(db)
+    now = time.time()
+    out = []
+    for b in body.queries[:40]:
+        query = build_query(b.model_dump())
+        key = hashlib.sha256(
+            json.dumps(query, sort_keys=True, default=str).encode()).hexdigest()
+        hit = _TOTALS.get(key)
+        if hit and now - hit[0] < TOTALS_TTL:
+            out.append({"total": hit[1], "thumb": hit[2]})
+            continue
+        total = await db.listings.count_documents(query)
+        thumb = None
+        if total:
+            doc = await db.listings.find_one(query, {"photos": 1},
+                                             sort=SORTS["newest"]) or {}
+            photos = doc.get("photos") or []
+            thumb = image_url(photos[0], 570, 320) if photos else None
+        if len(_TOTALS) > TOTALS_MAX:
+            _TOTALS.clear()
+        _TOTALS[key] = (now, total, thumb)
+        out.append({"total": total, "thumb": thumb})
+    return {"results": out}
 
 
 def _centre(samples, slot):
@@ -4083,6 +4149,25 @@ async def admin_incidents(request: Request, run: bool = False,
     return await watchdog.health(run=run)
 
 
+@api.delete("/admin/incidents/{incident_id}")
+async def admin_incident_delete(incident_id: str, request: Request,
+                                x_admin_token: str = Header(default="")):
+    """Delete one CLOSED alert message. An open outage stays: hiding it would not fix it."""
+    await _require_admin(request, x_admin_token)
+    out = await watchdog.delete_incident(incident_id)
+    if not out["deleted"]:
+        raise HTTPException(400, out.get("reason") or "съобщението не беше изтрито")
+    return out
+
+
+@api.post("/admin/incidents/purge")
+async def admin_incidents_purge(request: Request, older_than_days: int | None = None,
+                                x_admin_token: str = Header(default="")):
+    """Clear the closed alert history — all of it, or only what is older than N days."""
+    await _require_admin(request, x_admin_token)
+    return await watchdog.purge_incidents(older_than_days)
+
+
 async def _store_encar_route(mode, reason="", actor="автоматично"):
     """Remember the route so a restart does not undo the decision."""
     await db.site_settings.update_one(
@@ -4377,6 +4462,19 @@ async def catalogue_sync_run(request: Request, fresh: bool = False,
     """
     await _require_admin(request, x_admin_token)
     return jsonable(await syncjob_mod.start(db, trigger="manual", fresh=fresh))
+
+
+@api.post("/admin/catalogue-sync/restart")
+async def catalogue_sync_restart(request: Request, fresh: bool = False,
+                                 x_admin_token: str = Header(default="")):
+    """Let go of a wedged crawl and start it again.
+
+    A sweep that stops moving halfway through (a socket that never timed out, an upstream
+    that went quiet) otherwise holds the Sync button hostage until the process restarts.
+    Continues from the last checkpoint; `fresh=true` throws it away and starts clean.
+    """
+    await _require_admin(request, x_admin_token)
+    return jsonable(await syncjob_mod.restart(db, fresh=fresh))
 
 
 @api.put("/admin/catalogue-sync/schedule")

@@ -28,6 +28,20 @@ Remaining (hosting-side, not code): point both domains' DNS at the app, and issu
 for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
 `/api/robots.txt` in nginx so it follows `PUBLIC_SITE_URL` automatically.
 
+## Recently completed (2026-06 fork session) — full detail in CHANGELOG.md
+* **Alert messages ("съобщения за авария") are deletable**: per-message delete and a
+  "clear history" purge for CLOSED incidents only, plus automatic expiry after 90 days
+  (`INCIDENT_KEEP_DAYS`). Admin Overview has an expandable "Приключени (N)" list.
+* **Catalogue sync is restartable when it wedges**: `POST /api/admin/catalogue-sync/restart`
+  (checkpoint or fresh) and self-healing after 30 minutes without progress
+  (`SYNC_STALL_AFTER_S`), with a cooldown against restart loops.
+* **Slow-site-during-sweep root-caused and fixed**: the hero counter used to make a
+  non-interactive Encar call from inside a request, which queued behind the sweep pacer (up
+  to 60s, holding the client lock). It now serves the cached figure and refreshes detached;
+  `encar.search()/count()` take `interactive=`.
+* **Saved searches page**: one batched `POST /api/search/totals` (counts + thumbnail, 5-minute
+  cache) instead of a full search per card, and slug resolution memoised per session.
+
 ## Recently completed (2026-08-31 session) — full detail in CHANGELOG.md
 * **PWA Liquid Glass tab bar finished**: blur down to 3px, saturation 112%, see-through
   white/dark tint, rim refraction layer (no chromatic aberration — added then removed on

@@ -687,19 +687,24 @@ class EncarClient:
                 "consecutive_failures": b["fails"]}
 
     # ── catalogue ────────────────────────────────────────────────────────────
-    async def search(self, offset=0, limit=500, q=BASE_Q, sort="ModifiedDate"):
+    async def search(self, offset=0, limit=500, q=BASE_Q, sort="ModifiedDate",
+                     interactive=False):
+        """One page of the catalogue feed. `interactive=True` for the handful of calls a
+        VISITOR waits on: those must not queue behind the sweep pacer, which hands out gaps
+        of up to a minute and holds the single-file lock while it sleeps."""
         sr = quote(f"|{sort}|{offset}|{limit}")
         return await self.get_json(
-            f"/search/car/list/general?count=true&q={quote(q)}&sr={sr}")
+            f"/search/car/list/general?count=true&q={quote(q)}&sr={sr}",
+            interactive=interactive)
 
-    async def count(self, q=BASE_Q):
+    async def count(self, q=BASE_Q, interactive=False):
         """Number of upstream matches, or None if the request itself failed.
 
         The old shape returned 0 on failure, which is indistinguishable from a legitimate
         empty scope — and that ambiguity is exactly what let a bad crawl silently retire
         the whole catalogue. `None` lets callers refuse to act instead of guessing.
         """
-        d = await self.search(0, 1, q)
+        d = await self.search(0, 1, q, interactive=interactive)
         if d is None:
             return None
         return d.get("Count", 0)

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { getCatalogueSync, putSyncSchedule, startCatalogueSync } from "@/lib/api";
+import { getCatalogueSync, putSyncSchedule, restartCatalogueSync, startCatalogueSync } from "@/lib/api";
 import { Spinner, Stat, ago, num, stampSofia } from "@/components/admin/AdminBits";
 
 const ZONES = ["Europe/Sofia", "Europe/Bucharest", "Europe/London", "Asia/Seoul", "UTC"];
@@ -50,6 +50,7 @@ export const AdminCatalogueSync = () => {
   const running = data.running || job.status === "running";
   const res = job.result || {};
   const checkpoint = !running ? job.checkpoint : null;
+  const stalled = running && (job.stalled_for_s || 0) >= (job.stall_after_s || 1800) / 3;
 
   const run = async () => {
     setBusy(true);
@@ -61,6 +62,26 @@ export const AdminCatalogueSync = () => {
       await load();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Could not start the sync");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restart = async (fresh) => {
+    if (!window.confirm(
+      fresh
+        ? "Да пусна ли синхронизацията отначало? Текущата ще бъде прекратена."
+        : "Да рестартирам ли синхронизацията от последната контролна точка?"
+    )) return;
+    setBusy(true);
+    try {
+      const r = await restartCatalogueSync({ fresh });
+      toast[r.started ? "success" : "error"](
+        r.started ? "Синхронизацията беше рестартирана" : r.reason || "Не можа да бъде пусната"
+      );
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Рестартът не мина");
     } finally {
       setBusy(false);
     }
@@ -207,7 +228,26 @@ export const AdminCatalogueSync = () => {
               Start from scratch
             </Button>
           ) : null}
+          {running ? (
+            <Button
+              data-testid="catalogue-sync-restart"
+              variant="outline"
+              onClick={() => restart(false)}
+              disabled={busy}
+              className="h-11 gap-2 rounded-[10px] border-border bg-card px-4 text-[13.5px]"
+            >
+              <RotateCcw className="h-4 w-4" aria-hidden="true" />
+              Restart it
+            </Button>
+          ) : null}
         </div>
+        {running ? (
+          <p data-testid="sync-stall" className={`mt-3 text-[12.5px] ${stalled ? "text-destructive" : "text-muted-foreground"}`}>
+            {stalled
+              ? `No progress for ${Math.round((job.stalled_for_s || 0) / 60)} min — it looks wedged. Restarting picks up from the last checkpoint; it also self-heals after ${Math.round((job.stall_after_s || 1800) / 60)} min.`
+              : `Last movement ${Math.round(job.stalled_for_s || 0)}s ago. A wedged sync restarts itself after ${Math.round((job.stall_after_s || 1800) / 60)} min.`}
+          </p>
+        ) : null}
       </div>
 
       <div className="rounded-[14px] border border-border bg-card p-4">

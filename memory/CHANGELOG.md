@@ -2,6 +2,43 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-06 (fork) — Deletable alert messages, restartable sync, and the "slow during the sweep" fix
+- **Alert messages can be deleted.** `watchdog.health()` now returns an `id` for every
+  incident plus `closed_total` and `keep_days`. New `watchdog.delete_incident(id)` (CLOSED
+  only — hiding an open outage would only delay the next reminder) and
+  `watchdog.purge_incidents(older_than_days=None)`. Endpoints:
+  `DELETE /api/admin/incidents/{id}`, `POST /api/admin/incidents/purge?older_than_days=`.
+  Closed messages also expire by themselves after `INCIDENT_KEEP_DAYS` (90), swept by the
+  watchdog scheduler every 6 hours.
+- **Admin UI**: the Overview strip gained an expandable "Приключени (N)" history with an x on
+  every row, an "Изчисти историята" button (confirm dialog) and the 90-day note.
+- **A wedged catalogue sync can be restarted.** `syncjob.stalled_for(db)` measures silence
+  since the live document last moved (the crawl publishes every ~3s, each post-crawl pass
+  stamps its start). `syncjob.restart(db, fresh=)` cancels and starts again — from the last
+  checkpoint, or clean. `restart_if_stalled()` self-heals after `SYNC_STALL_AFTER_S` (1800)
+  with a 30-minute cooldown so a wedge that returns cannot become a restart loop. Endpoint:
+  `POST /api/admin/catalogue-sync/restart?fresh=`; the Catalogue sync panel shows a "Restart
+  it" button and how long ago the sweep last moved.
+- **Why the site went slow while the sweep ran (root cause).** `/api/catalogue/size` — the
+  home-page hero counter — called `encar.count()` from inside a request handler. That call is
+  non-interactive, so it queued on `EncarClient._throttle()`, which during a paced sweep hands
+  out gaps of up to 60s AND holds the single-file lock while it sleeps. Every 15 minutes
+  whoever loaded the site first paid that wait. Fixed: `search()`/`count()` take
+  `interactive=`, the hero counter serves the stored figure immediately and refreshes
+  detached, and only a completely cold cache waits (with the pacer bypassed).
+- **Saved searches page was 2 requests per card.** Each card ran a FULL `/api/search`
+  (`count_documents` over ~245k listings — measured 30-230ms each — plus a `last_search`
+  write, row translation and an FX read) just to show a number and a thumbnail; ten saved
+  searches meant twenty requests at one worker. New `POST /api/search/totals` answers every
+  card in ONE request, counting only, with a 5-minute per-query cache; resolved slugs are
+  memoised per session. Measured: 4 cards = 1 totals call (was 4 searches + 4 resolves).
+- Tests: `backend/tests/test_incidents_and_stall.py` (10 passing) covers deletion rules,
+  age purge, ids in `health()`, stall detection, hand/auto restart with checkpoint handling,
+  and both halves of the pacer promise (visitor calls skip it, the sweep is still paced).
+  Regression: `test_sync_pacing`, `test_encar_proxy`, `test_encar_route`,
+  `test_alert_messages` — 55 passing.
+
+
 ## 2026-08-10 — Cost cut: line-cached descriptions + Haiku on the whole car-detail path
 - New `translate_description_segmented()` in `translate.py`. Splits a dealer description
   on line breaks, serves every already-cached line from `db.translations` instantly and
