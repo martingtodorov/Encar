@@ -156,6 +156,63 @@ class Skip(Exception):
     """This check does not apply here (not configured, not this host). Not a failure."""
 
 
+class Info(Exception):
+    """Worth SAYING, never worth waking anyone.
+
+    Some probes learn things that are true, useful and not an outage: the routing rules were
+    deleted and the guard put them back (traffic never stopped), one proxy tier is refusing
+    while the tier actually carrying the traffic is fine, the sync is stopped because someone
+    stopped it. Raised as failures, each of those opened an incident and then pushed a
+    reminder every thirty minutes — twenty-three of them for a proxy that works perfectly.
+    An `Info` shows up in the panel and in the log, opens nothing, and closes an incident
+    that a real failure had opened.
+    """
+
+
+# ── muting: a check the owner has decided not to hear from for now ───────────
+MUTES_ID = "watchdog_mutes"
+# A mute is a decision, not a leak: it lifts itself the moment the check passes, and cannot
+# outlive this many days even if the check never recovers.
+MUTE_MAX_DAYS = 30
+
+
+async def mutes():
+    """check → {"until", "since", "reason"} for every check currently silenced."""
+    doc = await _db.settings.find_one({"_id": MUTES_ID}) or {}
+    out = {}
+    for check, m in (doc.get("checks") or {}).items():
+        until = _aware(m.get("until")) if m.get("until") else None
+        if until and until <= _now():
+            continue                                    # expired: no longer a mute
+        out[check] = {"until": until, "since": _aware(m.get("since")),
+                      "reason": m.get("reason") or ""}
+    return out
+
+
+async def is_muted(check):
+    return check in await mutes()
+
+
+async def mute(check, days=None, reason="заглушено от админ панела"):
+    """Silence a check: no incident, no push, no email, no reminders — until it passes."""
+    if check not in CHECKS:
+        raise KeyError(check)
+    days = min(float(days), MUTE_MAX_DAYS) if days else MUTE_MAX_DAYS
+    until = _now() + timedelta(days=days)
+    await _db.settings.update_one(
+        {"_id": MUTES_ID},
+        {"$set": {f"checks.{check}": {"until": until, "since": _now(), "reason": reason}}},
+        upsert=True)
+    log.warning("watchdog check %s muted until %s", check, until)
+    return {"check": check, "until": until}
+
+
+async def unmute(check):
+    await _db.settings.update_one({"_id": MUTES_ID},
+                                  {"$unset": {f"checks.{check}": ""}})
+    return {"check": check, "muted": False}
+
+
 # ── 5xx counter, fed by the HTTP middleware ──────────────────────────────────
 _errors = deque()
 
@@ -214,9 +271,13 @@ async def _probe_proxy():
     if broken and not out:
         raise RuntimeError("; ".join(broken))
     if broken:
-        # One tier down while another answers is a warning, not an outage: traffic is still
-        # leaving. The chain says so out loud so a sleeping Mac gets noticed.
-        raise RuntimeError(f"работят: {', '.join(out)} · падналo: {'; '.join(broken)}")
+        # One tier refusing while another answers is NOT an outage: traffic is still
+        # leaving, and the chain exists precisely so a sleeping Mac or a filtered exit does
+        # not stop anything. Raised as a critical failure, this pushed twenty-three
+        # reminders about a residential proxy that was working perfectly. Said out loud,
+        # once, so a dead tier still gets noticed.
+        raise Info(f"работят: {', '.join(out)} · не отговаря: {'; '.join(broken)} "
+                   f"(трафикът минава през {', '.join(out)})")
     return " · ".join(out)
 
 
@@ -270,9 +331,15 @@ async def _probe_nat():
                            "journalctl -t encar-nat-guard")
     since = time.time() - float(state.get("repaired_at") or 0)
     if state.get("repaired_at") and since < NAT_REPAIR_WINDOW:
-        raise RuntimeError(f"правилата бяха изтрити и върнати преди {int(since / 60)} мин "
-                           f"({state.get('repairs') or '?'}) — трафикът работи, но причината "
-                           "още е там")
+        hours, minutes = int(since // 3600), int(since % 3600 // 60)
+        ago = f"{hours} ч {minutes} мин" if hours else f"{minutes} мин"
+        repairs = state.get("repairs")
+        # Informational on purpose: the guard already fixed it and traffic never stopped.
+        # As a "failure" this woke every device every twelve hours for something that was
+        # over before anyone could read it.
+        raise Info(f"правилата бяха изтрити и пазачът ги върна преди {ago}"
+                   + (f" ({repairs} поправки досега)" if repairs else "")
+                   + " — трафикът не е спирал, но причината още е там")
     return (f"правилата са на място, handshake {state.get('handshake_age_s', '?')}s, "
             f"проверено преди {int(age)}s")
 
@@ -382,19 +449,35 @@ async def _probe_cert():
 
 
 async def _probe_sync():
+    """Is the catalogue being refreshed?
+
+    Read the job document the sync ACTUALLY writes (`catalogue_job`). It used to read the
+    legacy `catalogue` document from the old full sweep, which nothing writes any more — so
+    on a host where that sweep never ran the check reported "никога не е завършвал успешно —
+    статус never" for ever, pushed a reminder every twelve hours, and no amount of successful
+    syncing could close it. The owner watched that alarm sit open for nine days.
+    """
     import syncjob
-    state = await _db.sync_state.find_one({"_id": "catalogue"}) or {}
+    state = (await _db.sync_state.find_one({"_id": syncjob.JOB_ID})
+             or await _db.sync_state.find_one({"_id": "catalogue"}) or {})
     sched = await syncjob.get_schedule(_db)
     status = state.get("status") or "never"
+    if state.get("stopped_by_hand"):
+        raise Info("спрян ръчно от админ панела — нищо няма да го пусне само")
+    if status == "stopped":
+        raise Info("спрян — пусни го от Админ → Каталог")
     if status == "error":
-        raise RuntimeError(f"последният sync завърши с грешка: {state.get('error', '')[:120]}")
+        raise RuntimeError(f"последният sync завърши с грешка: "
+                           f"{str(state.get('error') or '')[:120]}")
     if status == "running":
         started = _aware(state.get("started_at"))
         if _now() - started > timedelta(hours=SYNC_STUCK_H):
             raise RuntimeError(f"sync върви от {started:%d.%m %H:%M} UTC — зациклил")
-        return (f"върви, {state.get('pages_done', 0)}/{state.get('pages_total', 0)} страници"
-                + (f", по една на {state.get('page_gap_s')}s (умишлено бавно)"
-                   if state.get("page_gap_s") else ""))
+        live = await _db.sync_state.find_one({"_id": syncjob.LIVE_ID}) or {}
+        seen, upstream = live.get("seen") or 0, live.get("upstream") or 0
+        return (f"върви от {started:%d.%m %H:%M} UTC"
+                + (f", {seen} от {upstream} обяви" if upstream else "")
+                + (f", фаза {live.get('phase')}" if live.get("phase") else ""))
     if not sched.get("enabled"):
         return "разписанието е изключено"
     finished = state.get("finished_at")
@@ -406,15 +489,13 @@ async def _probe_sync():
         bits = [f"статус {status}"]
         if started:
             bits.append(f"започнал {_aware(started):%d.%m %H:%M} UTC")
-        if state.get("pages_total") or state.get("pages_done"):
-            bits.append(f"стигнал до {state.get('pages_done', 0)}/"
-                        f"{state.get('pages_total', 0)} страници")
         if state.get("error"):
             bits.append(f"последна грешка: {str(state['error'])[:120]}")
         raise RuntimeError("никога не е завършвал успешно — " + ", ".join(bits))
     age = _now() - _aware(finished)
     if age > timedelta(hours=SYNC_STALE_H):
-        raise RuntimeError(f"последният успешен sync е преди {age.days}д {age.seconds // 3600}ч")
+        raise RuntimeError(f"последният успешен sync е преди {age.days}д "
+                           f"{age.seconds // 3600}ч")
     return f"последен успешен преди {int(age.total_seconds() // 3600)} ч"
 
 
@@ -598,6 +679,9 @@ async def _alert(check, reason, *, reminder=False, resolved=False):
 
 
 async def _open(check, reason):
+    if await is_muted(check):
+        log.info("watchdog %s is muted; not raising an incident: %s", check, reason[:120])
+        return
     doc = await _db.incidents.find_one({"check": check, "closed_at": None})
     if not doc:
         await _db.incidents.insert_one({"check": check, "severity": severity(check),
@@ -615,13 +699,14 @@ async def _open(check, reason):
         await _alert(check, reason, reminder=True)
 
 
-async def _close(check):
+async def _close(check, silent=False):
     doc = await _db.incidents.find_one({"check": check, "closed_at": None})
     if not doc:
         return
     await _db.incidents.update_one({"_id": doc["_id"]}, {"$set": {"closed_at": _now()}})
     log.warning("incident %s resolved after %s", check, _now() - _aware(doc["opened_at"]))
-    await _alert(check, "", resolved=True)
+    if not silent:
+        await _alert(check, "", resolved=True)
 
 
 # ── state for the admin screen ───────────────────────────────────────────────
@@ -648,6 +733,16 @@ async def probe_one(check):
         _streak[check] = 0
         _record(check, "skip", e, t0)
         return "skip"
+    except Info as e:
+        # True, useful, and nobody's phone should ring for it.
+        _streak[check] = 0
+        _record(check, "info", e, t0)
+        log.info("watchdog %s: %s", check, str(e)[:200])
+        try:
+            await _close(check)
+        except Exception as inner:                          # noqa: BLE001
+            log.warning("could not close %s incident: %s", check, str(inner)[:160])
+        return "info"
     except Exception as e:                                  # noqa: BLE001
         _streak[check] = _streak.get(check, 0) + 1
         reason = str(e)[:200] or e.__class__.__name__
@@ -665,6 +760,10 @@ async def probe_one(check):
     _record(check, "ok", detail or "ok", t0)
     try:
         await _close(check)
+        # A mute is until it works again, not for ever: it lifts itself here.
+        if await is_muted(check):
+            await unmute(check)
+            log.info("watchdog %s passed — mute lifted", check)
     except Exception as e:                                  # noqa: BLE001
         log.warning("could not close %s incident: %s", check, str(e)[:160])
     return "ok"
@@ -689,14 +788,18 @@ async def health(run=False):
         await round_once(force=True)
     open_now = [d async for d in _db.incidents.find({"closed_at": None})]
     recent = await _db.incidents.find({}).sort("opened_at", -1).limit(30).to_list(30)
+    muted_now = await mutes()
     checks = []
     for check, (sev, every, label, _) in CHECKS.items():
         last = _last.get(check) or {}
+        m = muted_now.get(check)
         checks.append({"check": check, "label": label, "severity": sev, "every_s": every,
                        "status": last.get("status", "unknown"),
                        "detail": last.get("detail", "още не е проверявано"),
                        "at": last["at"].isoformat() if last.get("at") else None,
                        "latency_ms": last.get("latency_ms"),
+                       "muted": bool(m),
+                       "muted_until": m["until"].isoformat() if m and m["until"] else None,
                        "streak": _streak.get(check, 0)})
     return {
         "checks": checks,
@@ -715,7 +818,39 @@ async def health(run=False):
         "closed_total": await _db.incidents.count_documents(
             {"closed_at": {"$ne": None}}),
         "keep_days": INCIDENT_KEEP_DAYS,
+        "muted": [{"check": c, "label": CHECKS.get(c, (None, None, c))[2],
+                   "until": m["until"].isoformat() if m["until"] else None,
+                   "since": m["since"].isoformat() if m["since"] else None,
+                   "reason": m["reason"]}
+                  for c, m in sorted(muted_now.items())],
     }
+
+
+async def dismiss_incident(incident_id, days=None):
+    """Close an OPEN incident by hand and stop hearing about it until it recovers.
+
+    There was no way to get rid of an alert whose cause could not be fixed right now: the
+    sync alarm from 05/09 sat open for nine days and reminded twenty-two times. Deleting it
+    would be useless — the next probe reopens it — so a dismissal closes the incident AND
+    mutes that check, and the mute lifts itself the moment the check passes again.
+    """
+    try:
+        oid = ObjectId(str(incident_id))
+    except (InvalidId, TypeError):
+        return {"dismissed": False, "reason": "невалиден идентификатор"}
+    doc = await _db.incidents.find_one({"_id": oid})
+    if not doc:
+        return {"dismissed": False, "reason": "съобщението вече не съществува"}
+    if doc.get("closed_at"):
+        return {"dismissed": False, "reason": "съобщението вече е приключено"}
+    await _db.incidents.update_one(
+        {"_id": oid}, {"$set": {"closed_at": _now(), "dismissed": True,
+                                "dismissed_reason": "скрито от админ панела"}})
+    muted = await mute(doc["check"], days=days,
+                       reason="скрито от админ панела, докато проверката не мине")
+    log.warning("incident %s dismissed by hand; check muted until %s",
+                doc["check"], muted["until"])
+    return {"dismissed": True, "check": doc["check"], "muted_until": muted["until"]}
 
 
 async def delete_incident(incident_id):

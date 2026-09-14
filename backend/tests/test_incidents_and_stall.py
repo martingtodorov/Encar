@@ -185,9 +185,12 @@ def test_a_stalled_sync_is_cancelled_and_started_again(monkeypatch):
     asyncio.run(go())
 
 
-def test_a_hand_restart_keeps_the_checkpoint_and_a_fresh_one_drops_it(monkeypatch):
+def test_a_hand_restart_cancels_and_hands_the_fresh_flag_on(monkeypatch):
+    """Dropping the checkpoint lives in `start` — every fresh path goes through it, and a
+    fresh start that left the checkpoint behind was how "from scratch" became a resume."""
     async def go():
         client, db = _db()
+        asked = []
         try:
             monkeypatch.setattr(syncjob, "_task", _FakeTask())
             monkeypatch.setattr(syncjob.asyncio, "wait",
@@ -197,17 +200,17 @@ def test_a_hand_restart_keeps_the_checkpoint_and_a_fresh_one_drops_it(monkeypatc
                 {"$set": {"run_id": "pytest-run", "updated_at": _now()}}, upsert=True)
 
             async def fake_start(db_, trigger="manual", resume_run_id=None, fresh=False):
+                asked.append(fresh)
                 return {"started": True, "trigger": trigger, "fresh": fresh}
 
             monkeypatch.setattr(syncjob, "start", fake_start)
 
             out = await syncjob.restart(db, fresh=False)
-            assert out["started"] and out["stopped"]
-            assert await db.sync_state.find_one({"_id": syncjob.RESUME_ID})
+            assert out["started"] and out["stopped"] and asked == [False]
 
             monkeypatch.setattr(syncjob, "_task", _FakeTask())
             await syncjob.restart(db, fresh=True)
-            assert await db.sync_state.find_one({"_id": syncjob.RESUME_ID}) is None
+            assert asked == [False, True]
         finally:
             await db.sync_state.delete_one({"_id": syncjob.RESUME_ID})
             client.close()

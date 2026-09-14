@@ -4149,6 +4149,41 @@ async def admin_incidents(request: Request, run: bool = False,
     return await watchdog.health(run=run)
 
 
+@api.post("/admin/incidents/{incident_id}/dismiss")
+async def admin_incident_dismiss(incident_id: str, request: Request,
+                                 days: int | None = None,
+                                 x_admin_token: str = Header(default="")):
+    """Close an OPEN alert by hand and mute that check until it passes again.
+
+    Deleting an open incident would be pointless — the next probe reopens it. Dismissing
+    silences the check instead, and the silence lifts itself the moment the check recovers.
+    """
+    await _require_admin(request, x_admin_token)
+    out = await watchdog.dismiss_incident(incident_id, days=days)
+    if not out["dismissed"]:
+        raise HTTPException(400, out.get("reason") or "съобщението не беше скрито")
+    return jsonable(out)
+
+
+@api.post("/admin/checks/{check}/unmute")
+async def admin_check_unmute(check: str, request: Request,
+                             x_admin_token: str = Header(default="")):
+    """Start hearing from a muted check again."""
+    await _require_admin(request, x_admin_token)
+    return await watchdog.unmute(check)
+
+
+@api.post("/admin/checks/{check}/mute")
+async def admin_check_mute(check: str, request: Request, days: int | None = None,
+                           x_admin_token: str = Header(default="")):
+    """Silence a check for a while — no incident, no push, no reminders."""
+    await _require_admin(request, x_admin_token)
+    try:
+        return jsonable(await watchdog.mute(check, days=days))
+    except KeyError:
+        raise HTTPException(404, f"няма такава проверка: {check}") from None
+
+
 @api.delete("/admin/incidents/{incident_id}")
 async def admin_incident_delete(incident_id: str, request: Request,
                                 x_admin_token: str = Header(default="")):

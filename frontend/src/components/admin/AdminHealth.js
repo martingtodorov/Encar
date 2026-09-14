@@ -8,10 +8,12 @@ import { AdminEncarRoute } from "@/components/admin/AdminEncarRoute";
 const DOT = {
   ok: "bg-emerald-500",
   fail: "bg-destructive",
+  info: "bg-sky-500",
   skip: "bg-muted-foreground/40",
   unknown: "bg-amber-400",
 };
-const WORD = { ok: "работи", fail: "ПАДНАЛО", skip: "не се прилага", unknown: "чака проверка" };
+const WORD = { ok: "работи", fail: "ПАДНАЛО", info: "за сведение",
+               skip: "не се прилага", unknown: "чака проверка" };
 
 const Check = ({ c }) => (
   <div
@@ -26,10 +28,14 @@ const Check = ({ c }) => (
       <span className="min-w-0 truncate text-[13px] font-semibold">{c.label}</span>
       <span
         className={`ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] uppercase tracking-wide ${
-          c.severity === "critical" ? "bg-destructive/15 text-destructive" : "bg-amber-500/15 text-amber-700"
+          c.muted
+            ? "bg-muted text-muted-foreground"
+            : c.severity === "critical"
+              ? "bg-destructive/15 text-destructive"
+              : "bg-amber-500/15 text-amber-700"
         }`}
       >
-        {c.severity === "critical" ? "авария" : "внимание"}
+        {c.muted ? "заглушено" : c.severity === "critical" ? "авария" : "внимание"}
       </span>
     </div>
     <p className={`break-words text-[12px] ${c.status === "fail" ? "text-destructive" : "text-muted-foreground"}`}>

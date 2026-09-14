@@ -53,12 +53,20 @@ export const AdminCatalogueSync = () => {
   const checkpoint = !running ? job.checkpoint : null;
   const stalled = running && (job.stalled_for_s || 0) >= (job.stall_after_s || 1800) / 3;
 
-  const run = async () => {
+  const run = async (fresh = false) => {
+    if (fresh && !window.confirm(
+      "Да пусна ли обхождането ОТНАЧАЛО? Контролната точка се изтрива и всички ~245 000 "
+      + "коли се обхождат отново (около 2 часа)."
+    )) return;
     setBusy(true);
     try {
-      const r = await startCatalogueSync();
+      const r = await startCatalogueSync({ fresh });
       toast[r.started ? "success" : "error"](
-        r.started ? "Catalogue sync started" : r.reason || "Could not start"
+        r.started
+          ? (r.resumed_run
+            ? "Синхронизацията продължава от контролната точка"
+            : "Синхронизацията започна отначало")
+          : r.reason || "Could not start"
       );
       await load();
     } catch (e) {

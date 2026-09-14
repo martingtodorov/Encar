@@ -542,6 +542,21 @@ export async function purgeIncidents(olderThanDays = null) {
   return data;
 }
 
+/** Close an OPEN alert by hand and mute that check until it passes again. Admin only. */
+export async function dismissIncident(id, days = null) {
+  const { data } = await http.post(
+    `/admin/incidents/${encodeURIComponent(id)}/dismiss`, null,
+    { params: days ? { days } : {} });
+  return data;
+}
+
+/** Start hearing from a muted check again. Admin only. */
+export async function unmuteCheck(check) {
+  const { data } = await http.post(`/admin/checks/${encodeURIComponent(check)}/unmute`);
+  return data;
+}
+
+
 /** Stop the catalogue sync and leave it stopped (no auto-resume). Admin only. */
 export async function stopCatalogueSync() {
   const { data } = await http.post("/admin/catalogue-sync/stop");

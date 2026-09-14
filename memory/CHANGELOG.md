@@ -2,6 +2,46 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-06 (fork) — Alert noise: three alarms that should never have rung, and one that could not be silenced
+- **The sync alarm that would not close** ("никога не е завършвал успешно — статус never",
+  open since 05/09, 22 reminders). `_probe_sync` read the LEGACY `sync_state._id =
+  "catalogue"` document from the old full sweep, which nothing writes any more — so on a host
+  where that sweep never ran it reported "never" for ever and no amount of successful syncing
+  could close it. Now reads `syncjob.JOB_ID` (`catalogue_job`), falls back to the legacy doc,
+  understands `stopped`/`stopped_by_hand` as deliberate (Info, not an outage), and reports
+  crawl progress from the live doc while running. Verified: the check flipped to
+  "ok · последен успешен преди 0 ч".
+- **New `Info` probe outcome**: true, useful, wakes nobody. Recorded as `status: "info"` in
+  the panel, logged at info level, opens no incident, and CLOSES an incident a real failure
+  had opened. Applied to:
+  * `nat` — "правилата бяха изтрити и пазачът ги върна преди 1 ч 0 мин (3 поправки досега)".
+    The guard had already repaired it and traffic never stopped; as a failure it pushed
+    reminders about something that was over before anyone could read it. Also fixed the
+    "(?)" in the message and the raw-minutes formatting.
+  * `proxy` — one tier of the fallback chain refusing while another carries the traffic is
+    what the chain is FOR. It had pushed 23 reminders about a residential proxy that works.
+    A total failure (no tier answers) is still critical.
+- **Dismissing an open alert**: `POST /api/admin/incidents/{id}/dismiss` closes it by hand AND
+  mutes that check — deleting it would be pointless, the next probe reopens it. Mutes live in
+  `settings._id = "watchdog_mutes"`, suppress incidents/push/email/reminders, lift themselves
+  the moment the check passes, and cannot outlive `MUTE_MAX_DAYS` (30). Also
+  `POST /api/admin/checks/{check}/mute|unmute`. The Overview strip has an x on every open
+  alert and a "Заглушени проверки" panel with "Пусни отново"; Health cards show a "заглушено"
+  badge and an "info" state (sky dot, "за сведение").
+- **"Start from scratch" actually starts from scratch**: the admin panel's `run` handler took
+  no argument, so the button called `run(true)` and still posted without `fresh=true` — every
+  "from scratch" was a resume. Fixed in the panel, and `start(fresh=True)` now deletes the
+  slice checkpoint itself (the crawl reads that document on its own, so declining to pass a
+  run id was not enough). Confirm dialog added.
+- Tests: `backend/tests/test_alert_noise.py` (12 passing) — the sync probe reading the right
+  document, deliberate stops, a genuinely never-finished sync still alarming, staleness,
+  partial vs total proxy failure, repaired vs dead NAT guard, `Info` closing an open
+  incident, dismissal + mute + self-lifting mute + the 30-day cap. Plus
+  `test_start_from_scratch_drops_the_checkpoint_and_does_not_resume`. Regression across
+  `test_gearbox_and_stop`, `test_incidents_and_stall`, `test_alert_messages`,
+  `test_nat_guard` — 49 passing.
+
+
 ## 2026-06 (fork) — Gearbox tagging bug (whole catalogue mislabelled) + "stop the sync entirely"
 - **New watchdog check `facets`** (warning, every 15 min): reads `sync_state._id` of
   `"transmission"` and `"colors"` and alerts when the last pass reported `ok: false`, with

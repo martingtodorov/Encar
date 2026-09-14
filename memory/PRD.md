@@ -29,6 +29,13 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
 `/api/robots.txt` in nginx so it follows `PUBLIC_SITE_URL` automatically.
 
 ## Recently completed (2026-06 fork session) — full detail in CHANGELOG.md
+* **Alert noise fixed**: the sync check read a legacy document nothing writes (an alarm from
+  05/09 could never close — now reads `catalogue_job`); NAT repairs and a single dead proxy
+  tier are `Info` (panel + log, no push, no reminders) instead of outages.
+* **Any open alert can be dismissed**: `POST /api/admin/incidents/{id}/dismiss` closes it and
+  mutes that check until it passes again (max 30 days); `muted`/`unmute` exposed in the panel.
+* **"Start from scratch" really restarts the crawl**: the panel dropped the `fresh` flag, and
+  `start(fresh=True)` now deletes the slice checkpoint itself.
 * **Gearbox tagging bug fixed (was mislabelling the whole catalogue)**: a failed upstream
   facet walk looked identical to an empty one, and `$nin: []` then stamped every listing
   `transmission: "auto"` — 244,996 of them, zero manual. The walk can now report failure,

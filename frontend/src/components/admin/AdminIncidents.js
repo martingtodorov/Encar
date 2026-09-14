@@ -3,7 +3,8 @@ import { AlertTriangle, BellOff, BellRing, CheckCircle2, ChevronDown, Loader2,
          ShieldAlert, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { deleteIncident, getIncidents, purgeIncidents, testIncidentPush } from "@/lib/api";
+import { deleteIncident, dismissIncident, getIncidents, purgeIncidents, testIncidentPush,
+         unmuteCheck } from "@/lib/api";
 import { enablePush, pushSupported } from "@/lib/push";
 import { stampSofia } from "@/components/admin/AdminBits";
 
@@ -63,6 +64,36 @@ export const AdminIncidents = () => {
     }
   };
 
+  const dismissOne = async (i) => {
+    if (!window.confirm(
+      "Да скрия ли това съобщение? Проверката се заглушава и няма да праща известия, "
+      + "докато не мине успешно (най-много 30 дни)."
+    )) return;
+    setBusy(`dismiss-${i.id}`);
+    try {
+      await dismissIncident(i.id);
+      toast.success("Скрито — проверката е заглушена, докато не се оправи");
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Съобщението не беше скрито");
+    } finally {
+      setBusy("");
+    }
+  };
+
+  const liftMute = async (check) => {
+    setBusy(`unmute-${check}`);
+    try {
+      await unmuteCheck(check);
+      toast.success("Проверката отново праща известия");
+      await load();
+    } catch {
+      toast.error("Заглушаването не беше премахнато");
+    } finally {
+      setBusy("");
+    }
+  };
+
   const removeOne = async (id) => {
     setBusy(`del-${id}`);
     try {
@@ -95,6 +126,7 @@ export const AdminIncidents = () => {
   const open = data.open || [];
   const closed = (data.recent || []).filter((r) => r.closed_at);
   const closedTotal = data.closed_total ?? closed.length;
+  const muted = data.muted || [];
   const devices = data.push_devices || 0;
 
   return (
@@ -107,7 +139,7 @@ export const AdminIncidents = () => {
             className="flex items-start gap-3 rounded-[12px] border border-destructive/40 bg-destructive/10 px-4 py-3"
           >
             <ShieldAlert className="mt-0.5 h-[18px] w-[18px] shrink-0 text-destructive" aria-hidden="true" />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="text-[13.5px] font-semibold text-destructive">
                 {i.severity === "critical" ? "Авария" : "Внимание"}: {LABELS[i.check] || i.check} — от {stampSofia(i.since)}
               </div>
@@ -118,6 +150,21 @@ export const AdminIncidents = () => {
                   : "Няма абонирано устройство — известието тръгна по имейл"}
               </p>
             </div>
+            <button
+              type="button"
+              data-testid={`admin-incident-dismiss-${i.check}`}
+              onClick={() => dismissOne(i)}
+              disabled={busy === `dismiss-${i.id}`}
+              title="Скрий и заглуши, докато проверката не мине"
+              aria-label="Скрий съобщението"
+              className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-destructive/60 transition-colors hover:bg-destructive/15 hover:text-destructive"
+            >
+              {busy === `dismiss-${i.id}` ? (
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+              ) : (
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+            </button>
           </div>
         ))
       ) : (
@@ -134,6 +181,41 @@ export const AdminIncidents = () => {
           </span>
         </div>
       )}
+
+      {muted.length ? (
+        <div
+          data-testid="admin-incidents-muted"
+          className="flex flex-col gap-1.5 rounded-[12px] border border-border bg-muted/40 px-4 py-2.5"
+        >
+          <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+            <BellOff className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            Заглушени проверки — няма да пращат известия, докато не минат успешно
+          </div>
+          {muted.map((m) => (
+            <div key={m.check} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-[12.5px] text-foreground">
+                {m.label || m.check}
+                {m.until ? ` · автоматично до ${stampSofia(m.until)}` : ""}
+              </span>
+              <Button
+                variant="outline"
+                data-testid={`admin-unmute-${m.check}`}
+                onClick={() => liftMute(m.check)}
+                disabled={busy === `unmute-${m.check}`}
+                className="h-7 gap-1.5 rounded-[8px] px-2.5 text-[11.5px]"
+              >
+                {busy === `unmute-${m.check}` ? (
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+                ) : (
+                  <BellRing className="h-3 w-3" aria-hidden="true" />
+                )}
+                Пусни отново
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
 
       <div className="flex flex-wrap items-center gap-2 px-1">
         <span

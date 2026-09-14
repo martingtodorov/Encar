@@ -291,9 +291,6 @@ async def restart(db, fresh=False, trigger="restart"):
         f"restarted by hand after {int(stalled or 0)}s without progress"
         if trigger == "restart" else
         f"restarted automatically after {int(stalled or 0)}s without progress"))
-    if fresh:
-        # A clean start must not continue the old checkpoint.
-        await db.sync_state.delete_one({"_id": RESUME_ID})
     out = await start(db, trigger=trigger, fresh=fresh)
     return {**out, "stopped": stopped, "was_stalled_for_s": stalled}
 
@@ -367,6 +364,10 @@ async def start(db, trigger="manual", resume_run_id=None, fresh=False):
     global _task
     if is_running():
         return {"started": False, "reason": "a catalogue sync is already running"}
+    if fresh:
+        # "From scratch" has to mean it. The slice checkpoint is read by the crawl itself,
+        # so leaving it behind is how a fresh start quietly becomes a resume.
+        await db.sync_state.delete_one({"_id": RESUME_ID})
     if not fresh and not resume_run_id:
         ck = await find_resumable(db)
         if ck:

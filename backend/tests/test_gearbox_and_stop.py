@@ -321,3 +321,44 @@ def test_a_catalogue_that_never_ran_a_facet_pass_is_skipped_not_alarmed():
     with pytest.raises(watchdog.Skip):
         asyncio.run(wd._probe_facets())
 
+
+
+# ── "from scratch" has to mean from scratch ──────────────────────────────────
+
+def test_start_from_scratch_drops_the_checkpoint_and_does_not_resume(monkeypatch):
+    """Reported by the owner: stop the sync entirely, press "Start from scratch", and it
+    carried on from the last checkpoint. The panel dropped the flag on the way out, and the
+    crawl reads the slice checkpoint itself — so a fresh start has to delete it, not merely
+    decline to pass a run id."""
+    async def go():
+        client, db = _db_client()
+        keep = await db.sync_state.find_one({"_id": syncjob.RESUME_ID})
+        try:
+            monkeypatch.setattr(syncjob, "_task", None)
+
+            async def fake_run(db_, trigger, resume_run_id=None):
+                return None
+
+            monkeypatch.setattr(syncjob, "_run", fake_run)
+            await db.sync_state.update_one(
+                {"_id": syncjob.RESUME_ID},
+                {"$set": {"run_id": "pytest-old-run", "done": ["a", "b"], "plan": ["a"],
+                          "updated_at": datetime.now(timezone.utc)}}, upsert=True)
+
+            # Default start: the checkpoint is exactly what it is for.
+            out = await syncjob.start(db, trigger="manual")
+            assert out["resumed_run"] == "pytest-old-run"
+            assert await db.sync_state.find_one({"_id": syncjob.RESUME_ID})
+
+            monkeypatch.setattr(syncjob, "_task", None)
+            out = await syncjob.start(db, trigger="manual", fresh=True)
+            assert out["started"] and out["resumed_run"] is None
+            assert await db.sync_state.find_one({"_id": syncjob.RESUME_ID}) is None
+        finally:
+            await db.sync_state.delete_one({"_id": syncjob.RESUME_ID})
+            if keep:
+                await db.sync_state.insert_one(keep)
+            client.close()
+
+    asyncio.run(go())
+
