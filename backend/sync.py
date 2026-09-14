@@ -45,6 +45,11 @@ SYNC_TARGET_SECONDS = 7200
 # faster than the client's own floor.
 SYNC_PAGE_GAP_MAX = 60
 ENCAR_MIN_GAP = 1.2
+# A bisecting crawl spends count probes and re-asks split slices, so it makes more requests
+# than the leaf-page arithmetic predicts: 200k ads came out as ~1000 slices against 400
+# predicted pages. Measured, not guessed, and only a starting estimate — `Sweep` corrects
+# itself against the remaining budget on every request.
+SYNC_REQUEST_OVERHEAD = 2.5
 # Transmission is not in the list payload but IS an upstream facet.
 MANUAL_Q = "(And.Hidden.N._.CarType.A._.Transmission.\uc218\ub3d9.)"
 
@@ -118,13 +123,71 @@ def _search_text(doc):
                                  doc.get("badge"), doc.get("fuel_type")]))
 
 
-def _sweep_gap(requests_expected):
-    """Seconds to leave between upstream calls so a whole sweep lands on the target.
+class Sweep:
+    """One time budget for a WHOLE sweep, however many requests it turns out to need.
 
-    Sized off the number of LIST requests the sweep will make. A bisecting crawl also spends
-    a handful of count probes, so it runs a little past the target rather than a little short
-    of it — erring on the slow side is the entire point.
+    The crawl bisects, so the request count is not known in advance: 200k ads came out as
+    ~1000 slices plus probes, two and a half times the 400 leaf pages the arithmetic
+    predicted. A fixed gap per request therefore ran two and a half hours long — and because
+    the budget used to be installed around EACH partition, every manufacturer got its own
+    two hours and the whole thing landed at four.
+
+    So the gap is recomputed before every request from what is left of the budget divided by
+    the requests still expected. Ahead of schedule it waits longer, behind schedule it drops
+    to the client's floor, and the sweep lands on the deadline instead of a multiple of it.
     """
+
+    def __init__(self, expected, target):
+        self.expected = max(int(expected), 1)
+        self.done = 0
+        self.target = target
+        self.deadline = time.monotonic() + target
+        # How much of the WORK is done, if the caller knows (cars indexed / cars upstream).
+        # A better estimator than any request-count arithmetic: the crawl reports it as it
+        # goes, so an estimate that is out by two still lands on the deadline.
+        self.fraction = 0.0
+
+    def expect(self, requests):
+        """Refine the estimate once the real numbers are known."""
+        self.expected = max(int(requests), self.done + 1)
+
+    def progress(self, fraction):
+        """How far through the catalogue the crawl is, 0..1."""
+        if 0 < fraction <= 1:
+            self.fraction = fraction
+
+    def _remaining(self):
+        by_count = max(self.expected - self.done, 1)
+        # Once there is real progress to measure, trust it over the arithmetic: the
+        # request-count estimate is a guess about a bisecting crawl, while cars-indexed over
+        # cars-upstream is a fact. Trusting the guess is how a sweep either sprinted through
+        # in forty minutes or ran four hours long.
+        if self.fraction < 0.02 or self.done < 20:
+            return by_count
+        return max(round(self.done * (1 - self.fraction) / self.fraction), 1)
+
+    def gap(self):
+        self.done += 1
+        left_time = self.deadline - time.monotonic()
+        if left_time <= 0:
+            return ENCAR_MIN_GAP                    # over budget: as fast as politeness allows
+        gap = left_time / self._remaining()
+        # Never spend more than a twentieth of what is left on ONE wait. Early on, before
+        # there is any progress to measure, the estimate can be far too small — and without
+        # this the first request of a small crawl would sit on most of the budget and the
+        # sweep would still run past it. Erring the other way only finishes early, which for
+        # a catalogue that needs few requests is the right answer anyway.
+        return max(ENCAR_MIN_GAP, min(gap, SYNC_PAGE_GAP_MAX, left_time / 20))
+
+
+# The sweep in force, if any. A facet pass nested inside a crawl must SHARE the crawl's
+# budget, not start a second two-hour one of its own.
+_sweep = {"active": None}
+
+
+def _sweep_gap(requests_expected):
+    """The gap a sweep of this size starts out with. Kept for the admin display and the
+    log line; the live gap comes from `Sweep.gap` and changes as the crawl learns."""
     target = int(os.environ.get("SYNC_TARGET_SECONDS") or SYNC_TARGET_SECONDS)
     gap = target / max(requests_expected, 1)
     return max(ENCAR_MIN_GAP, min(gap, SYNC_PAGE_GAP_MAX))
@@ -132,25 +195,34 @@ def _sweep_gap(requests_expected):
 
 @contextlib.asynccontextmanager
 async def paced_sweep(requests_expected):
-    """Slow down EVERY upstream call for the duration of a sweep, then put it back.
+    """Spread every upstream call of a sweep across SYNC_TARGET_SECONDS, then put the client
+    back as it was.
 
-    One knob instead of a sleep at each of the half-dozen places that page through Encar:
-    the client already spaces its non-interactive calls by `min_interval`, so raising that
-    for the length of the crawl paces the leaf pages AND the bisection probes, and the
-    database work between two calls counts into the gap instead of being added on top.
+    One knob instead of a sleep at each of the half-dozen places that page through Encar: the
+    client asks the installed pacer how long to wait before each non-interactive call, so the
+    leaf pages, the bisection probes and the facet passes are all paced by the same budget,
+    and the database work between two calls counts into the gap instead of being added on top.
 
     A visitor opening an uncached car is NOT slowed: interactive calls take the concurrency
     semaphore and skip that throttle entirely.
     """
-    was = encar.min_interval
-    gap = _sweep_gap(requests_expected)
-    encar.min_interval = gap
-    log.info("sweep paced: %s expected requests, one every %.1fs (~%d min)",
-             requests_expected, gap, gap * max(requests_expected, 1) / 60)
+    if _sweep["active"] is not None:
+        # Nested: share the budget already running.
+        yield _sweep["active"]
+        return
+    target = int(os.environ.get("SYNC_TARGET_SECONDS") or SYNC_TARGET_SECONDS)
+    sweep = Sweep(requests_expected, target)
+    _sweep["active"] = sweep
+    encar.pacer = sweep.gap
+    log.info("sweep paced: ~%s expected requests over %d min (a request every %.1fs to "
+             "start with)", sweep.expected, target / 60, _sweep_gap(requests_expected))
     try:
-        yield gap
+        yield sweep
     finally:
-        encar.min_interval = was
+        encar.pacer = None
+        _sweep["active"] = None
+        log.info("sweep finished: %s requests in %d min", sweep.done,
+                 (target - (sweep.deadline - time.monotonic())) / 60)
 
 
 async def run_full_sync(db, max_pages=None, page_size=PAGE):
@@ -513,9 +585,14 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
     # thousands of batches and one write each would cost more than the crawl.
     live_id = f"{progress_key}_live"
     live = {"upstream": 0, "last_write": 0.0}
+    # Filled in once the sweep's budget exists (below); `publish` reports progress into it so
+    # the pacing corrects itself against real work done rather than a predicted request count.
+    pace = {"sweep": None}
 
     async def publish(phase, force=False):
         now = time.monotonic()
+        if pace["sweep"] and live["upstream"]:
+            pace["sweep"].progress((already + len(seen)) / live["upstream"])
         if not force and now - live["last_write"] < 3:
             return
         live["last_write"] = now
@@ -587,7 +664,20 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
     per_make = {}
     started = datetime.now(timezone.utc)
 
-    for mfr in scope:
+    # ONE budget for the whole crawl, not one per manufacturer: installed around every
+    # partition, each make got its own two hours and a 200k sweep landed at four. Seeded from
+    # the local catalogue (within a percent of upstream) and refined below as each partition
+    # reports its real count; the gap is recomputed per request either way, so the estimate
+    # only affects the shape of the pacing, not the total.
+    seed = await db.listings.count_documents({"active": True}) or 0
+    expected_requests = max(seed // LEAF_MAX, 1) * SYNC_REQUEST_OVERHEAD
+    sweep_cm = paced_sweep(expected_requests)
+    sweep = await sweep_cm.__aenter__()
+    pace["sweep"] = sweep
+    expected_seen = 0
+
+    try:
+      for mfr in scope:
         base = [f"Manufacturer.{mfr}"] if mfr else []
         scope_key = _q(base)
         total = plan.get(scope_key)
@@ -609,12 +699,13 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
         log.info("partition crawl start: %s upstream=%s", mfr or "ALL", total)
 
         try:
-            # The bisecting crawl asks for leaf pages AND count probes; both go through the
-            # client's throttle, so raising the gap here paces the whole partition. Sized off
-            # the leaf pages the scope needs, so a probe-heavy scope runs a little past the
-            # two hours rather than a little short of them.
-            async with paced_sweep(max((total + LEAF_MAX - 1) // LEAF_MAX, 1)):
-                await _crawl_node(base, _fresh_dims(), total, sink, st, ctx)
+            # Now that this partition's real size is known, tell the budget: a bisecting
+            # crawl of 200k came out at ~1000 slices, two and a half times the leaf pages
+            # the arithmetic predicts, and the pacer needs to know before it hands out the
+            # early gaps rather than sprinting at the end.
+            expected_seen += max((total + LEAF_MAX - 1) // LEAF_MAX, 1) * SYNC_REQUEST_OVERHEAD
+            sweep.expect(expected_seen)
+            await _crawl_node(base, _fresh_dims(), total, sink, st, ctx)
         finally:
             # Checkpoint whatever landed, including when the crawl is cancelled by a
             # shutdown: without this the last few seconds of slices are crawled again.
@@ -639,6 +730,11 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
             {"$set": {"run_id": run_id, "stats": st, "per_make": per_make,
                       "updated_at": datetime.now(timezone.utc)}},
             upsert=True)
+    finally:
+        # The pacer must come off whatever happens: left installed, a failed crawl would
+        # leave every later request — including the detail fetches a visitor's page waits
+        # on — paced at seventeen seconds.
+        await sweep_cm.__aexit__(None, None, None)
 
     # The crawl finished, so there is nothing left to resume from.
     await db.sync_state.delete_one({"_id": resume_id})

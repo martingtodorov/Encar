@@ -355,6 +355,13 @@ class EncarClient:
         self.stats = {"requests": 0, "backoffs": 0, "errors": 0, "last_status": None,
                       "last_ok_at": None, "last_error_at": None}
         self._opt_cache = {"standard": None, "tuning": None, "metas": None, "at": 0}
+        # An optional callable that returns the gap to leave before the NEXT non-interactive
+        # request, replacing `min_interval` while a paced sweep is running (see
+        # sync.paced_sweep). A callable rather than a number because a bisecting crawl does
+        # not know how many requests it will make until it has made them: the gap has to be
+        # recomputed against the remaining budget, or an estimate that is out by 2x turns a
+        # two-hour sweep into a four-hour one.
+        self.pacer = None
         self._route = None
         # The last automatic move between tiers, for the admin screen and the watchdog.
         self._failover = None
@@ -407,9 +414,10 @@ class EncarClient:
 
     async def _throttle(self):
         async with self._lock:
+            wanted = self.pacer() if self.pacer else self.min_interval
             gap = time.monotonic() - self._last
-            if gap < self.min_interval:
-                await asyncio.sleep(self.min_interval - gap)
+            if gap < wanted:
+                await asyncio.sleep(wanted - gap)
             self._last = time.monotonic()
 
     async def get_json(self, path, allow_404=False, interactive=False):
