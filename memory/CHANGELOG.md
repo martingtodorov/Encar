@@ -2,6 +2,52 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-06 (fork) — Why the sync kept "getting stuck at the end" (tagging colours / gearboxes)
+- **Root cause 1: every facet walk opened its OWN full two-hour budget.** `_collect_ids` is
+  called once per Encar colour value (~30) plus once for the manual gearbox facet, and each
+  call entered `paced_sweep(pages)` with the default `SYNC_TARGET_SECONDS` target. A fresh
+  7200s budget spread over the 80 pages of one big colour lands on the 60-second per-request
+  ceiling: eighty minutes for "white" alone, hours for the whole tail. (The crawl had been
+  fixed to share one budget; the passes that run AFTER it had not.) Evidence kept in a test:
+  `_sweep_gap(80, 7200) == SYNC_PAGE_GAP_MAX`.
+- **Root cause 2: the tail stamped nothing.** The live document is what the stall self-heal
+  (added earlier this session) watches, and it was only written when rows landed — never
+  during the facet passes, and not during the crawl's bisection PROBES either. So a healthy,
+  deliberately slow tail looked wedged after 30 minutes, got restarted, and came back to the
+  same phase. That is the loop the owner was seeing.
+- **Fixes**
+  * `SYNC_FACET_SECONDS` (default 1200) is the tail's share, taken OUT of the crawl's:
+    `crawl_budget() + facet_budget() == SYNC_TARGET_SECONDS`, capped at half the target. The
+    whole sync — crawl and tail — still lands on two hours.
+  * `paced_sweep(expected, target=None)`; `syncjob._run` opens ONE facet budget around both
+    tagging phases, and every nested walk joins it instead of starting its own.
+  * `facet_requests(db)` estimates the tail's request count (a page per 500 cars + one count
+    per facet value), so ~500 requests over 1200s is ~2.4s each instead of 60s.
+  * `sync.beat(db)` stamps the live document; called on every facet page, after every colour,
+    and on every bisection probe (`ctx["beat"]`).
+  * `encar.all_blocked()` / `blocked_reason()`. An AUTOMATIC start (`schedule`, `resume`,
+    `auto-restart`) stands down while every route's circuit is open, and a stall with the
+    upstream down STOPS the sync with that reason written down instead of restarting into a
+    closed door. Starts by hand are never refused.
+- Tests: `backend/tests/test_facet_pacing.py` (13 passing) — budget split and its cap, the
+  request estimate, nested walks joining one budget, a simulated-clock walk landing on the
+  tail budget (and the old shape blowing past it), the pacer always coming off, beats per
+  page and per probe, automatic starts standing down while blocked, and a stalled sync being
+  stopped rather than restart-looped. Regression across the sync/watchdog suites: 121 passing.
+- Also fixed: the three gearbox test stubs that had to learn `_collect_ids(q, db=None)`.
+
+### Considered, not integrated: xapikorea.com (awaiting owner's decision)
+An independent, unofficial REST API over Encar listings (€0 / €20 / €40 / Enterprise; Pro
+gives 100k requests/month, 100/min and **bulk NDJSON export** at `/v1/export/cars`). Relevant
+because the export could replace the whole bisecting crawl, and because their payload carries
+transmission and colour — which would remove both facet passes, i.e. the exact phases that
+keep wedging. Risks: they scrape Encar themselves (their blocks become ours, with no fallback
+tier), one-person operation (gmail contact), monthly request caps, and a field-mapping job.
+Recommended first step: free key (500 requests) + an evaluation script comparing their data
+against our catalogue (field coverage, counts vs Encar, latency, whether the export really
+returns all ~245k) before paying anything.
+
+
 ## 2026-06 (fork) — Alert noise: three alarms that should never have rung, and one that could not be silenced
 - **The sync alarm that would not close** ("никога не е завършвал успешно — статус never",
   open since 05/09, 22 reminders). `_probe_sync` read the LEGACY `sync_state._id =

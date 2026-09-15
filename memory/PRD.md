@@ -29,6 +29,12 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
 `/api/robots.txt` in nginx so it follows `PUBLIC_SITE_URL` automatically.
 
 ## Recently completed (2026-06 fork session) — full detail in CHANGELOG.md
+* **"Stuck at the end" fixed**: each facet walk used to open its own two-hour budget (80
+  pages of one colour at the 60s ceiling = 80 minutes), and the tail stamped nothing so the
+  stall self-heal restarted it in a loop. Now the tail has its own share of the two hours
+  (`SYNC_FACET_SECONDS`, taken out of the crawl's), all walks share it, and every page and
+  probe beats the live document. With the upstream circuit open, automatic starts stand down
+  and a stall stops the sync with that reason instead of restarting into a closed door.
 * **Alert noise fixed**: the sync check read a legacy document nothing writes (an alarm from
   05/09 could never close — now reads `catalogue_job`); NAT repairs and a single dead proxy
   tier are `Info` (panel + log, no push, no reminders) instead of outages.
