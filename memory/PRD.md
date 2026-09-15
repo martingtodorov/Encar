@@ -63,6 +63,16 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
 * **Saved searches page**: one batched `POST /api/search/totals` (counts + thumbnail, 5-minute
   cache) instead of a full search per card, and slug resolution memoised per session.
 
+## Deployment readiness (checked 2026-06, this fork)
+Static deployment health check: **PASS**, zero findings. Env-only URLs/ports/secrets on both
+sides (`REACT_APP_BACKEND_URL`; `MONGO_URL`/`DB_NAME`/`CORS_ORIGINS`), `load_dotenv` without
+override, supervisor config valid, frontend compiles, no destructive startup work, TTL indexes
+only on ephemeral collections. Every env var added this session
+(`SYNC_FACET_SECONDS`, `SYNC_STALL_AFTER_S`, `SYNC_AUTO_RESTART`, `INCIDENT_KEEP_DAYS`,
+`MANUAL_PLAUSIBILITY_FLOOR`) has a code default, so nothing new is required in `.env` to
+deploy. NOT a deploy blocker but still broken in production: the Resend API key is invalid, so
+no email leaves the system.
+
 ## Open items worth doing next
 * The ~1,200 manual cars stay mislabelled until the first successful gearbox pass runs on
   production (nothing to fix in code — the pass repairs them once Encar answers).
