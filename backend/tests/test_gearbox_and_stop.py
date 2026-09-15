@@ -115,7 +115,7 @@ def test_a_promise_of_rows_answered_with_none_is_a_block(monkeypatch):
 def test_a_failed_walk_writes_no_gearbox_at_all(monkeypatch):
     db = _DB(active=245000)
 
-    async def failed(q):
+    async def failed(q, db=None):
         return None
 
     monkeypatch.setattr(sync_mod, "_collect_ids", failed)
@@ -127,7 +127,7 @@ def test_a_failed_walk_writes_no_gearbox_at_all(monkeypatch):
 def test_no_manual_car_in_a_quarter_million_is_refused_as_implausible(monkeypatch):
     db = _DB(active=245000)
 
-    async def empty(q):
+    async def empty(q, db=None):
         return []
 
     monkeypatch.setattr(sync_mod, "_collect_ids", empty)
@@ -139,7 +139,7 @@ def test_no_manual_car_in_a_quarter_million_is_refused_as_implausible(monkeypatc
 def test_a_good_walk_tags_manual_and_confines_automatic_to_the_crawl_scope(monkeypatch):
     db = _DB(active=245000)
 
-    async def manual(q):
+    async def manual(q, db=None):
         return ["1", "2", "3"]
 
     monkeypatch.setattr(sync_mod, "_collect_ids", manual)
@@ -161,7 +161,7 @@ def test_a_good_walk_tags_manual_and_confines_automatic_to_the_crawl_scope(monke
 def test_a_small_scope_may_legitimately_have_no_manual_car(monkeypatch):
     db = _DB(active=40)
 
-    async def empty(q):
+    async def empty(q, db=None):
         return []
 
     monkeypatch.setattr(sync_mod, "_collect_ids", empty)

@@ -12,6 +12,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+import encar as encar_mod
 import slugs as slugs_mod
 import pricewatch as pricewatch_mod
 import searchwatch as searchwatch_mod
@@ -296,7 +297,13 @@ async def restart(db, fresh=False, trigger="restart"):
 
 
 async def restart_if_stalled(db):
-    """Self-heal a wedged sync, so a crawl that dies at 3am is running again by 3:30."""
+    """Self-heal a wedged sync, so a crawl that dies at 3am is running again by 3:30.
+
+    Unless the reason it stopped moving is that Encar is not answering ANYONE: restarting
+    into a closed door lands in the same place a minute later, over and over. Then the sync
+    is stopped with that reason written down, and the watchdog's upstream alarm — the one
+    that actually describes the problem — is what the owner sees.
+    """
     if not AUTO_RESTART:
         return False
     stalled = await stalled_for(db)
@@ -306,6 +313,13 @@ async def restart_if_stalled(db):
     if _time.monotonic() - _last_auto_restart["at"] < AUTO_RESTART_COOLDOWN_S:
         return False
     _last_auto_restart["at"] = _time.monotonic()
+    if encar_mod.all_blocked():
+        why = encar_mod.blocked_reason()
+        log.error("catalogue sync has not moved for %ss and Encar is refusing every route "
+                  "(%s) — stopping instead of restarting into it", int(stalled), why)
+        await stop(db, reason=f"спрян след {int(stalled / 60)} мин без напредък: "
+                              f"Encar не отговаря по нито един маршрут ({why})")
+        return False
     log.error("catalogue sync has not moved for %ss — restarting it", int(stalled))
     await restart(db, trigger="auto-restart")
     return True
@@ -364,6 +378,13 @@ async def start(db, trigger="manual", resume_run_id=None, fresh=False):
     global _task
     if is_running():
         return {"started": False, "reason": "a catalogue sync is already running"}
+    # An automatic start into a closed door achieves nothing: the crawl aborts on its first
+    # count probe and the whole thing looks like it "keeps getting stuck". A start by HAND is
+    # the operator's call and is never refused.
+    if trigger in ("schedule", "resume", "auto-restart") and encar_mod.all_blocked():
+        why = encar_mod.blocked_reason()
+        log.warning("%s start skipped: Encar is refusing every route (%s)", trigger, why)
+        return {"started": False, "reason": f"Encar не отговаря по нито един маршрут ({why})"}
     if fresh:
         # "From scratch" has to mean it. The slice checkpoint is read by the crawl itself,
         # so leaving it behind is how a fresh start quietly becomes a resume.
@@ -409,12 +430,18 @@ async def _run(db, trigger, resume_run_id=None):
                 db, manufacturers=None, retire=True, run_id=resume_run_id,
                 resume=bool(resume_run_id))
         await _phase(db, "manual")
-        result["manual_tagged"] = await sync_mod.tag_transmission(db)
-        # Colour is the same kind of pass as the gearbox one: not in the list payload, but an
-        # upstream facet. It belongs HERE, in the catalogue sync that actually runs, and not
-        # only in the legacy full sweep.
-        await _phase(db, "colour")
-        result["colours"] = await sync_mod.tag_colors(db)
+        # ONE budget for the whole tail. Each facet walk used to open a fresh two-hour
+        # sweep of its own, so every page of every colour waited the 60-second ceiling and
+        # the sync sat in "tagging colours" for hours — and, stamping nothing while it did,
+        # looked wedged to the stall self-heal, which restarted it into the same place.
+        async with sync_mod.paced_sweep(await sync_mod.facet_requests(db),
+                                        target=sync_mod.facet_budget()):
+            result["manual_tagged"] = await sync_mod.tag_transmission(db)
+            # Colour is the same kind of pass as the gearbox one: not in the list payload,
+            # but an upstream facet. It belongs HERE, in the catalogue sync that actually
+            # runs, and not only in the legacy full sweep.
+            await _phase(db, "colour")
+            result["colours"] = await sync_mod.tag_colors(db)
         await _phase(db, "dedupe")
         result["dedupe"] = await sync_mod.dedupe_pass(db)
         await _phase(db, "taxonomy")

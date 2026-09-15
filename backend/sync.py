@@ -41,6 +41,13 @@ PAGE = 500
 # SYNC_TARGET_SECONDS, so the owner can slow it down further from the environment without a
 # code deploy (and the tests can turn the waiting off).
 SYNC_TARGET_SECONDS = 7200
+# Of that budget, the share reserved for the facet passes at the END (gearboxes, colours).
+# They used to be unbudgeted: `_collect_ids` opened a FRESH two-hour sweep for every facet
+# value, so each of the ~30 colour walks was paced at the 60-second per-request ceiling —
+# white alone (80 pages) took eighty minutes and the tail ran for hours. Worse, nothing
+# stamped the live document during it, so the stall self-heal restarted a sync that was
+# merely crawling politely, and the sync got stuck at "tagging colours" for ever.
+SYNC_FACET_SECONDS = int(os.environ.get("SYNC_FACET_SECONDS") or 1200)
 # Even a tiny catalogue must not wait forever between pages, and a big one must not be paced
 # faster than the client's own floor.
 SYNC_PAGE_GAP_MAX = 60
@@ -188,16 +195,63 @@ class Sweep:
 _sweep = {"active": None}
 
 
-def _sweep_gap(requests_expected):
+def _sweep_gap(requests_expected, target=None):
     """The gap a sweep of this size starts out with. Kept for the admin display and the
     log line; the live gap comes from `Sweep.gap` and changes as the crawl learns."""
-    target = int(os.environ.get("SYNC_TARGET_SECONDS") or SYNC_TARGET_SECONDS)
+    target = target or int(os.environ.get("SYNC_TARGET_SECONDS") or SYNC_TARGET_SECONDS)
     gap = target / max(requests_expected, 1)
     return max(ENCAR_MIN_GAP, min(gap, SYNC_PAGE_GAP_MAX))
 
 
+def _target():
+    return int(os.environ.get("SYNC_TARGET_SECONDS") or SYNC_TARGET_SECONDS)
+
+
+def crawl_budget():
+    """The crawl's share: the whole target minus what the facet passes at the end need.
+
+    The promise is that a sync takes two hours — all of it, tail included. Giving the crawl
+    the full two hours and then starting the facet passes is how it became two hours plus
+    however long the tail felt like.
+    """
+    return max(_target() - facet_budget(), 60)
+
+
+def facet_budget():
+    return max(min(int(os.environ.get("SYNC_FACET_SECONDS") or SYNC_FACET_SECONDS),
+                   _target() // 2), 30)
+
+
+async def facet_requests(db, manufacturers=None):
+    """How many upstream requests the gearbox and colour passes will need, roughly.
+
+    One id-only page per 500 cars (the colours partition the catalogue, so all the colour
+    walks together are about one extra pass over it), plus a count request per facet value,
+    plus the three the manual walk takes.
+    """
+    q = {"active": True}
+    if manufacturers:
+        q["manufacturer"] = {"$in": list(manufacturers)}
+    cars = await db.listings.count_documents(q) or 0
+    scopes = max(len(manufacturers or []), 1)
+    return int(cars / PAGE + (len(COLOR_OF_RAW) + 1) * scopes + 4)
+
+
+async def beat(db, progress_key="catalogue_partition"):
+    """Say "still working" to the live document.
+
+    The stall self-heal watches this timestamp. The crawl stamps it every three seconds, but
+    the facet passes at the end used to stamp nothing for an hour at a time — so a healthy,
+    deliberately slow tail looked exactly like a wedged sync and got restarted, again and
+    again, which is why the sync kept "getting stuck at the end".
+    """
+    await db.sync_state.update_one({"_id": f"{progress_key}_live"},
+                                   {"$set": {"updated_at": datetime.now(timezone.utc)}},
+                                   upsert=True)
+
+
 @contextlib.asynccontextmanager
-async def paced_sweep(requests_expected):
+async def paced_sweep(requests_expected, target=None):
     """Spread every upstream call of a sweep across SYNC_TARGET_SECONDS, then put the client
     back as it was.
 
@@ -213,12 +267,13 @@ async def paced_sweep(requests_expected):
         # Nested: share the budget already running.
         yield _sweep["active"]
         return
-    target = int(os.environ.get("SYNC_TARGET_SECONDS") or SYNC_TARGET_SECONDS)
+    target = target or int(os.environ.get("SYNC_TARGET_SECONDS") or SYNC_TARGET_SECONDS)
     sweep = Sweep(requests_expected, target)
     _sweep["active"] = sweep
     encar.pacer = sweep.gap
     log.info("sweep paced: ~%s expected requests over %d min (a request every %.1fs to "
-             "start with)", sweep.expected, target / 60, _sweep_gap(requests_expected))
+             "start with)", sweep.expected, target / 60,
+             _sweep_gap(requests_expected, target))
     try:
         yield sweep
     finally:
@@ -490,6 +545,12 @@ async def _crawl_node(base, dims, count, sink, st, ctx=None):
         if lcount is None:
             lcount = await encar.count(lkey)
             st["probes"] += 1
+            # Say "still working" on every PROBE too, not only when rows land. A deep
+            # bisection can spend many paced probes without writing a single car, and with
+            # nothing stamped the panel froze and the stall self-heal restarted a crawl that
+            # was simply working its way down the tree.
+            if ctx and ctx.get("beat"):
+                await ctx["beat"]()
             if lcount is None:
                 # A probe failed. Do NOT split on a fabricated count of 0 - that would
                 # skip the whole right sibling and pretend the branch is empty. Bubble
@@ -661,7 +722,10 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
                       "done": sorted(done)}},
             upsert=True)
 
-    ctx = {"plan": plan, "done": done, "flush": flush_resume}
+    ctx = {"plan": plan, "done": done, "flush": flush_resume,
+           # A heartbeat the bisection can call: progress is published on probes as well as
+           # on written rows, so a long walk down the tree still looks alive.
+           "beat": lambda: publish("crawl")}
 
     scope = list(manufacturers) if manufacturers else [None]
     per_make = {}
@@ -674,7 +738,9 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
     # only affects the shape of the pacing, not the total.
     seed = await db.listings.count_documents({"active": True}) or 0
     expected_requests = max(seed // LEAF_MAX, 1) * SYNC_REQUEST_OVERHEAD
-    sweep_cm = paced_sweep(expected_requests)
+    # The crawl gets the target MINUS the facet passes' share, so the whole sync — crawl and
+    # tail together — lands on the two hours the owner asked for.
+    sweep_cm = paced_sweep(expected_requests, target=crawl_budget())
     sweep = await sweep_cm.__aenter__()
     pace["sweep"] = sweep
     expected_seen = 0
@@ -821,17 +887,20 @@ async def tag_transmission(db, manufacturers=None):
     try:
         manual_ids = []
         scopes = list(manufacturers) if manufacturers else [None]
-        for mfr in scopes:
-            q = (MANUAL_Q if not mfr else
-                 _q([f"Manufacturer.{mfr}", "Transmission.\uc218\ub3d9"]))
-            got = await _collect_ids(q)
-            if got is None:
-                log.error("gearbox tagging skipped: the upstream walk for %s failed — "
-                          "nothing written (a partial list would have stamped every other "
-                          "car automatic)", mfr or "ALL")
-                return await record({"ok": False, "manual": 0, "auto": 0,
-                                     "skipped": f"upstream walk failed for {mfr or 'ALL'}"})
-            manual_ids += got
+        async with paced_sweep(await facet_requests(db, manufacturers),
+                               target=facet_budget()):
+            for mfr in scopes:
+                q = (MANUAL_Q if not mfr else
+                     _q([f"Manufacturer.{mfr}", "Transmission.\uc218\ub3d9"]))
+                got = await _collect_ids(q, db=db)
+                if got is None:
+                    log.error("gearbox tagging skipped: the upstream walk for %s failed — "
+                              "nothing written (a partial list would have stamped every "
+                              "other car automatic)", mfr or "ALL")
+                    return await record({"ok": False, "manual": 0, "auto": 0,
+                                         "skipped": f"upstream walk failed for "
+                                                    f"{mfr or 'ALL'}"})
+                manual_ids += got
 
         scope_q = {"active": True}
         if manufacturers:
@@ -882,25 +951,28 @@ async def tag_colors(db, manufacturers=None):
     from_details = await _colors_from_details(db, manufacturers)
     try:
         scopes = list(manufacturers) if manufacturers else [None]
-        for slug, raws in COLOR_GROUPS.items():
-            ids = []
-            for raw in raws:
-                for mfr in scopes:
-                    clauses = [f"Color.{raw}"]
-                    if mfr:
-                        clauses.insert(0, f"Manufacturer.{mfr}")
-                    got = await _collect_ids(_q(clauses))
-                    if not got:
-                        continue
-                    ids += got
-            if ids:
-                r = await db.listings.update_many(
-                    {"_id": {"$in": ids}},
-                    {"$set": {"color": slug, "color_at": started}})
-                per_color[slug] = r.matched_count
-                tagged_total += r.matched_count
-            else:
-                per_color[slug] = 0
+        async with paced_sweep(await facet_requests(db, manufacturers),
+                               target=facet_budget()):
+            for slug, raws in COLOR_GROUPS.items():
+                ids = []
+                for raw in raws:
+                    for mfr in scopes:
+                        clauses = [f"Color.{raw}"]
+                        if mfr:
+                            clauses.insert(0, f"Manufacturer.{mfr}")
+                        got = await _collect_ids(_q(clauses), db=db)
+                        if not got:
+                            continue
+                        ids += got
+                if ids:
+                    r = await db.listings.update_many(
+                        {"_id": {"$in": ids}},
+                        {"$set": {"color": slug, "color_at": started}})
+                    per_color[slug] = r.matched_count
+                    tagged_total += r.matched_count
+                else:
+                    per_color[slug] = 0
+                await beat(db)
         scope_q = {"active": True, "duplicate": {"$ne": True}}
         if manufacturers:
             scope_q["manufacturer"] = {"$in": list(manufacturers)}
@@ -945,7 +1017,7 @@ async def _colors_from_details(db, manufacturers=None):
     return written
 
 
-async def _collect_ids(q):
+async def _collect_ids(q, db=None):
     """Every upstream id matching a facet query, or None if the walk did not complete.
 
     None is the whole point. A partial or empty list is indistinguishable from "there are
@@ -962,8 +1034,9 @@ async def _collect_ids(q):
         return ids                                   # a genuinely empty facet
     pages = max((total + PAGE - 1) // PAGE, 1)
     # The facet passes page through Encar exactly like the main sweep does, and they run back
-    # to back with it — same pacing, or the burst simply moves here.
-    async with paced_sweep(pages):
+    # to back with it — same pacing, or the burst simply moves here. When a facet budget is
+    # already open (the normal case) this JOINS it instead of starting a second one.
+    async with paced_sweep(pages, target=facet_budget()):
         for p in range(pages):
             try:
                 data = await encar.search(offset=p * PAGE, limit=PAGE, q=q)
@@ -981,6 +1054,8 @@ async def _collect_ids(q):
                     return None
                 break                                # short last page: upstream counts drift
             ids += [str(r.get("Id")) for r in rows if r.get("Id")]
+            if db is not None:
+                await beat(db)                       # a slow tail is not a wedged one
     return ids
 
 

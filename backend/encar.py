@@ -144,6 +144,27 @@ def tier_blocked(tier):
     return time.monotonic() < _b(tier)["open_until"]
 
 
+def all_blocked():
+    """Is EVERY route in the chain shut out right now?
+
+    The difference between "the sync is wedged" and "Encar is not answering anyone". A
+    catalogue sweep restarted into a closed door just stops again in the same place, which
+    is what made the sync look like it kept getting stuck at the end.
+    """
+    ch = chain()
+    return bool(ch) and all(tier_blocked(t) for t in ch)
+
+
+def blocked_reason():
+    ch = chain()
+    for t in ch:
+        if tier_blocked(t):
+            b = _b(t)
+            return (f"{b['reason'] or 'upstream unavailable'} "
+                    f"(още {b['open_until'] - time.monotonic():.0f}s)")
+    return ""
+
+
 def set_route(mode):
     """Choose the route. Returns the mode actually in force."""
     mode = MODE_ALIASES.get(mode, mode)
