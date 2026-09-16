@@ -281,39 +281,40 @@ export default function CarDetailPage() {
       }
       let held = 0;             // fingers on the glass
       let lifted = 0;           // when the last one left
-      let dir = 0;              // which way the finger was throwing the column
       let keep = el.scrollTop;
       let last = el.scrollTop;
 
       const held_down = () => {
         held += 1;
+        lifted = Date.now();
       };
       const held_up = () => {
         held = Math.max(0, held - 1);
-        if (!held) lifted = Date.now();
+        lifted = Date.now();
       };
-      const spun = (e) => {
+      const spun = () => {
         held = 0;
         lifted = Date.now();
-        dir = Math.sign(e.deltaY) || dir;
       };
       const onScroll = () => {
         const top = el.scrollTop;
         const step = top - last;
         last = top;
         if (!step) return;
-        // A finger is on it: this is the visitor scrolling, whichever way they like.
-        if (held) {
-          dir = Math.sign(step) || dir;
-          keep = top;
-          return;
-        }
-        // No finger. Momentum carries on the way the throw went and dies out within a
-        // second or two; anything else moving the column upwards is the system, and on iOS
-        // that means the status bar was tapped. Twenty photos deep, that silently loses the
-        // visitor's place — usually when they were only reaching for the top of the screen.
-        const momentum = Date.now() - lifted < 2000 && Math.sign(step) === dir;
-        if (momentum || step > 0) {
+        // The ONE thing worth cancelling is the iOS status-bar tap: it throws the scroller
+        // to the very top in a single step, with no finger anywhere near the glass.
+        //
+        // Everything else has to be left completely alone. The previous rule cancelled ANY
+        // upward movement it could not account for as momentum, and there are two perfectly
+        // normal sources of exactly that: a `touchstart` that never reaches this element
+        // (the photo slots handle their own gestures), and the browser's own scroll
+        // anchoring as photos above the viewport arrive and their slots take the picture's
+        // real aspect ratio. Writing `scrollTop` back against either of those makes the
+        // column fight the finger a frame at a time — the intermittent jitter on the way
+        // back up.
+        const gesture = held > 0 || Date.now() - lifted < 2000;
+        const thrown_to_top = top <= 4 && step < -0.5 * (el.clientHeight || 600);
+        if (gesture || !thrown_to_top) {
           keep = top;
           return;
         }

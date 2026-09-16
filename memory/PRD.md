@@ -29,6 +29,22 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
 `/api/robots.txt` in nginx so it follows `PUBLIC_SITE_URL` automatically.
 
 ## Recently completed (2026-06 fork session) — full detail in CHANGELOG.md
+* **Lightbox jitter on the way back up — FIXED** (this session). Reported as "starts
+  jittering intermittently when I try to scroll up after I have gone down to one of the
+  images". Nothing but the scroll guard in `CarDetailPage` ever writes `scrollTop` in the
+  photo column, and its rule was "cancel ANY upward movement I cannot account for as
+  momentum" (`el.scrollTop = keep`). Two perfectly normal things look exactly like that:
+  a `touchstart` that never reaches the dialog (the photo slots handle their own gestures
+  natively) and the browser's own scroll anchoring as photos above the viewport arrive and
+  their slots take the picture's real aspect ratio. The guard then fought the finger one
+  frame at a time — the jitter, and intermittent because it needs a photo to be settling.
+  The guard now cancels ONLY what it was written for: a jump that lands at the very top in
+  one step (> half the viewport) with no finger and no wheel in the last 2s — the iOS
+  status-bar tap. `dir`/momentum bookkeeping deleted.
+  * Verified in a browser at 390x400 on a 4 514px column: wheel down then up stays where the
+    wheel left it; a 40px upward correction with no gesture is left alone (was: reverted);
+    a programmatic jump to 0 with no gesture still returns to the kept position. NOT
+    reproducible with real touch in this environment — awaiting the owner's device.
 * **Light pass through the day** (`sync.crawl_recent`, this session). The full sweep is paced
   across two hours and runs once at 03:30, so the catalogue was a night old by mid-morning.
   Encar answers newest-modified FIRST, so the light pass reads only the TOP of that feed and
