@@ -269,15 +269,24 @@ _last_auto_restart = {"at": 0.0}
 
 
 async def stalled_for(db):
-    """Seconds since the running sync last moved, or None when nothing is running."""
+    """Seconds since the running sync last moved, or None when nothing is running.
+
+    Measured from the LATER of "the live document was last stamped" and "this run started".
+    Taking only the live document meant a fresh start inherited the PREVIOUS run's stale
+    timestamp: a sync twelve seconds old reported two hours of silence and the self-heal
+    cancelled it on the spot — over and over, each restart making another opening request,
+    which is precisely the run of blocks that earns Encar's long cooldown. "As soon as we
+    start the catalogue sync we get the rate limit" was partly this.
+    """
     if not is_running():
         return None
     live = await db.sync_state.find_one({"_id": LIVE_ID}) or {}
     job = await db.sync_state.find_one({"_id": JOB_ID}) or {}
-    last = _aware(live.get("updated_at")) or _aware(job.get("started_at"))
-    if not last:
+    stamps = [t for t in (_aware(live.get("updated_at")), _aware(job.get("started_at")))
+              if t]
+    if not stamps:
         return None
-    return max((_now() - last).total_seconds(), 0.0)
+    return max((_now() - max(stamps)).total_seconds(), 0.0)
 
 
 async def restart(db, fresh=False, trigger="restart"):
@@ -415,6 +424,9 @@ async def _run(db, trigger, resume_run_id=None):
     result = {}
     try:
         await sync_mod.ensure_indexes(db)
+        # Stamp the live document before the first upstream call: the opening count can
+        # legitimately wait out a cooldown, and an unstamped wait looks like silence.
+        await sync_mod.beat(db)
         # A resumed run keeps the ORIGINAL run_id. The retire pass deactivates anything
         # whose last_crawl is not this run, so a fresh id would retire everything the
         # interrupted crawl had already indexed.

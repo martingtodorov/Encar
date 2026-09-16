@@ -141,6 +141,10 @@ def test_a_sync_that_stopped_moving_is_reported_as_stalled(monkeypatch):
             await db.sync_state.update_one(
                 {"_id": syncjob.LIVE_ID},
                 {"$set": {"updated_at": _now() - timedelta(minutes=45)}}, upsert=True)
+            # Silence is measured from the later of the live stamp and THIS run's start.
+            await db.sync_state.update_one(
+                {"_id": syncjob.JOB_ID},
+                {"$set": {"started_at": _now() - timedelta(minutes=45)}}, upsert=True)
             assert await syncjob.stalled_for(db) > 40 * 60
         finally:
             client.close()
@@ -159,6 +163,9 @@ def test_a_stalled_sync_is_cancelled_and_started_again(monkeypatch):
             await db.sync_state.update_one(
                 {"_id": syncjob.LIVE_ID},
                 {"$set": {"updated_at": _now() - timedelta(hours=2)}}, upsert=True)
+            await db.sync_state.update_one(
+                {"_id": syncjob.JOB_ID},
+                {"$set": {"started_at": _now() - timedelta(hours=2)}}, upsert=True)
 
             async def fake_start(db_, trigger="manual", resume_run_id=None, fresh=False):
                 started.update(trigger=trigger, fresh=fresh)

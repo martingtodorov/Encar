@@ -29,6 +29,13 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
 `/api/robots.txt` in nginx so it follows `PUBLIC_SITE_URL` automatically.
 
 ## Recently completed (2026-06 fork session) — full detail in CHANGELOG.md
+* **"Rate limit as soon as the sync starts" fixed** — it was self-inflicted: the stall
+  self-heal cancelled each fresh start after ~12s (it read the previous run's timestamp), and
+  one 403 killed the sync at its first count probe because the tier chain only moved for the
+  NEXT request. A restart loop firing opening requests cleared Encar's 3-blocks-in-300s bar,
+  which escalates the cooldown to 180s on every route. Now: silence is measured from this
+  run's start, a block falls through the chain within the same request, and the opening count
+  waits out a cooldown before giving up (while the retire guard keeps its teeth).
 * **"Stuck at the end" fixed**: each facet walk used to open its own two-hour budget (80
   pages of one colour at the 60s ceiling = 80 minutes), and the tail stamped nothing so the
   stall self-heal restarted it in a loop. Now the tail has its own share of the two hours

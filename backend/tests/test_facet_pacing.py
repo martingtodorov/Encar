@@ -156,11 +156,17 @@ def test_a_polite_tail_is_not_mistaken_for_a_wedged_sync(monkeypatch):
         client = AsyncIOMotorClient(os.environ["MONGO_URL"])
         db = client[os.environ["DB_NAME"]]
         keep = await db.sync_state.find_one({"_id": syncjob.LIVE_ID})
+        keep_job = await db.sync_state.find_one({"_id": syncjob.JOB_ID})
         try:
             monkeypatch.setattr(syncjob, "_task", _FakeTask())
             await db.sync_state.update_one(
                 {"_id": syncjob.LIVE_ID},
                 {"$set": {"updated_at": datetime.now(timezone.utc) - timedelta(hours=2)}},
+                upsert=True)
+            # Silence counts from the later of the live stamp and this run's start.
+            await db.sync_state.update_one(
+                {"_id": syncjob.JOB_ID},
+                {"$set": {"started_at": datetime.now(timezone.utc) - timedelta(hours=2)}},
                 upsert=True)
             assert await syncjob.stalled_for(db) > 3600      # looks wedged
 
@@ -170,6 +176,9 @@ def test_a_polite_tail_is_not_mistaken_for_a_wedged_sync(monkeypatch):
         finally:
             if keep:
                 await db.sync_state.replace_one({"_id": syncjob.LIVE_ID}, keep, upsert=True)
+            if keep_job:
+                await db.sync_state.replace_one({"_id": syncjob.JOB_ID}, keep_job,
+                                                upsert=True)
             client.close()
 
     asyncio.run(go())
@@ -273,6 +282,10 @@ def test_a_stall_with_the_upstream_down_stops_the_sync_instead_of_looping(monkey
                 {"_id": syncjob.LIVE_ID},
                 {"$set": {"updated_at": datetime.now(timezone.utc) - timedelta(hours=2)}},
                 upsert=True)
+            await db.sync_state.update_one(
+                {"_id": syncjob.JOB_ID},
+                {"$set": {"started_at": datetime.now(timezone.utc) - timedelta(hours=2)}},
+                upsert=True)
 
             assert await syncjob.restart_if_stalled(db) is False
             assert restarted == [], "restarting into a closed door is the loop"
@@ -314,4 +327,111 @@ def test_the_bisection_publishes_progress_on_probes_not_only_on_written_rows(mon
     asyncio.run(sync_mod._crawl_node([], sync_mod._fresh_dims(), 5000, sink, st, ctx))
     assert st["probes"] >= 1
     assert len(beats) >= st["probes"], (beats, st["probes"])
+
+
+
+# ── the starting line ────────────────────────────────────────────────────────
+
+def test_the_opening_count_waits_out_a_block_instead_of_killing_the_sweep(monkeypatch):
+    """One 403 on the sync's FIRST call used to end a two-hour job at second zero — and the
+    automatic resume then repeated that same first call until Encar escalated the cooldown."""
+    from encar import EncarUnavailable
+
+    calls = {"n": 0}
+    slept = []
+
+    async def flaky(q=None, interactive=False):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise EncarUnavailable("upstream refused the request (HTTP 403)", 403)
+        return 244996
+
+    async def fake_sleep(s):
+        slept.append(s)
+
+    monkeypatch.setattr(sync_mod.encar, "count", flaky)
+    monkeypatch.setattr(sync_mod.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(sync_mod.encar_mod, "blocked_for", lambda: 25.0)
+
+    assert asyncio.run(sync_mod._count_patient("(And.x.)")) == 244996
+    assert calls["n"] == 2
+    assert slept and 25 <= slept[0] <= 120, slept
+
+
+def test_it_still_gives_up_eventually_so_the_retire_guard_keeps_its_teeth(monkeypatch):
+    """Patience is not persistence: a count that never answers must still abort the sweep,
+    because a fabricated zero is what would retire the whole catalogue."""
+    from encar import EncarUnavailable
+
+    calls = {"n": 0}
+
+    async def always_blocked(q=None, interactive=False):
+        calls["n"] += 1
+        raise EncarUnavailable("upstream refused the request (HTTP 403)", 403)
+
+    async def fake_sleep(s):
+        return None
+
+    monkeypatch.setattr(sync_mod.encar, "count", always_blocked)
+    monkeypatch.setattr(sync_mod.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(sync_mod.encar_mod, "blocked_for", lambda: 180.0)
+
+    with pytest.raises(EncarUnavailable):
+        asyncio.run(sync_mod._count_patient("(And.x.)"))
+    assert calls["n"] == 3, "bounded: three tries, not a loop against a shut door"
+
+
+def test_how_long_until_a_door_opens(monkeypatch):
+    import encar as encar_mod
+
+    assert encar_mod.blocked_for() == 0.0 or not encar_mod.all_blocked()
+    monkeypatch.setattr(encar_mod, "all_blocked", lambda: True)
+    monkeypatch.setattr(encar_mod, "chain", lambda: ("direct",))
+    monkeypatch.setattr(encar_mod, "_b",
+                        lambda t=None: {"open_until": encar_mod.time.monotonic() + 42})
+    assert 40 < encar_mod.blocked_for() <= 42
+
+
+
+def test_a_sync_that_just_started_is_never_stalled(monkeypatch):
+    """Caught in the log while testing the patient count: the self-heal cancelled a sync
+    twelve seconds after it was started, because the live document still carried the PREVIOUS
+    run's timestamp. Every cancellation made another opening request, and a run of those is
+    what earns Encar's three-minute cooldown on every route."""
+    async def go():
+        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+        db = client[os.environ["DB_NAME"]]
+        keep_live = await db.sync_state.find_one({"_id": syncjob.LIVE_ID})
+        keep_job = await db.sync_state.find_one({"_id": syncjob.JOB_ID})
+        try:
+            monkeypatch.setattr(syncjob, "_task", _FakeTask())
+            monkeypatch.setattr(syncjob, "_last_auto_restart", {"at": 0.0})
+            # A stale live document from the run before...
+            await db.sync_state.update_one(
+                {"_id": syncjob.LIVE_ID},
+                {"$set": {"updated_at": datetime.now(timezone.utc) - timedelta(hours=2)}},
+                upsert=True)
+            # ...and a run that started a moment ago.
+            await db.sync_state.update_one(
+                {"_id": syncjob.JOB_ID},
+                {"$set": {"status": "running",
+                          "started_at": datetime.now(timezone.utc) - timedelta(seconds=12)}},
+                upsert=True)
+
+            assert await syncjob.stalled_for(db) < 30
+            assert await syncjob.restart_if_stalled(db) is False
+
+            # And a run that really HAS gone quiet is still caught.
+            await db.sync_state.update_one(
+                {"_id": syncjob.JOB_ID},
+                {"$set": {"started_at": datetime.now(timezone.utc) - timedelta(hours=3)}},
+                upsert=True)
+            assert await syncjob.stalled_for(db) > syncjob.STALL_AFTER_S
+        finally:
+            for doc_id, keep in ((syncjob.LIVE_ID, keep_live), (syncjob.JOB_ID, keep_job)):
+                if keep:
+                    await db.sync_state.replace_one({"_id": doc_id}, keep, upsert=True)
+            client.close()
+
+    asyncio.run(go())
 

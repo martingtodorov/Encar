@@ -165,6 +165,18 @@ def blocked_reason():
     return ""
 
 
+def blocked_for():
+    """Seconds until the SOONEST route opens again; 0 when one is open right now.
+
+    Worth waiting out rather than failing on, for the handful of calls that decide whether a
+    whole sweep happens at all.
+    """
+    ch = chain()
+    if not ch or not all_blocked():
+        return 0.0
+    return max(min(_b(t)["open_until"] for t in ch) - time.monotonic(), 0.0)
+
+
 def set_route(mode):
     """Choose the route. Returns the mode actually in force."""
     mode = MODE_ALIASES.get(mode, mode)
@@ -473,7 +485,12 @@ class EncarClient:
         delay = 1.0
         last = "no attempt made"
         last_status = None
-        for attempt in range(ATTEMPTS):
+        # Two separate budgets. `tries` is the retry allowance on the CURRENT tier (transport
+        # errors and rate limits). `doors` is how many tiers of the chain have been tried:
+        # a block is not retried on the same tier — it is retried on the NEXT one.
+        tries = 0
+        doors = 0
+        while True:
             # interactive = one human opening one car: bounded concurrency, no forced
             # gap. Bulk sync keeps the strict single-file pacing.
             if interactive:
@@ -490,7 +507,8 @@ class EncarClient:
                 log.warning("encar route=%s status=- latency_ms=%d circuit=%s path=%s %s",
                             route(), (time.monotonic() - t0) * 1000, self._state(), path,
                             last)
-                if attempt == ATTEMPTS - 1:
+                tries += 1
+                if tries >= ATTEMPTS:
                     break
                 await asyncio.sleep(min(delay, cap))
                 delay *= 2
@@ -525,11 +543,28 @@ class EncarClient:
                 self._ok()
                 return None
             if r.status_code in BLOCK_STATUSES:
-                # Blocked. One attempt, no retries, and this tier's circuit opens straight
-                # away — briefly for a one-off, properly for a run of them, and for the full
-                # probe gap when there is another tier to fall through to.
+                # Blocked on THIS tier. Its circuit opens straight away — briefly for a
+                # one-off, properly for a run of them — and then the SAME request goes out
+                # the next door instead of failing.
+                #
+                # Falling through here is the whole point of having a chain. Without it the
+                # chain only ever helped the request AFTER the blocked one, and the catalogue
+                # sync — whose very first upstream call is a single count probe — died on the
+                # spot every time Hetzner's address was refused, which then earned the long
+                # cooldown on every retry. "As soon as we start the sync we get the rate
+                # limit" was this branch.
                 self._trip(f"HTTP {r.status_code} from upstream",
                            self._block_cooldown(tier), tier=tier, stick=True)
+                last = f"HTTP {r.status_code} on {tier}"
+                nxt = route()
+                if doors < len(chain()) - 1 and nxt != tier and not tier_blocked(nxt):
+                    doors += 1
+                    tries = 0
+                    tier = nxt
+                    c = await self.client()          # one client per tier
+                    log.warning("encar %s — same request going out via route=%s",
+                                last, tier)
+                    continue
                 raise EncarUnavailable(f"upstream refused the request "
                                        f"(HTTP {r.status_code})", r.status_code)
             if r.status_code in RATE_LIMIT_STATUSES:
@@ -544,7 +579,8 @@ class EncarClient:
                     raise EncarUnavailable(f"rate limited, retry after {asked}s", 429)
                 if asked is not None:
                     wait = asked
-                if attempt == ATTEMPTS - 1:
+                tries += 1
+                if tries >= ATTEMPTS:
                     break
                 await asyncio.sleep(wait)
                 delay *= 2

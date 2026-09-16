@@ -30,7 +30,8 @@ from pymongo import UpdateOne
 
 import fx as fx_mod
 import pricing
-from encar import BASE_Q, encar, normalise_row
+from encar import BASE_Q, EncarUnavailable, encar, normalise_row
+import encar as encar_mod
 
 log = logging.getLogger("sync")
 
@@ -496,6 +497,28 @@ def _fresh_dims():
     return [(n, DIM_BOUNDS[n][0], DIM_BOUNDS[n][1]) for n in DIM_ORDER]
 
 
+async def _count_patient(q, tries=3):
+    """The count that decides whether a whole sweep happens at all — worth waiting for.
+
+    This is the sync's FIRST upstream call, and a raise here kills a two-hour job before it
+    indexes a single car. With the automatic resume in place, that then repeated the same
+    first request every few minutes, and a run of blocks is exactly what escalates Encar's
+    cooldown from twenty-five seconds to three minutes on every route. So a block at the
+    starting line is waited out — bounded, and only here.
+    """
+    for attempt in range(tries):
+        try:
+            return await encar.count(q)
+        except EncarUnavailable as e:
+            if attempt == tries - 1:
+                raise
+            wait = min(max(encar_mod.blocked_for(), 10) + 2, 120)
+            log.warning("the opening count was refused (%s) — waiting %.0fs for a route to "
+                        "open rather than abandoning the sweep", str(e)[:120], wait)
+            await asyncio.sleep(wait)
+    return None
+
+
 async def _crawl_node(base, dims, count, sink, st, ctx=None):
     """Recursively bisect until the node fits in one request, then fetch it.
 
@@ -751,7 +774,7 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
         scope_key = _q(base)
         total = plan.get(scope_key)
         if total is None:
-            total = await encar.count(scope_key)
+            total = await _count_patient(scope_key)
             if total is None:
                 # Upstream refused to answer at all (soft-block, 407, network cut). A
                 # zero here would silently wipe every listing in this scope — abort so

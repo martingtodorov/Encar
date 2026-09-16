@@ -8,6 +8,7 @@ import asyncio
 import os
 import sys
 
+import httpx
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -219,23 +220,56 @@ def test_a_dead_tier_hands_traffic_to_the_next_one(monkeypatch):
     asyncio.run(run())
 
 
-def test_a_block_also_moves_on_now(monkeypatch):
+def test_a_block_walks_the_chain_within_the_same_request(monkeypatch):
     """A 403 says THIS address is refused — which is an argument for the next tier, not for
-    sitting still. It is the reason the chain exists: Encar blocks the datacentre address and
-    allows the residential one."""
+    giving up on the call.
+
+    It used to only move the tier for the NEXT request, and that is not good enough for the
+    caller that gets blocked. The catalogue sync's first upstream call is a single count
+    probe: one 403 on the datacentre address killed the whole two-hour job on the spot, and
+    every retry of the job earned another block until the long cooldown kicked in. That is
+    what "as soon as we start the catalogue sync we get the rate limit" was.
+    """
     c = EncarClient(min_interval=0)
     seen = _dead_client(monkeypatch, status=403)
 
     async def run():
         with pytest.raises(EncarUnavailable) as e:
             await c.get_json("/v1/readside/vehicle/1")
+        # Every door was tried, once each, before the caller was told no.
         assert e.value.status == 403
-        assert seen == ["direct"]
-        assert encar_mod.route() == "home_exit"
+        assert seen == ["direct", "home_exit", "residential_proxy"]
+        assert len(seen) == len(set(seen)), "no tier may be knocked on twice"
         assert c.breaker("direct")["open"] is True
         # ...and a blocked tier that has somewhere to fall through to is left alone for the
         # full probe gap, instead of being stepped on again half a minute later.
         assert c.breaker("direct")["retry_in_s"] > encar_mod.AUTO_PROBE_GAP - 5
+
+    asyncio.run(run())
+
+
+def test_a_working_tier_further_down_the_chain_answers_the_same_request(monkeypatch):
+    """The point of the fallthrough: the CALLER gets data, not an error, when any door opens.
+    Encar blocks the datacentre address and allows the residential one — that is the whole
+    reason the chain exists."""
+    c = EncarClient(min_interval=0)
+    seen = []
+
+    def handler(request):
+        tier = encar_mod.route()
+        seen.append(tier)
+        if tier == "residential_proxy":
+            return httpx.Response(200, json={"Count": 244996})
+        return httpx.Response(403, text="blocked")
+
+    c._client = httpx.AsyncClient(transport=httpx.MockTransport(handler),
+                                  headers=encar_mod.HEADERS)
+
+    async def run():
+        got = await c.get_json("/search/car/list/general?count=true")
+        assert got == {"Count": 244996}
+        assert seen == ["direct", "home_exit", "residential_proxy"]
+        assert encar_mod.route() == "residential_proxy"
 
     asyncio.run(run())
 

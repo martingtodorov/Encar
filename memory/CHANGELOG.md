@@ -2,6 +2,49 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-06 (fork) — "As soon as we start the catalogue sync we get the rate limit"
+Three compounding causes, found by starting a sync and reading the log line by line.
+
+1. **The self-heal cancelled every fresh start within seconds — a regression from earlier in
+   this same session.** `syncjob.stalled_for()` measured silence from the live document's
+   `updated_at` alone, and a new run inherits the PREVIOUS run's stamp. Caught in the log:
+   `catalogue sync has not moved for 7236s — restarting it`, **twelve seconds after a manual
+   start**. Cancel → restart → another opening request → cancel... and each cycle spent one
+   more request on Encar.
+2. **A single 403 killed the whole sync at its very first call.** `get_json` tripped the
+   blocked tier's breaker and raised; the chain only moved traffic for the NEXT request. The
+   sync's first upstream call is one count probe (`crawl_partitioned`), so one refusal of the
+   datacentre address ended a two-hour job at second zero — with no attempt through the Mac
+   exit or the residential proxy, the two doors that exist for exactly this.
+3. **Together, (1) and (2) manufactured the rate limit.** Encar's own escalation is
+   `BLOCK_REPEAT_N` = 3 blocks within `BLOCK_REPEAT_WINDOW` = 300s, which raises the cooldown
+   from `BLOCK_COOLDOWN_FIRST` (25s) to `BLOCK_COOLDOWN` (180s) on every route. A restart loop
+   that fires an opening request every few seconds clears that bar immediately. The "rate
+   limit on start" was self-inflicted.
+
+**Fixes**
+- `stalled_for()` now measures from the LATER of the live stamp and THIS run's `started_at`,
+  and `_run` beats the live document before the first upstream call (the opening count may
+  legitimately wait out a cooldown, and an unstamped wait looks like silence).
+- `encar.get_json()` falls through the chain **within the same request**: a block trips that
+  tier and the same call goes out the next door. Bounded by two independent budgets — `tries`
+  (retries on the current tier, `ATTEMPTS`) and `doors` (one try per tier, never twice).
+  Verified by test: a 403 everywhere walks `direct → home_exit → residential_proxy` once each
+  and still raises 403; a working tier further down answers the call instead of erroring.
+- `sync._count_patient()`: the opening count waits out a cooldown (3 tries, each bounded to
+  ≤120s, sized from `encar.blocked_for()`) before giving up. It still gives up eventually, so
+  the retire guard keeps its teeth — a fabricated zero is what would retire the catalogue.
+- New `encar.blocked_for()` alongside `all_blocked()`/`blocked_reason()`.
+
+**Verified live on the pod** (where Encar answers 403 to everything): the log now reads
+`the opening count was refused (HTTP 403) — waiting 27s for a route to open rather than
+abandoning the sweep`, the job stays `running` with `stalled_for_s ≈ 98`, and there are zero
+`has not moved` cancellations after the fix. Tests: `test_facet_pacing.py` grew to 17 (patient
+count, bounded give-up, `blocked_for`, and "a sync that just started is never stalled");
+`test_encar_route.py` rewritten around the new fallthrough contract. 126 passing across the
+sync/encar/watchdog suites.
+
+
 ## 2026-06 (fork) — Why the sync kept "getting stuck at the end" (tagging colours / gearboxes)
 - **Root cause 1: every facet walk opened its OWN full two-hour budget.** `_collect_ids` is
   called once per Encar colour value (~30) plus once for the manual gearbox facet, and each
