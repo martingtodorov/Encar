@@ -1141,6 +1141,125 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
     return result
 
 
+# ── the light pass ───────────────────────────────────────────────────────────
+# The full crawl is paced across two hours, so it runs overnight and the catalogue is then
+# as old as the night by the time anybody shops. A full sweep cannot run hourly — it is
+# ~700 requests even after the savings. But Encar answers newest-modified FIRST, so
+# everything that appeared, changed price or was re-registered since the last pass sits on
+# the first page or two: a handful of requests, however often we care to ask.
+RECENT_SECONDS = int(os.environ.get("SYNC_RECENT_SECONDS") or 120)
+RECENT_MAX_PAGES = int(os.environ.get("SYNC_RECENT_MAX_PAGES") or 6)
+
+
+async def crawl_recent(db, max_pages=None, run_id=None):
+    """Index what has appeared or changed on Encar since the last pass. A few requests.
+
+    Deliberately NOT a crawl. It walks the TOP of the catalogue by modification date and
+    stops the moment a page holds nothing we did not already have, so the cost is two to six
+    requests rather than seven hundred.
+
+    There is NO retire pass here, and there must not be: a page of the newest ads says
+    nothing whatsoever about a car that sold, and a retire pass on a partial read is exactly
+    what once emptied the catalogue day after day (see `crawl_partitioned`). Cars Encar
+    reports as under contract are still retired at once — that is a positive statement, not
+    an absence. Everything else leaves at the nightly full sync.
+    """
+    started = datetime.now(timezone.utc)
+    run_id = run_id or "recent-" + started.strftime("%Y%m%d%H%M%S")
+    pages_max = max(int(max_pages or RECENT_MAX_PAGES), 1)
+    pg = walk_page()
+    rates = await fx_mod.get_rates(db)
+    sdoc = await db.settings.find_one({"_id": "pricing"}) or {}
+    S = pricing.merge_settings(sdoc.get("constants"))
+
+    before_requests = encar.stats["requests"]
+    st = {"pages": 0, "rows": 0, "new": 0, "changed": 0, "excluded": 0, "contracted": 0,
+          "written": 0}
+    error = None
+    try:
+        async with paced_sweep(pages_max, target=RECENT_SECONDS):
+            for p in range(pages_max):
+                data = await encar.search(offset=p * pg, limit=pg)
+                rows = (data or {}).get("SearchResults") or []
+                if not rows:
+                    break
+                st["pages"] += 1
+                st["rows"] += len(rows)
+
+                keep, gone = [], set()
+                for row in rows:
+                    if skip_row(row):
+                        st["excluded"] += 1
+                        if contracted(row):
+                            gone.add(str(row.get("Id")))
+                        continue
+                    doc = normalise_row(row)
+                    if doc["_id"] and doc["price_krw"]:
+                        keep.append(doc)
+                st["contracted"] += await retire_contracted(db, gone)
+
+                held = {d["_id"]: d async for d in db.listings.find(
+                    {"_id": {"$in": [d["_id"] for d in keep]}},
+                    {"price_krw": 1, "active": 1, "mileage": 1})}
+                ops, fresh = [], 0
+                now = datetime.now(timezone.utc)
+                for doc in keep:
+                    was = held.get(doc["_id"])
+                    if was is None:
+                        st["new"] += 1
+                        fresh += 1
+                    elif (was.get("price_krw") != doc["price_krw"]
+                          or was.get("mileage") != doc.get("mileage")
+                          or not was.get("active")):
+                        st["changed"] += 1
+                        fresh += 1
+                    landed, sale = pricing.quick_sale_eur(
+                        doc["price_krw"], rates["fx_krw_eur"], rates["usd_eur"], S,
+                        is_ev=pricing.is_ev_fuel(doc.get("fuel_type")))
+                    doc["landed_eur"] = round(landed, 2)
+                    doc["sale_eur"] = sale
+                    doc["search_text"] = _search_text(doc)
+                    doc["last_seen"] = now
+                    doc["last_crawl"] = run_id
+                    doc["active"] = True
+                    doc.pop("retired_at", None)
+                    ops.append(UpdateOne(
+                        {"_id": doc["_id"]}, {"$set": doc,
+                                              "$setOnInsert": {"first_seen": now,
+                                                               "recency": DEFAULT_RECENCY}},
+                        upsert=True))
+                if ops:
+                    await db.listings.bulk_write(ops, ordered=False)
+                    st["written"] += len(ops)
+                if not fresh:
+                    # The feed is newest-first, so a page with nothing new on it means
+                    # everything below it is older still. Stop.
+                    break
+    except Exception as e:                                  # noqa: BLE001
+        error = str(e)[:300]
+        log.warning("light pass stopped: %s", error)
+
+    dedupe = None
+    if st["new"]:
+        # A re-registered ad is a duplicate of a car we already carry, and a light pass is
+        # exactly how those arrive. Local work only, no upstream request.
+        dedupe = await dedupe_pass(db)
+
+    result = {"ok": error is None, "error": error, "run_id": run_id, **st,
+              "dedupe": (dedupe or {}).get("hidden"),
+              "requests": encar.stats["requests"] - before_requests,
+              "active": await db.listings.count_documents({"active": True}),
+              "ran_at": started,
+              "duration_s": round((datetime.now(timezone.utc) - started).total_seconds(), 1)}
+    await db.sync_state.update_one({"_id": "catalogue_recent"}, {"$set": result},
+                                   upsert=True)
+    log.info("light pass: %s pages, %s new, %s changed, %s requests in %.0fs",
+             st["pages"], st["new"], st["changed"], result["requests"],
+             result["duration_s"])
+    return result
+
+
+
 async def tag_transmission(db, manufacturers=None):
     """Which cars are manual. Only ~1,200 of ~245,000 are, so the manual ones are fetched
     (three requests) and everything else in the SAME crawl scope is automatic.

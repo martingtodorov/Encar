@@ -4480,12 +4480,43 @@ class SyncScheduleBody(BaseModel):
     tz: str = "Europe/Sofia"
 
 
+class LightPassBody(BaseModel):
+    enabled: bool = False
+    mode: str = "interval"                        # "interval" | "times"
+    every_min: int = 60
+    times: list[str] = []
+    tz: str = "Europe/Sofia"
+    max_pages: int = 6
+
+
 @api.get("/admin/catalogue-sync")
 async def catalogue_sync_state(request: Request, x_admin_token: str = Header(default="")):
     await _require_admin(request, x_admin_token)
     return jsonable({"job": await syncjob_mod.get_job(db),
                      "running": syncjob_mod.is_running(),
-                     "schedule": await syncjob_mod.get_schedule(db)})
+                     "schedule": await syncjob_mod.get_schedule(db),
+                     "light": await syncjob_mod.get_light(db)})
+
+
+@api.put("/admin/catalogue-sync/light")
+async def catalogue_sync_light_set(body: LightPassBody, request: Request,
+                                   x_admin_token: str = Header(default="")):
+    """Configure the light pass: every N minutes, or at times you name."""
+    await _require_admin(request, x_admin_token)
+    try:
+        return jsonable(await syncjob_mod.set_light(
+            db, body.enabled, body.mode, body.every_min, body.times, body.tz,
+            body.max_pages))
+    except Exception as e:
+        raise HTTPException(400, str(e)[:200])
+
+
+@api.post("/admin/catalogue-sync/light/run")
+async def catalogue_sync_light_run(request: Request,
+                                   x_admin_token: str = Header(default="")):
+    """Run the light pass now: the top of Encar's newest-first feed, a few requests."""
+    await _require_admin(request, x_admin_token)
+    return jsonable(await syncjob_mod.run_light(db, trigger="manual"))
 
 
 @api.post("/admin/catalogue-sync/run")
@@ -5739,6 +5770,7 @@ async def on_startup():
     await syncjob_mod.clear_stale(db)
     await syncjob_mod.resume_if_interrupted(db)
     asyncio.get_running_loop().create_task(syncjob_mod.scheduler(db))
+    asyncio.get_running_loop().create_task(syncjob_mod.light_scheduler(db))
     # The weekly saved-search digest keeps its own clock (Saturday afternoon in Sofia).
     asyncio.get_running_loop().create_task(digest_mod.scheduler(db))
     # A card hold lasts seven days; this hands back the ones nobody captured and re-lists

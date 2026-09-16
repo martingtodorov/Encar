@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { getCatalogueSync, putSyncSchedule, restartCatalogueSync, startCatalogueSync,
          stopCatalogueSync } from "@/lib/api";
 import { Spinner, Stat, ago, num, stampSofia } from "@/components/admin/AdminBits";
+import { LightPass } from "@/components/admin/AdminLightPass";
 
 const ZONES = ["Europe/Sofia", "Europe/Bucharest", "Europe/London", "Asia/Seoul", "UTC"];
 const MAX_TIMES = 6;
@@ -391,6 +392,9 @@ export const AdminCatalogueSync = () => {
             : "No automatic run scheduled."}
         </p>
       </div>
+
+      <LightPass light={data.light} onChange={(l) => setData((p) => ({ ...p, light: l }))}
+                 fullRunning={running} />
     </div>
   );
 };

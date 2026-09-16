@@ -29,6 +29,26 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
 `/api/robots.txt` in nginx so it follows `PUBLIC_SITE_URL` automatically.
 
 ## Recently completed (2026-06 fork session) — full detail in CHANGELOG.md
+* **Light pass through the day** (`sync.crawl_recent`, this session). The full sweep is paced
+  across two hours and runs once at 03:30, so the catalogue was a night old by mid-morning.
+  Encar answers newest-modified FIRST, so the light pass reads only the TOP of that feed and
+  stops at the first page holding nothing new — **2 to 6 requests instead of ~700**. It
+  indexes new cars, new prices and new odometer readings, re-quotes them in EUR, retires
+  cars Encar reports UNDER CONTRACT, and runs the dedupe when something new arrived.
+  It NEVER retires a car it merely did not see (a partial read must not run a retire pass —
+  that is what once emptied the catalogue); sold cars still leave at the nightly full sync.
+  New cars/prices now also fire the saved-search and price-watch notifications immediately
+  instead of the next morning.
+  * Its own switch and its own schedule (`settings.sync_light`): **every N minutes (5-1440)
+    OR at named times** (up to 12, own timezone), plus `max_pages` (1-20) and a
+    "Пусни сега" button. Stands down while a full sync runs or while Encar refuses every
+    route. API: `GET /api/admin/catalogue-sync` (now carries `light`),
+    `PUT /api/admin/catalogue-sync/light`, `POST /api/admin/catalogue-sync/light/run`.
+    UI: `components/admin/AdminLightPass.js` inside Admin → Catalogue sync.
+  * Env defaults: `SYNC_RECENT_SECONDS=120` (pacing target), `SYNC_RECENT_MAX_PAGES=6`.
+  * Tests: `tests/test_light_pass.py` (9) — stops on an unchanged page (1 request), never
+    retires an unseen car (500 stay active), contract cars leave at once, settings
+    validation, and the interval waiting out its gap.
 * **Request budget cut again, without changing what the crawl indexes** (this session):
   1. **The measured tree is saved and reused** (`sync_state.catalogue_partition_plan`,
      `SYNC_PLAN_KEEP_H=72`). A node whose real count still matches what the last sync

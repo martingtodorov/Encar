@@ -430,6 +430,16 @@ export async function putSyncSchedule(body) {
   return data;
 }
 
+export async function putLightPass(body) {
+  const { data } = await http.put("/admin/catalogue-sync/light", body);
+  return data;
+}
+
+export async function runLightPass() {
+  const { data } = await http.post("/admin/catalogue-sync/light/run");
+  return data;
+}
+
 export async function getAdminOverview() {
   const { data } = await http.get("/admin/overview");
   return data;

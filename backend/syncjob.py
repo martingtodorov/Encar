@@ -126,10 +126,11 @@ def _parse_time(value):
     return hh, mm
 
 
-def _clean_times(values):
+def _clean_times(values, limit=None):
     """De-duplicate, validate and sort a list of HH:MM strings."""
     if isinstance(values, str):
         values = [values]
+    cap = limit or MAX_DAILY_TIMES
     seen = set()
     out = []
     for v in values or []:
@@ -139,8 +140,8 @@ def _clean_times(values):
             continue
         seen.add(s)
         out.append(s)
-    if len(out) > MAX_DAILY_TIMES:
-        raise ValueError(f"at most {MAX_DAILY_TIMES} daily runs are allowed")
+    if len(out) > cap:
+        raise ValueError(f"at most {cap} daily runs are allowed")
     out.sort()
     return out
 
@@ -167,6 +168,152 @@ def next_run_at(sched):
     if not candidates:
         return None
     return min(candidates).astimezone(timezone.utc).isoformat()
+
+
+# ── the light pass ───────────────────────────────────────────────────────────
+# A full sweep is ~700 requests paced across two hours, so it runs once overnight and the
+# catalogue is a night old by the time anybody shops. The light pass reads the top of
+# Encar's newest-first feed instead (two to six requests) and is therefore worth running
+# through the day. Its own switch, its own schedule: it can run every N minutes, or at
+# times the owner names, and it never touches the full sync's state.
+LIGHT_ID = "sync_light"
+DEFAULT_LIGHT = {"enabled": False, "mode": "interval", "every_min": 60,
+                 "times": ["12:00"], "tz": "Europe/Sofia", "max_pages": 6}
+MAX_LIGHT_TIMES = 12
+_light_task = None
+
+
+def light_running():
+    return _light_task is not None and not _light_task.done()
+
+
+async def get_light(db):
+    doc = await db.settings.find_one({"_id": LIGHT_ID}) or {}
+    raw = {k: v for k, v in doc.items() if k != "_id"}
+    try:
+        times = _clean_times(raw.get("times") or DEFAULT_LIGHT["times"], MAX_LIGHT_TIMES)
+    except Exception:
+        times = DEFAULT_LIGHT["times"]
+    cfg = {
+        "enabled": bool(raw.get("enabled", DEFAULT_LIGHT["enabled"])),
+        "mode": raw.get("mode") if raw.get("mode") in ("interval", "times") else "interval",
+        "every_min": int(raw.get("every_min") or DEFAULT_LIGHT["every_min"]),
+        "times": times,
+        "tz": raw.get("tz") or DEFAULT_LIGHT["tz"],
+        "max_pages": int(raw.get("max_pages") or DEFAULT_LIGHT["max_pages"]),
+        "last_run_at": _aware(raw.get("last_run_at")),
+        "running": light_running(),
+    }
+    cfg["next_run_at"] = _light_next(cfg)
+    last = await db.sync_state.find_one({"_id": "catalogue_recent"}) or {}
+    cfg["last"] = {k: v for k, v in last.items() if k != "_id"} or None
+    return cfg
+
+
+def _light_next(cfg):
+    if not cfg.get("enabled"):
+        return None
+    if cfg.get("mode") == "times":
+        return next_run_at({"enabled": True, "times": cfg.get("times"),
+                            "tz": cfg.get("tz")})
+    last = cfg.get("last_run_at")
+    gap = timedelta(minutes=max(int(cfg.get("every_min") or 60), 1))
+    return ((last + gap) if last else _now()).astimezone(timezone.utc).isoformat()
+
+
+async def set_light(db, enabled, mode, every_min, times, tz, max_pages):
+    if mode not in ("interval", "times"):
+        raise ValueError("mode must be 'interval' or 'times'")
+    every_min = int(every_min or DEFAULT_LIGHT["every_min"])
+    if not 5 <= every_min <= 1440:
+        raise ValueError("the interval must be between 5 and 1440 minutes")
+    max_pages = int(max_pages or DEFAULT_LIGHT["max_pages"])
+    if not 1 <= max_pages <= 20:
+        raise ValueError("pages must be between 1 and 20")
+    times = _clean_times(times or [], MAX_LIGHT_TIMES)
+    if mode == "times" and not times:
+        raise ValueError("name at least one time")
+    ZoneInfo(tz)                                   # raises on a bogus zone
+    await db.settings.update_one(
+        {"_id": LIGHT_ID},
+        {"$set": {"enabled": bool(enabled), "mode": mode, "every_min": every_min,
+                  "times": times, "tz": tz, "max_pages": max_pages,
+                  "updated_at": _now()}},
+        upsert=True)
+    return await get_light(db)
+
+
+async def run_light(db, trigger="manual"):
+    """Start the light pass detached, unless something better is already happening.
+
+    A full sync owns the pacer for its whole two hours, so a light pass started inside one
+    would queue behind it and report nothing useful — and a second light pass would just
+    ask Encar the same two pages twice.
+    """
+    global _light_task
+    if light_running():
+        return {"started": False, "reason": "лекият проход вече върви"}
+    if is_running():
+        return {"started": False, "reason": "пълната синхронизация върви в момента"}
+    if trigger != "manual" and encar_mod.all_blocked():
+        return {"started": False,
+                "reason": f"Encar не отговаря ({encar_mod.blocked_reason()})"}
+    cfg = await get_light(db)
+
+    async def go():
+        try:
+            out = await sync_mod.crawl_recent(db, max_pages=cfg["max_pages"])
+            # New cars and new prices are exactly what a saved search and a price watch are
+            # for, and until now they only ran after the nightly sweep — so an alert about a
+            # car listed at 10am arrived the following morning. Detached, local work.
+            if out.get("new"):
+                searchwatch_mod.run_later(db)
+            if out.get("new") or out.get("changed"):
+                pricewatch_mod.run_later(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:                            # noqa: BLE001
+            log.warning("light pass failed: %s", str(e)[:200])
+
+    await db.settings.update_one({"_id": LIGHT_ID},
+                                 {"$set": {"last_run_at": _now(),
+                                           "last_trigger": trigger}}, upsert=True)
+    _light_task = asyncio.get_running_loop().create_task(go())
+    log.info("light pass starting (%s)", trigger)
+    return {"started": True, "trigger": trigger}
+
+
+async def light_scheduler(db, period=30):
+    """Fire the light pass on its own schedule: every N minutes, or at named times."""
+    while True:
+        await asyncio.sleep(period)
+        try:
+            cfg = await get_light(db)
+            if not cfg["enabled"] or cfg["running"] or is_running():
+                continue
+            if cfg["mode"] == "interval":
+                last = cfg["last_run_at"]
+                if last and (_now() - last).total_seconds() < cfg["every_min"] * 60:
+                    continue
+                await run_light(db, trigger="interval")
+                continue
+            zone = ZoneInfo(cfg["tz"])
+            local = datetime.now(zone)
+            now_hhmm = f"{local.hour:02d}:{local.minute:02d}"
+            if now_hhmm not in cfg["times"]:
+                continue
+            today = local.date().isoformat()
+            doc = await db.settings.find_one({"_id": LIGHT_ID}) or {}
+            last_runs = dict(doc.get("last_runs") or {})
+            if last_runs.get(now_hhmm) == today:
+                continue                                  # already fired for this slot
+            last_runs[now_hhmm] = today
+            await db.settings.update_one({"_id": LIGHT_ID},
+                                         {"$set": {"last_runs": last_runs}}, upsert=True)
+            await run_light(db, trigger=f"schedule {now_hhmm}")
+        except Exception as e:                            # noqa: BLE001
+            log.warning("light scheduler: %s", str(e)[:200])
+
 
 
 def is_running(db=None):
