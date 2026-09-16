@@ -395,6 +395,10 @@ class EncarClient:
         # recomputed against the remaining budget, or an estimate that is out by 2x turns a
         # two-hour sweep into a four-hour one.
         self.pacer = None
+        # Called when upstream refuses us, so a sweep in progress can slow itself down
+        # instead of walking into the next block (three in five minutes and every route's
+        # cooldown goes from twenty-five seconds to three minutes).
+        self.on_block = None
         self._route = None
         # The last automatic move between tiers, for the admin screen and the watchdog.
         self._failover = None
@@ -555,6 +559,9 @@ class EncarClient:
                 # limit" was this branch.
                 self._trip(f"HTTP {r.status_code} from upstream",
                            self._block_cooldown(tier), tier=tier, stick=True)
+                if self.on_block:
+                    with contextlib.suppress(Exception):
+                        self.on_block()
                 last = f"HTTP {r.status_code} on {tier}"
                 nxt = route()
                 if doors < len(chain()) - 1 and nxt != tier and not tier_blocked(nxt):

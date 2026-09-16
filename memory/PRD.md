@@ -29,6 +29,11 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
 `/api/robots.txt` in nginx so it follows `PUBLIC_SITE_URL` automatically.
 
 ## Recently completed (2026-06 fork session) — full detail in CHANGELOG.md
+* **Request budget cut to stop earning blocks**: colour facets now walk only the top of each
+  facet and stop when the pages hold nothing new (~520 → ~90 requests), a full colour pass
+  runs weekly, gearbox/colour run at most once a day, a block slows the rest of the sweep
+  (×1.5, capped 8×), and identical counts are asked once per sweep. ~1750 → ~1310 per sync.
+  NOT done (offered): persisting the bisection plan between syncs, worth ~600 more.
 * **"Rate limit as soon as the sync starts" fixed** — it was self-inflicted: the stall
   self-heal cancelled each fresh start after ~12s (it read the previous run's timestamp), and
   one 403 killed the sync at its first count probe because the tier chain only moved for the

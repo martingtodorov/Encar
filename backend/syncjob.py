@@ -446,14 +446,33 @@ async def _run(db, trigger, resume_run_id=None):
         # sweep of its own, so every page of every colour waited the 60-second ceiling and
         # the sync sat in "tagging colours" for hours — and, stamping nothing while it did,
         # looked wedged to the stall self-heal, which restarted it into the same place.
-        async with sync_mod.paced_sweep(await sync_mod.facet_requests(db),
-                                        target=sync_mod.facet_budget()):
-            result["manual_tagged"] = await sync_mod.tag_transmission(db)
-            # Colour is the same kind of pass as the gearbox one: not in the list payload,
-            # but an upstream facet. It belongs HERE, in the catalogue sync that actually
-            # runs, and not only in the legacy full sweep.
-            await _phase(db, "colour")
-            result["colours"] = await sync_mod.tag_colors(db)
+        #
+        # And it only runs at all once a day: gearbox and colour do not change for a car, so
+        # repeating them on every sync spent about a third of the request budget re-learning
+        # what we already knew — which is a third of the way to a block.
+        gear_due, gear_why = await sync_mod.facet_due(db, "transmission")
+        colour_due, colour_why = await sync_mod.facet_due(db, "colors")
+        if gear_due or colour_due:
+            async with sync_mod.paced_sweep(
+                    await sync_mod.facet_requests(db, full=False), target=sync_mod.facet_budget()):
+                if gear_due:
+                    result["manual_tagged"] = await sync_mod.tag_transmission(db)
+                else:
+                    result["manual_tagged"] = {"skipped": gear_why}
+                    log.info("gearbox pass skipped: %s", gear_why)
+                # Colour is the same kind of pass as the gearbox one: not in the list
+                # payload, but an upstream facet. It belongs HERE, in the catalogue sync that
+                # actually runs, and not only in the legacy full sweep.
+                await _phase(db, "colour")
+                if colour_due:
+                    result["colours"] = await sync_mod.tag_colors(db)
+                else:
+                    result["colours"] = {"skipped": colour_why}
+                    log.info("colour pass skipped: %s", colour_why)
+        else:
+            result["manual_tagged"] = {"skipped": gear_why}
+            result["colours"] = {"skipped": colour_why}
+            log.info("facet passes skipped: %s", colour_why)
         await _phase(db, "dedupe")
         result["dedupe"] = await sync_mod.dedupe_pass(db)
         await _phase(db, "taxonomy")

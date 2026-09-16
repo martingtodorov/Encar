@@ -9,6 +9,7 @@ a session one when they are. The extra round trip is invisible in a test run.
 
 Nothing about the application is relaxed for tests.
 """
+import asyncio
 import fcntl
 import os
 import time
@@ -183,6 +184,22 @@ def stripe_e2e_lock():
             yield
         finally:
             fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+@pytest.fixture(autouse=True)
+def _leave_an_event_loop_behind():
+    """`asyncio.run` closes the loop it made and leaves the thread without a current one.
+
+    Most tests here drive async code that way, and a module-scoped fixture in another file
+    then calls `asyncio.get_event_loop()` and dies with "There is no current event loop in
+    thread 'MainThread'" — a teardown error that reads like a broken crawl and only appears
+    when the files run together. Hand the next test a loop to find.
+    """
+    yield
+    try:
+        asyncio.get_event_loop()
+    except RuntimeError:
+        asyncio.set_event_loop(asyncio.new_event_loop())
 
 
 @pytest.fixture(autouse=True)

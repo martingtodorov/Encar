@@ -153,10 +153,21 @@ class Sweep:
         self.done = 0
         self.target = target
         self.deadline = time.monotonic() + target
+        # Widened when upstream blocks us: walking into "three blocks in five minutes" is
+        # what turns a 25-second cooldown into three minutes on every route.
+        self.penalty = 1.0
+        # One count per facet per sweep. The plan and the bisection ask for the same node.
+        self.counts = {}
         # How much of the WORK is done, if the caller knows (cars indexed / cars upstream).
         # A better estimator than any request-count arithmetic: the crawl reports it as it
         # goes, so an estimate that is out by two still lands on the deadline.
         self.fraction = 0.0
+
+    def penalise(self):
+        """Back off for the rest of the sweep after a block, instead of walking into more."""
+        self.penalty = min(self.penalty * 1.5, 8.0)
+        log.warning("upstream blocked us — the rest of this sweep slows down %.1fx",
+                    self.penalty)
 
     def expect(self, requests):
         """Refine the estimate once the real numbers are known."""
@@ -188,7 +199,10 @@ class Sweep:
         # this the first request of a small crawl would sit on most of the budget and the
         # sweep would still run past it. Erring the other way only finishes early, which for
         # a catalogue that needs few requests is the right answer anyway.
-        return max(ENCAR_MIN_GAP, min(gap, SYNC_PAGE_GAP_MAX, left_time / 20))
+        base = max(ENCAR_MIN_GAP, min(gap, SYNC_PAGE_GAP_MAX, left_time / 20))
+        # The penalty is applied AFTER the caps, so backing off after a block can actually
+        # slow us below the normal ceiling. Finishing late beats finishing blocked.
+        return min(base * self.penalty, SYNC_PAGE_GAP_MAX * 4)
 
 
 # The sweep in force, if any. A facet pass nested inside a crawl must SHARE the crawl's
@@ -223,19 +237,22 @@ def facet_budget():
                    _target() // 2), 30)
 
 
-async def facet_requests(db, manufacturers=None):
+async def facet_requests(db, manufacturers=None, full=True):
     """How many upstream requests the gearbox and colour passes will need, roughly.
 
-    One id-only page per 500 cars (the colours partition the catalogue, so all the colour
-    walks together are about one extra pass over it), plus a count request per facet value,
-    plus the three the manual walk takes.
+    A FULL colour pass is one id-only page per 500 cars (the colours partition the catalogue)
+    plus a count per facet value. An incremental one only walks the top of each facet, so it
+    is a handful of pages per value — which is the whole point of doing it that way.
     """
+    scopes = max(len(manufacturers or []), 1)
+    values = (len(COLOR_OF_RAW) + 1) * scopes
+    if not full:
+        return int(values * (COLOR_STOP_PAGES + 2) + 4)
     q = {"active": True}
     if manufacturers:
         q["manufacturer"] = {"$in": list(manufacturers)}
     cars = await db.listings.count_documents(q) or 0
-    scopes = max(len(manufacturers or []), 1)
-    return int(cars / PAGE + (len(COLOR_OF_RAW) + 1) * scopes + 4)
+    return int(cars / PAGE + values + 4)
 
 
 async def beat(db, progress_key="catalogue_partition"):
@@ -272,6 +289,7 @@ async def paced_sweep(requests_expected, target=None):
     sweep = Sweep(requests_expected, target)
     _sweep["active"] = sweep
     encar.pacer = sweep.gap
+    encar.on_block = sweep.penalise
     log.info("sweep paced: ~%s expected requests over %d min (a request every %.1fs to "
              "start with)", sweep.expected, target / 60,
              _sweep_gap(requests_expected, target))
@@ -279,9 +297,11 @@ async def paced_sweep(requests_expected, target=None):
         yield sweep
     finally:
         encar.pacer = None
+        encar.on_block = None
         _sweep["active"] = None
-        log.info("sweep finished: %s requests in %d min", sweep.done,
-                 (target - (sweep.deadline - time.monotonic())) / 60)
+        log.info("sweep finished: %s requests in %d min (pacing %.1fx after blocks)",
+                 sweep.done, (target - (sweep.deadline - time.monotonic())) / 60,
+                 sweep.penalty)
 
 
 async def run_full_sync(db, max_pages=None, page_size=PAGE):
@@ -497,6 +517,23 @@ def _fresh_dims():
     return [(n, DIM_BOUNDS[n][0], DIM_BOUNDS[n][1]) for n in DIM_ORDER]
 
 
+async def _count(q):
+    """Count a facet once per sweep.
+
+    The plan and the bisection ask about the same node, and every duplicate is a request
+    spent on an answer we already had — which is a request closer to a block.
+    """
+    sweep = _sweep["active"]
+    if sweep is None:
+        return await encar.count(q)
+    if q in sweep.counts:
+        return sweep.counts[q]
+    n = await encar.count(q)
+    if n is not None:
+        sweep.counts[q] = n
+    return n
+
+
 async def _count_patient(q, tries=3):
     """The count that decides whether a whole sweep happens at all — worth waiting for.
 
@@ -508,7 +545,7 @@ async def _count_patient(q, tries=3):
     """
     for attempt in range(tries):
         try:
-            return await encar.count(q)
+            return await _count(q)
         except EncarUnavailable as e:
             if attempt == tries - 1:
                 raise
@@ -566,7 +603,7 @@ async def _crawl_node(base, dims, count, sink, st, ctx=None):
         lkey = _q(base + _dim_clauses(left))
         lcount = ctx["plan"].get(lkey) if ctx else None
         if lcount is None:
-            lcount = await encar.count(lkey)
+            lcount = await _count(lkey)
             st["probes"] += 1
             # Say "still working" on every PROBE too, not only when rows land. A deep
             # bisection can spend many paced probes without writing a single car, and with
@@ -955,26 +992,130 @@ async def tag_transmission(db, manufacturers=None):
         return await record({"ok": False, "manual": 0, "auto": 0, "error": str(e)[:200]})
 
 
-async def tag_colors(db, manufacturers=None):
+# Colour never changes for a car, and a facet page comes back newest-modified first — so the
+# cars whose colour we do not know yet are on the FIRST pages. An incremental pass stops once
+# the pages stop telling us anything new; a full pass still happens, but weekly.
+COLOR_FULL_EVERY_H = int(os.environ.get("COLOR_FULL_EVERY_H") or 168)
+COLOR_STOP_PAGES = int(os.environ.get("COLOR_STOP_PAGES") or 2)
+# The facet passes learn fields that do not change for a car, so they are worth at most once
+# a day however often the sync itself runs.
+FACET_EVERY_H = int(os.environ.get("FACET_EVERY_H") or 24)
+
+
+async def facet_due(db, key, hours=None):
+    """Has enough time passed since this facet pass last SUCCEEDED?"""
+    state = await db.sync_state.find_one({"_id": key}) or {}
+    if not state.get("ok"):
+        return True, "last pass did not succeed"
+    ran = state.get("ran_at")
+    if not ran:
+        return True, "never run"
+    if ran.tzinfo is None:
+        ran = ran.replace(tzinfo=timezone.utc)
+    age_h = (datetime.now(timezone.utc) - ran).total_seconds() / 3600
+    if age_h >= (hours if hours is not None else FACET_EVERY_H):
+        return True, f"{age_h:.0f}h since the last pass"
+    return False, f"only {age_h:.1f}h since the last pass"
+
+
+async def _collect_new_ids(q, db):
+    """Ids from the top of a facet, stopping when the pages hold nothing we did not know.
+
+    Walking all eighty pages of "white" to re-learn colours we already hold cost a full extra
+    pass over the catalogue on EVERY sync — about 490 of the ~1750 requests, for a field that
+    cannot change. Each page is checked against what we already have; two consecutive pages
+    with nothing new and the walk is done. In the steady state that is one or two pages per
+    colour value instead of eighty.
+
+    Cars we do not hold at all count as new, so a page of them keeps the walk going.
+    """
+    total = await _count(q)
+    if total is None:
+        log.warning("colour walk aborted: the count request failed for %s", q[:120])
+        return None
+    if not total:
+        return []
+    pages = max((total + PAGE - 1) // PAGE, 1)
+    ids, quiet, walked = [], 0, 0
+    for p in range(pages):
+        try:
+            data = await encar.search(offset=p * PAGE, limit=PAGE, q=q)
+        except Exception as e:                       # noqa: BLE001
+            log.warning("colour walk aborted at page %s of %s: %s", p + 1, pages, str(e)[:160])
+            return None
+        rows = (data or {}).get("SearchResults") or []
+        if not rows:
+            if not ids:
+                log.warning("colour walk aborted: %s promised %s rows and returned none",
+                            q[:120], total)
+                return None
+            break
+        page_ids = [str(r.get("Id")) for r in rows if r.get("Id")]
+        ids += page_ids
+        walked += 1
+        known = await db.listings.count_documents(
+            {"_id": {"$in": page_ids}, "color": {"$nin": [None, ""]}})
+        quiet = quiet + 1 if known >= len(page_ids) else 0
+        await beat(db)
+        if quiet >= COLOR_STOP_PAGES:
+            break
+    if walked < pages:
+        log.info("colour walk stopped after %s of %s pages (nothing new): %s",
+                 walked, pages, q[:80])
+    return ids
+
+
+async def _colour_mode(db, scope_q, full=None):
+    """Full pass or incremental? By time alone: full weekly, incremental in between.
+
+    Deliberately not "full when too many cars lack a colour" — the owner asked for the
+    decision to be a clock, not a percentage, so a day with a lot of new stock cannot
+    quietly turn into a second full sweep.
+    """
+    if full is not None:
+        return bool(full), "asked for"
+    state = await db.sync_state.find_one({"_id": "colors"}) or {}
+    last_full = state.get("full_at")
+    if last_full and last_full.tzinfo is None:
+        last_full = last_full.replace(tzinfo=timezone.utc)
+    if not last_full:
+        return True, "no full pass on record"
+    age_h = (datetime.now(timezone.utc) - last_full).total_seconds() / 3600
+    if age_h >= COLOR_FULL_EVERY_H:
+        return True, f"last full pass {age_h:.0f}h ago"
+    return False, f"last full pass {age_h:.0f}h ago"
+
+
+async def tag_colors(db, manufacturers=None, full=None):
     """Exterior colour for the whole catalogue, from the same search endpoint.
 
-    One id-only pass per Encar colour value. The colours partition the catalogue, so the
-    whole job costs about one extra sweep (~490 paced requests) rather than one request per
-    car — which is what asking the per-car detail for `spec.colorName` would have meant
-    (245 000 requests, three days of pacing, and a rate limit we have no business testing).
+    One id-only pass per Encar colour value. The colours partition the catalogue, so a FULL
+    job costs about one extra sweep (~490 paced requests) rather than one request per car —
+    which is what asking the per-car detail for `spec.colorName` would have meant (245 000
+    requests, three days of pacing, and a rate limit we have no business testing).
+
+    That full pass does not need to happen every sync: colour does not change, and the cars
+    we have not coloured yet are the newest ones, which sit on the first page of each facet.
+    So the normal run walks the top of each facet and stops when it stops learning anything
+    (~30-90 requests), and a full pass runs weekly, or sooner if too many cars lack a colour.
 
     Rows an unknown colour value would have covered stay UNTAGGED rather than being called
     "other": coverage is reported so a missing value shows up as evidence instead of a lie.
     """
     started = datetime.now(timezone.utc)
     per_color, tagged_total = {}, 0
+    scope_q = {"active": True, "duplicate": {"$ne": True}}
+    if manufacturers:
+        scope_q["manufacturer"] = {"$in": list(manufacturers)}
+    is_full, why = await _colour_mode(db, scope_q, full)
+    log.info("colour pass: %s (%s)", "full" if is_full else "incremental", why)
     # Free first, upstream second: fold in every colour we already hold from a car's own
     # detail. It costs nothing, and if the facet passes then fail (a 407, an outage) the
     # local work is already saved instead of being lost with the exception.
     from_details = await _colors_from_details(db, manufacturers)
     try:
         scopes = list(manufacturers) if manufacturers else [None]
-        async with paced_sweep(await facet_requests(db, manufacturers),
+        async with paced_sweep(await facet_requests(db, manufacturers, full=is_full),
                                target=facet_budget()):
             for slug, raws in COLOR_GROUPS.items():
                 ids = []
@@ -983,7 +1124,8 @@ async def tag_colors(db, manufacturers=None):
                         clauses = [f"Color.{raw}"]
                         if mfr:
                             clauses.insert(0, f"Manufacturer.{mfr}")
-                        got = await _collect_ids(_q(clauses), db=db)
+                        got = (await _collect_ids(_q(clauses), db=db) if is_full
+                               else await _collect_new_ids(_q(clauses), db))
                         if not got:
                             continue
                         ids += got
@@ -996,23 +1138,25 @@ async def tag_colors(db, manufacturers=None):
                 else:
                     per_color[slug] = 0
                 await beat(db)
-        scope_q = {"active": True, "duplicate": {"$ne": True}}
-        if manufacturers:
-            scope_q["manufacturer"] = {"$in": list(manufacturers)}
         total = await db.listings.count_documents(scope_q)
         known = await db.listings.count_documents({**scope_q, "color": {"$nin": [None, ""]}})
         result = {"per_color": per_color, "tagged": tagged_total, "known": known,
-                  "total": total, "from_details": from_details,
+                  "total": total, "from_details": from_details, "full": is_full,
+                  "mode": "full" if is_full else "incremental", "why": why,
                   "coverage": round(known * 100.0 / total, 1) if total else 0.0,
                   "ran_at": started, "ok": True}
-        log.info("colours tagged: %s of %s cars (%.1f%%) %s",
+        if is_full:
+            # Only a completed FULL pass resets the weekly clock.
+            result["full_at"] = started
+        log.info("colours tagged (%s): %s of %s cars (%.1f%%) %s", result["mode"],
                  known, total, result["coverage"], per_color)
     except Exception as e:                                  # noqa: BLE001
         # A failed colour pass must never fail the sync: the catalogue is still correct,
         # it just has no colour on the new rows.
         log.warning("colour tagging failed: %s", str(e)[:200])
         result = {"per_color": per_color, "tagged": tagged_total, "ok": False,
-                  "from_details": from_details, "error": str(e)[:200], "ran_at": started}
+                  "from_details": from_details, "error": str(e)[:200], "ran_at": started,
+                  "mode": "full" if is_full else "incremental"}
     await db.sync_state.update_one({"_id": "colors"}, {"$set": result}, upsert=True)
     return result
 
@@ -1049,7 +1193,7 @@ async def _collect_ids(q, db=None):
     `tag_transmission`). Failure has to be sayable.
     """
     ids = []
-    total = await encar.count(q)
+    total = await _count(q)
     if total is None:                                # upstream refused to answer at all
         log.warning("facet walk aborted: the count request failed for %s", q[:120])
         return None

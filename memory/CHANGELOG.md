@@ -2,6 +2,50 @@
 
 Newest first. Verified = confirmed by the testing agent, report referenced.
 
+## 2026-06 (fork) — Fewer requests per sync, so we stop earning blocks
+Where the ~1750 requests of a sync went: 490 leaf pages, ~735 bisection probes
+(`SYNC_REQUEST_OVERHEAD` 2.5×), ~520 for the colour facets, 3 for gearboxes. Two thirds of
+them brought no new cars — and every request is a request closer to Encar's
+three-blocks-in-five-minutes escalation.
+
+- **Incremental colour pass (`_collect_new_ids`)**: a facet page comes back newest-modified
+  first and a car's colour never changes, so the cars we have no colour for are on the FIRST
+  pages. Each facet value is now walked from the top and stops after `COLOR_STOP_PAGES` (2)
+  consecutive pages whose ids we already hold a colour for. Cars we do not hold at all count
+  as new, so a page of them keeps the walk going. ~520 requests → **~90**. A FULL pass still
+  runs, on a clock: `COLOR_FULL_EVERY_H` (168h), recorded as `full_at` in
+  `sync_state.colors`, and only a completed full pass resets that clock. The
+  "full when too many cars lack a colour" trigger was deliberately left out — the owner asked
+  for a clock, not a percentage.
+- **Facet passes at most once a day** (`facet_due`, `FACET_EVERY_H` = 24): gearbox and colour
+  learn fields that do not change, so re-running them on every sync (or on every manual
+  re-run) spent a third of the budget re-learning what we knew. A pass that FAILED is always
+  due again, however recent.
+- **Back off when we are refused** (`Sweep.penalise`, `encar.on_block`): a block widens the
+  gap for the rest of the sweep, ×1.5 per block, capped at 8×, applied AFTER the normal caps
+  so it can genuinely slow below the 60s ceiling. Walking into the next block at the same pace
+  is what turns a 25-second cooldown into 180 seconds on every route.
+- **One count per facet per sweep** (`sync._count`, memoised on the active `Sweep`): the plan
+  and the bisection ask about the same node; duplicates are now free.
+- Estimates follow the mode: `facet_requests(db, full=)` returns ~500 for a full pass and
+  <200 for an incremental one, so the pacer spaces the tail correctly either way.
+
+Net per daily sync: **~1750 → ~1310 requests (−25%)**, with the colour part down 83%. Still on
+the table (offered, not implemented): persisting the bisection plan between syncs, worth about
+another 600 requests.
+
+- Also fixed, and it had been poisoning every mixed test run: `asyncio.run` closes its loop
+  and leaves the thread without a current one, so a module-scoped fixture in another file died
+  with "There is no current event loop in thread 'MainThread'". An autouse fixture in
+  `tests/conftest.py` now hands the next test a loop. `test_sync_retire_guard.py` passed alone
+  and failed in company for exactly that reason.
+- Tests: `test_facet_pacing.py` now 26 — early stop, keeps walking while pages hold unknowns,
+  a refused walk still says so, full-vs-incremental by clock, the 24h gate (including "a failed
+  pass is due again"), the two estimates, the block penalty and its cap, the hook being wired
+  and removed, and the count memo. **135 passing** across the sync/encar/watchdog suites, in
+  both serial and parallel runs.
+
+
 ## 2026-06 (fork) — "As soon as we start the catalogue sync we get the rate limit"
 Three compounding causes, found by starting a sync and reading the log line by line.
 
