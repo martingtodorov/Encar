@@ -8,6 +8,7 @@ import { getCatalogueSync, putSyncSchedule, restartCatalogueSync, startCatalogue
          stopCatalogueSync } from "@/lib/api";
 import { Spinner, Stat, ago, num, stampSofia } from "@/components/admin/AdminBits";
 import { LightPass } from "@/components/admin/AdminLightPass";
+import { SyncCoverage } from "@/components/admin/AdminSyncCoverage";
 
 const ZONES = ["Europe/Sofia", "Europe/Bucharest", "Europe/London", "Asia/Seoul", "UTC"];
 const MAX_TIMES = 6;
@@ -212,6 +213,8 @@ export const AdminCatalogueSync = () => {
           </p>
         </div>
       ) : null}
+
+      <SyncCoverage crawl={job.crawl} />
 
       {job.error ? (
         <p data-testid="sync-error" className="rounded-[12px] border border-destructive/40 bg-destructive/5 p-3 text-[13px] text-destructive">

@@ -52,7 +52,41 @@ async def get_job(db):
     job["checkpoint"] = None if is_running() else await find_resumable(db)
     job["stalled_for_s"] = await stalled_for(db)
     job["stall_after_s"] = STALL_AFTER_S
+    job["crawl"] = await last_crawl(db)
     return job
+
+
+async def last_crawl(db, progress_key="catalogue_partition"):
+    """What the last CRAWL measured, for the coverage breakdown in the panel.
+
+    Read from the crawl's own document rather than from `catalogue_job.result`: a resumed
+    run whose crawl had already finished reports `result = {"crawl": "already complete"}`
+    and carries no numbers at all, so the panel had nothing to show in exactly the case
+    where somebody asks why 191k of 196k came out.
+    """
+    doc = await db.sync_state.find_one({"_id": progress_key}) or {}
+    scope = (doc.get("per_make") or {}).get("ALL")
+    if not scope:
+        return None
+    stats = doc.get("stats") or {}
+    return {
+        "run_id": doc.get("run_id"),
+        "finished_at": doc.get("finished_at"),
+        "duration_s": doc.get("duration_s"),
+        "upstream": scope.get("upstream"),
+        "excluded": scope.get("excluded_skipped"),
+        "reachable": scope.get("reachable"),
+        "indexed": scope.get("distinct_kept"),
+        "coverage": scope.get("coverage"),
+        "short_leaves": stats.get("short_leaves"),
+        "dropped_no_id": stats.get("dropped_no_id"),
+        "dropped_no_price": stats.get("dropped_no_price"),
+        "leaves": stats.get("leaves"),
+        "probes": stats.get("probes"),
+        "retired": doc.get("retired"),
+        "retire_skipped": doc.get("retire_skipped"),
+        "retire_skip_reason": doc.get("retire_skip_reason"),
+    }
 
 
 async def get_progress(db, job):
