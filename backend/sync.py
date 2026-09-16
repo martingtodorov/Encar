@@ -19,6 +19,7 @@ simply ask less often.
 """
 
 import asyncio
+import bisect
 import contextlib
 import logging
 import time
@@ -252,7 +253,7 @@ async def facet_requests(db, manufacturers=None, full=True):
     if manufacturers:
         q["manufacturer"] = {"$in": list(manufacturers)}
     cars = await db.listings.count_documents(q) or 0
-    return int(cars / PAGE + values + 4)
+    return int(cars / walk_page() + values + 4)
 
 
 async def beat(db, progress_key="catalogue_partition"):
@@ -434,6 +435,38 @@ async def run_full_sync(db, max_pages=None, page_size=PAGE):
 # ─────────────────────────────────────────────────────────────────────────────
 
 LEAF_MAX = 500          # a single request returns at most this many rows
+# How long a measured tree stays usable. Counts drift with the catalogue, so a tree older
+# than this is measured again from scratch rather than trusted. Read at runtime.
+PLAN_KEEP_H = 72
+
+
+def plan_keep_h():
+    try:
+        return float(os.environ.get("SYNC_PLAN_KEEP_H") or PLAN_KEEP_H)
+    except ValueError:
+        return PLAN_KEEP_H
+
+
+def leaf_max():
+    """How many rows ONE request may bring back.
+
+    500 is what Encar's list endpoint has always honoured; nobody ever checked whether it
+    honours more, and if it does every leaf page in the crawl costs half as many requests.
+    So it is a runtime knob (`ENCAR_LEAF_MAX`) — but only turn it up after
+    `python probe_page_size.py` on a host Encar actually answers confirms the bigger page
+    comes back WHOLE. A silently truncated page looks exactly like a short leaf and would
+    lose cars.
+    """
+    try:
+        n = int(os.environ.get("ENCAR_LEAF_MAX") or LEAF_MAX)
+    except ValueError:
+        return LEAF_MAX
+    return max(100, min(n, 2000))
+
+
+def walk_page():
+    """Page size for the facet walks. Same knob, same caveat."""
+    return leaf_max()
 DEFAULT_RECENCY = 10_000_000
 # 리스 (lease) and 렌트 (rental) cars are owned by a finance/rental company, not the
 # seller, so they cannot be exported. They are dropped at import time, never indexed.
@@ -517,6 +550,85 @@ def _fresh_dims():
     return [(n, DIM_BOUNDS[n][0], DIM_BOUNDS[n][1]) for n in DIM_ORDER]
 
 
+# ── where to cut ─────────────────────────────────────────────────────────────
+# Rounding grid for the split points below. A split point that wanders by one 만원 between
+# two syncs invents a brand-new query string, and the saved plan (keyed by query string)
+# would then miss every node underneath it. Rounded onto a coarse grid, the same points come
+# back sync after sync while the catalogue drifts.
+DIM_ROUND = {"Price": 10, "Year": 1, "Mileage": 1000}
+# Fewer local cars than this in a band and the local distribution says nothing useful.
+DIST_MIN_SAMPLE = 40
+DIST_MAX_VALUES = int(os.environ.get("SYNC_DIST_SAMPLE") or 80_000)
+
+
+async def build_split_dist(db, manufacturer=None):
+    """Where the cars actually sit, read from OUR OWN index. Zero upstream requests.
+
+    Sorted value lists per dimension, so `split_at` can cut a band in half by CARS instead
+    of by range. Down-sampled to `DIST_MAX_VALUES` per dimension — a median does not get
+    more accurate for having every single value.
+    """
+    q = {"active": True}
+    if manufacturer:
+        q["manufacturer"] = manufacturer
+    vals = {"Price": [], "Year": [], "Mileage": []}
+    try:
+        cur = db.listings.find(q, {"price_krw": 1, "year_month": 1, "mileage": 1})
+        async for d in cur:
+            p = int(d.get("price_krw") or 0)
+            if p:
+                vals["Price"].append(p // 10_000)          # Encar's facet is in 만원
+            y = int(d.get("year_month") or 0)
+            if y:
+                vals["Year"].append(y)
+            m = d.get("mileage")
+            if m is not None:
+                vals["Mileage"].append(int(m))
+    except Exception as e:                                 # noqa: BLE001
+        log.warning("split distribution unavailable (%s) — bisecting blind", str(e)[:120])
+        return None
+    for k, v in vals.items():
+        v.sort()
+        if len(v) > DIST_MAX_VALUES:
+            step = len(v) // DIST_MAX_VALUES + 1
+            vals[k] = v[::step]
+    if min(len(v) for v in vals.values()) < DIST_MIN_SAMPLE:
+        return None
+    log.info("split points from the local index%s: %s prices, %s years, %s odometers",
+             f" ({manufacturer})" if manufacturer else "",
+             len(vals["Price"]), len(vals["Year"]), len(vals["Mileage"]))
+    return vals
+
+
+def split_at(dist, name, lo, hi):
+    """The value that cuts the CARS in [lo, hi] in half, or None when we cannot tell.
+
+    Blind bisection halves the RANGE, not the cars: Price is bisected at 50,000 만원 while
+    almost the whole catalogue sits under 5,000, so probe after probe is spent discovering
+    that the upper half is empty, and the leaves that finally fit come back holding a few
+    dozen rows instead of ~500. Cutting at the local median makes each split close to 50/50,
+    which both shortens the tree and fills the leaves.
+
+    Our index is never exactly upstream's, and that is fine: every split is still verified
+    with a real count probe. A wrong guess costs pacing, never correctness.
+    """
+    if not dist:
+        return None
+    vals = dist.get(name) or []
+    i = bisect.bisect_left(vals, lo)
+    j = bisect.bisect_right(vals, hi)
+    if j - i < DIST_MIN_SAMPLE:
+        return None
+    med = int(vals[(i + j) // 2])
+    step = DIM_ROUND.get(name, 1)
+    mid = (med // step) * step if step > 1 else med
+    if mid <= lo or mid >= hi:
+        mid = med
+    if mid <= lo or mid >= hi:
+        return None
+    return mid
+
+
 async def _count(q):
     """Count a facet once per sweep.
 
@@ -556,24 +668,55 @@ async def _count_patient(q, tries=3):
     return None
 
 
-async def _crawl_node(base, dims, count, sink, st, ctx=None):
+async def _crawl_node(base, dims, count, sink, st, ctx=None, trusted=False):
     """Recursively bisect until the node fits in one request, then fetch it.
 
     `ctx` makes the walk resumable: `done` holds the slices already indexed in this run
     (skipped outright) and `plan` caches the bisection counts, so a resumed crawl does not
     re-probe upstream to rediscover the same tree.
+
+    `ctx["prior"]` is the tree the PREVIOUS sync measured. When a node's real count equals
+    what the previous sync measured for that same node, the shape underneath it is taken as
+    unchanged and its children's counts are read from the prior instead of being probed —
+    that is where ~600 of the requests go. `trusted` says we are inside such a subtree.
+    Correctness is not taken on faith: a trusted leaf that comes back with a FULL page when
+    the reused count said it would not is re-probed for the truth and split properly.
     """
     if count <= 0:
         return
     clauses = base + _dim_clauses(dims)
     key = _q(clauses)
+    prior = (ctx or {}).get("prior") or {}
+    lm = leaf_max()
 
-    if count <= LEAF_MAX:
+    if not trusted and prior and prior.get(key) == count:
+        trusted = True
+        st["trusted_nodes"] = st.get("trusted_nodes", 0) + 1
+    if ctx is not None and key not in ctx["plan"]:
+        # Record this node's own count as well as its children's: without the node itself
+        # in the tree, the next sync has nothing to compare against and has to start the
+        # walk with a probe (the root is the expensive one — it gates the whole subtree).
+        ctx["plan"][key] = count
+
+    if count <= lm:
         if ctx and key in ctx["done"]:
             st["skipped_leaves"] += 1
             return
-        data = await encar.search(offset=0, limit=LEAF_MAX, q=key)
+        data = await encar.search(offset=0, limit=lm, q=key)
         rows = (data or {}).get("SearchResults") or []
+        if trusted and count < lm <= len(rows):
+            # A reused count promised this slice fits in one page and upstream filled the
+            # page to the brim — the assumption is stale (cars added and removed in equal
+            # numbers higher up look like "unchanged"). Ask for the truth and split.
+            real = await _count(key)
+            st["probes"] += 1
+            st["trust_misses"] = st.get("trust_misses", 0) + 1
+            if real and real > count:
+                log.info("reused count was stale (%s -> %s) — splitting properly: %s",
+                         count, real, key[:90])
+                if ctx:
+                    ctx["plan"][key] = real
+                return await _crawl_node(base, dims, real, sink, st, ctx, trusted=False)
         st["leaves"] += 1
         st["rows"] += len(rows)
         st["expected"] += count
@@ -596,12 +739,36 @@ async def _crawl_node(base, dims, count, sink, st, ctx=None):
     for i, (name, lo, hi) in enumerate(dims):
         if hi <= lo:
             continue
-        mid = lo + (hi - lo) // 2
+        # Cut where the cars are (local median, rounded), not where the range happens to
+        # halve. A split point the LAST sync used wins, so the saved tree still matches
+        # after the median has drifted a little; otherwise ask the local index; otherwise
+        # blind bisection.
+        mid = None
+        want = (ctx or {}).get("prior_splits", {}).get(key)
+        if want:
+            wname, _, wmid = str(want).partition(":")
+            if wname == name and wmid.isdigit() and lo < int(wmid) < hi:
+                mid = int(wmid)
+                st["reused_splits"] = st.get("reused_splits", 0) + 1
+        if mid is None:
+            mid = split_at((ctx or {}).get("dist"), name, lo, hi)
+            if mid is None:
+                mid = lo + (hi - lo) // 2
+            else:
+                st["smart_splits"] = st.get("smart_splits", 0) + 1
+        if ctx is not None and ctx.get("splits") is not None:
+            ctx["splits"][key] = f"{name}:{mid}"
         left = dims[:i] + [(name, lo, mid)] + dims[i + 1:]
         right = dims[:i] + [(name, mid + 1, hi)] + dims[i + 1:]
 
         lkey = _q(base + _dim_clauses(left))
         lcount = ctx["plan"].get(lkey) if ctx else None
+        if lcount is None and trusted and lkey in prior:
+            # Inside an unchanged subtree: the previous sync already measured this node.
+            lcount = prior[lkey]
+            st["reused_probes"] = st.get("reused_probes", 0) + 1
+            if ctx:
+                ctx["plan"][lkey] = lcount
         if lcount is None:
             lcount = await _count(lkey)
             st["probes"] += 1
@@ -620,16 +787,18 @@ async def _crawl_node(base, dims, count, sink, st, ctx=None):
             if ctx:
                 ctx["plan"][lkey] = lcount
         rcount = max(count - lcount, 0)   # exact: siblings partition the parent
-        await _crawl_node(base, left, lcount, sink, st, ctx)
-        await _crawl_node(base, right, rcount, sink, st, ctx)
+        if ctx:
+            ctx["plan"][_q(base + _dim_clauses(right))] = rcount
+        await _crawl_node(base, left, lcount, sink, st, ctx, trusted)
+        await _crawl_node(base, right, rcount, sink, st, ctx, trusted)
         return
 
     # every dimension collapsed and still over a page: unsplittable bucket.
     # Page it and accept that the upstream window may not be perfectly stable.
     log.warning("unsplittable partition (%s rows): %s", count, _q(clauses))
     st["unsplittable"] += 1
-    for off in range(0, min(count, 20_000), LEAF_MAX):
-        data = await encar.search(offset=off, limit=LEAF_MAX, q=_q(clauses))
+    for off in range(0, min(count, 20_000), lm):
+        data = await encar.search(offset=off, limit=lm, q=_q(clauses))
         rows = (data or {}).get("SearchResults") or []
         if not rows:
             break
@@ -689,7 +858,9 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
     # bisection counts already probed. Dots are illegal in Mongo field names and every key
     # here is a query string full of them, so both go in as pair arrays.
     resume_id = f"{progress_key}_resume"
+    plan_id = f"{progress_key}_plan"
     plan, done = {}, set()
+    splits, prior_splits = {}, {}
     # Cars indexed by the interrupted process. `seen` is per-process, so without this the
     # progress bar would jump backwards on a resume.
     already = 0
@@ -698,12 +869,36 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
         if rdoc.get("run_id") == run_id:
             plan = {k: v for k, v in (rdoc.get("plan") or [])}
             done = set(rdoc.get("done") or [])
+            splits = {k: v for k, v in (rdoc.get("splits") or [])}
+            prior_splits = dict(splits)
             already = await db.listings.count_documents({"last_crawl": run_id})
             log.info("resuming crawl %s: %s slices already indexed (%s cars), %s counts "
                      "cached", run_id, len(done), already, len(plan))
         else:
             log.info("no resume state for run %s; crawling from the start", run_id)
     rstate = {"last": 0.0}
+
+    # The tree the PREVIOUS sync measured. Not used to skip probes blindly: a node whose
+    # real count still matches lets the walk read its children from here instead of asking
+    # Encar the same question a second day running, and a leaf that then comes back full is
+    # re-probed for the truth (see `_crawl_node`).
+    prior = {}
+    pdoc = await db.sync_state.find_one({"_id": plan_id}) or {}
+    saved = pdoc.get("saved_at")
+    if saved is not None and saved.tzinfo is None:
+        saved = saved.replace(tzinfo=timezone.utc)
+    if saved:
+        age_h = (datetime.now(timezone.utc) - saved).total_seconds() / 3600
+        if age_h <= plan_keep_h():
+            prior = {k: v for k, v in (pdoc.get("plan") or [])}
+            # The points it cut at, too: a tree only matches while the walk cuts in the
+            # same places, and the local median drifts as the catalogue turns over.
+            prior_splits.update({k: v for k, v in (pdoc.get("splits") or [])})
+            log.info("reusing the tree from the last sync: %s nodes, %.0fh old",
+                     len(prior), age_h)
+        else:
+            log.info("the saved tree is %.0fh old (>%sh) — measuring it again",
+                     age_h, plan_keep_h())
 
     # Live progress for the admin panel. Written at most every few seconds: a crawl does
     # thousands of batches and one write each would cost more than the crawl.
@@ -779,10 +974,12 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
             {"_id": resume_id},
             {"$set": {"run_id": run_id, "updated_at": datetime.now(timezone.utc),
                       "plan": [[k, v] for k, v in plan.items()],
+                      "splits": [[k, v] for k, v in splits.items()],
                       "done": sorted(done)}},
             upsert=True)
 
-    ctx = {"plan": plan, "done": done, "flush": flush_resume,
+    ctx = {"plan": plan, "done": done, "flush": flush_resume, "prior": prior, "dist": None,
+           "splits": splits, "prior_splits": prior_splits,
            # A heartbeat the bisection can call: progress is published on probes as well as
            # on written rows, so a long walk down the tree still looks alive.
            "beat": lambda: publish("crawl")}
@@ -797,12 +994,17 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
     # reports its real count; the gap is recomputed per request either way, so the estimate
     # only affects the shape of the pacing, not the total.
     seed = await db.listings.count_documents({"active": True}) or 0
-    expected_requests = max(seed // LEAF_MAX, 1) * SYNC_REQUEST_OVERHEAD
+    expected_requests = max(seed // leaf_max(), 1) * SYNC_REQUEST_OVERHEAD
     # The crawl gets the target MINUS the facet passes' share, so the whole sync — crawl and
     # tail together — lands on the two hours the owner asked for.
     sweep_cm = paced_sweep(expected_requests, target=crawl_budget())
     sweep = await sweep_cm.__aenter__()
     pace["sweep"] = sweep
+    if resume and plan:
+        # Counts this same run probed minutes ago, before it was interrupted. Without this
+        # a stall restart re-asks every one of them — and a run of requests right after a
+        # restart is exactly what earns the three-minute cooldown.
+        sweep.counts.update(plan)
     expected_seen = 0
 
     try:
@@ -832,8 +1034,12 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
             # crawl of 200k came out at ~1000 slices, two and a half times the leaf pages
             # the arithmetic predicts, and the pacer needs to know before it hands out the
             # early gaps rather than sprinting at the end.
-            expected_seen += max((total + LEAF_MAX - 1) // LEAF_MAX, 1) * SYNC_REQUEST_OVERHEAD
+            expected_seen += max((total + leaf_max() - 1) // leaf_max(), 1) * SYNC_REQUEST_OVERHEAD
             sweep.expect(expected_seen)
+            # Where to cut this partition, measured on our own index. One local read per
+            # partition, no upstream request, and it is what stops the walk from probing
+            # half-empty bands.
+            ctx["dist"] = await build_split_dist(db, mfr)
             await _crawl_node(base, _fresh_dims(), total, sink, st, ctx)
         finally:
             # Checkpoint whatever landed, including when the crawl is cancelled by a
@@ -867,6 +1073,19 @@ async def crawl_partitioned(db, manufacturers=None, run_id=None, retire=True,
 
     # The crawl finished, so there is nothing left to resume from.
     await db.sync_state.delete_one({"_id": resume_id})
+    # ...but the TREE it measured is worth keeping: the next sync reuses every node whose
+    # count has not changed instead of asking Encar the same question again.
+    if plan and len(plan) <= 40_000:
+        await db.sync_state.update_one(
+            {"_id": plan_id},
+            {"$set": {"plan": [[k, v] for k, v in plan.items()],
+                      "splits": [[k, v] for k, v in splits.items()],
+                      "saved_at": datetime.now(timezone.utc), "run_id": run_id,
+                      "nodes": len(plan), "leaf_max": leaf_max(),
+                      "scope": list(manufacturers) if manufacturers else "ALL"}},
+            upsert=True)
+        log.info("saved the measured tree: %s nodes (reused by the next sync, %sh)",
+                 len(plan), plan_keep_h())
 
     # Sanity gate before retire. If Encar hiccups (429s, DNS, a soft-blocked IP), the
     # count probe silently returns 0 and the crawl indexes nothing - but retire would
@@ -1035,11 +1254,12 @@ async def _collect_new_ids(q, db):
         return None
     if not total:
         return []
-    pages = max((total + PAGE - 1) // PAGE, 1)
+    pg = walk_page()
+    pages = max((total + pg - 1) // pg, 1)
     ids, quiet, walked = [], 0, 0
     for p in range(pages):
         try:
-            data = await encar.search(offset=p * PAGE, limit=PAGE, q=q)
+            data = await encar.search(offset=p * pg, limit=pg, q=q)
         except Exception as e:                       # noqa: BLE001
             log.warning("colour walk aborted at page %s of %s: %s", p + 1, pages, str(e)[:160])
             return None
@@ -1199,14 +1419,15 @@ async def _collect_ids(q, db=None):
         return None
     if not total:
         return ids                                   # a genuinely empty facet
-    pages = max((total + PAGE - 1) // PAGE, 1)
+    pg = walk_page()
+    pages = max((total + pg - 1) // pg, 1)
     # The facet passes page through Encar exactly like the main sweep does, and they run back
     # to back with it — same pacing, or the burst simply moves here. When a facet budget is
     # already open (the normal case) this JOINS it instead of starting a second one.
     async with paced_sweep(pages, target=facet_budget()):
         for p in range(pages):
             try:
-                data = await encar.search(offset=p * PAGE, limit=PAGE, q=q)
+                data = await encar.search(offset=p * pg, limit=pg, q=q)
             except Exception as e:                   # noqa: BLE001
                 log.warning("facet walk aborted at page %s of %s: %s", p + 1, pages,
                             str(e)[:160])

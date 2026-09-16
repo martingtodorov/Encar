@@ -29,6 +29,32 @@ for both so the 301 can be served over HTTPS. Optionally route `/robots.txt` to
 `/api/robots.txt` in nginx so it follows `PUBLIC_SITE_URL` automatically.
 
 ## Recently completed (2026-06 fork session) — full detail in CHANGELOG.md
+* **Request budget cut again, without changing what the crawl indexes** (this session):
+  1. **The measured tree is saved and reused** (`sync_state.catalogue_partition_plan`,
+     `SYNC_PLAN_KEEP_H=72`). A node whose real count still matches what the last sync
+     measured lets the walk read its children's counts from the saved tree instead of
+     probing Encar again — with split points saved alongside, so the tree still matches
+     after the local median has drifted. Safety net: a trusted leaf that comes back with a
+     FULL page is re-probed for the truth and split properly, so a count that matches while
+     the contents moved cannot lose cars. Measured on a simulated 30k catalogue with 2%
+     daily turnover: **90 count probes → 9**, total requests 175 → 98, zero cars lost.
+  2. **Split points come from our own index** (`build_split_dist` / `split_at`, quantiles,
+     no upstream request, rounded onto a coarse grid so a saved tree keeps matching).
+     Blind bisection halved the RANGE (Price 0..100 000 万원 cut at 50 000 while the
+     catalogue sits under 5 000); now each cut is close to 50/50. Modest on its own (~5%),
+     and it is what makes the saved tree reusable.
+  3. **Counts a run already probed survive its restart**: a resumed run seeds the sweep's
+     count cache from its own checkpoint (`spent == 0` on a resume, was every probe again).
+  4. **`ENCAR_LEAF_MAX`** — the page size is now a runtime knob (`leaf_max()`/`walk_page()`,
+     clamped 100..2000) used by the leaves AND the facet walks. NOT turned up by guesswork:
+     run `cd /app/backend && python probe_page_size.py` **on production**; it checks that a
+     bigger page comes back whole (right number of rows, no duplicates, contains the first
+     500) and prints the value to put in `.env`. If Encar honours 1000, every leaf request
+     halves (~-245 per sync).
+  * Tests: `tests/test_crawl_request_budget.py` (12) incl. the stale-count case that must
+    not lose cars; `test_facet_pacing`, `test_sync_retire_guard`, `test_colors`,
+    `test_gearbox_and_stop`, `test_sync_pacing`, `test_taxonomy_build`, `test_dedupe_twins`,
+    `test_incidents_and_stall` all green (83).
 * **Request budget cut to stop earning blocks**: colour facets now walk only the top of each
   facet and stop when the pages hold nothing new (~520 → ~90 requests), a full colour pass
   runs weekly, gearbox/colour run at most once a day, a block slows the rest of the sweep
